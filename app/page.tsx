@@ -1133,32 +1133,71 @@ function Login({ onLogin, vendors, adminKey }: any) {
   const [role, setRole] = useState("vendedor");
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
+
+  const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
+
   function handleSubmit(e: any) {
     e.preventDefault();
+
     if (role === "admin") {
-      if (key === adminKey) onLogin({ role: "admin", name: "Admin", id: "admin" });
-      else alert("Clave de administrador incorrecta.");
+      if (key === adminKey) {
+        onLogin({ role: "admin", name: "Admin", id: "admin" });
+      } else {
+        alert("Clave de administrador incorrecta.");
+      }
       return;
     }
+
     const v = vendors.find(
-      (v: any) => (v.name.toLowerCase() === name.trim().toLowerCase() || v.id === name.trim()) && v.key === key
+      (v: any) =>
+        (v.name.toLowerCase() === name.trim().toLowerCase() || v.id === name.trim()) &&
+        v.key === key
     );
+
     if (v) onLogin({ role: "vendedor", name: v.name, id: v.id });
     else alert("Vendedor o clave incorrecta.");
   }
+
   return (
     <div className="min-h-screen grid place-items-center p-6">
       <div className="max-w-md w-full space-y-5">
         <div className="text-center">
-          <h1 className="text-xl font-bold">Sistema de Facturación</h1>
-          <p className="text-slate-400 text-sm">{hasSupabase ? "By : Tobias Carrizo" : }</p>
+          <h1 className="text-xl font-bold">{APP_TITLE}</h1>
+          <p className="text-slate-400 text-sm">
+            {hasSupabase ? "Conectado a Supabase" : "Sin base de datos"}
+          </p>
         </div>
+
         <Card title="Ingreso">
           <form className="space-y-3" onSubmit={handleSubmit}>
-            <Select label="Rol" value={role} onChange={setRole} options={[{ value: "vendedor", label: "Vendedor" }, { value: "admin", label: "Admin" }]} />
-            {role === "vendedor" && <Input label="Vendedor (nombre o ID)" value={name} onChange={setName} placeholder="Ej: Tobi o v1" />}
-            <Input label="Clave" value={key} onChange={setKey} placeholder={role === "Ej : admin" ? "251695452" : "Clave asignada"} type="password" />
-            <div className="flex items-center justify-between">
+            <Select
+              label="Rol"
+              value={role}
+              onChange={setRole}
+              options={[
+                { value: "vendedor", label: "Vendedor" },
+                { value: "admin", label: "Admin" },
+              ]}
+            />
+
+            {role === "vendedor" && (
+              <Input
+                label="Vendedor (nombre o ID)"
+                value={name}
+                onChange={setName}
+                placeholder="Ej: Tobi o v1"
+              />
+            )}
+
+            <Input
+              label="Clave"
+              value={key}
+              onChange={setKey}
+              placeholder={role === "admin" ? "Clave de administrador" : "Clave asignada"}
+              type="password"
+            />
+
+            <div className="flex items-center justify-end">
               <Button type="submit">Entrar</Button>
             </div>
           </form>
@@ -1167,6 +1206,7 @@ function Login({ onLogin, vendors, adminKey }: any) {
     </div>
   );
 }
+
 
 /* ===== Página principal ===== */
 export default function Page() {
