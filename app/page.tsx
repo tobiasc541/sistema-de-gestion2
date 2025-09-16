@@ -741,21 +741,92 @@ function VendedoresTab({ state, setState }: any) {
 
 /* Reportes */
 function ReportesTab({ state, setState }: any) {
-  const invoices = state.invoices.filter((f: any) => f.type === "Factura");
+  // ====== Filtros de fecha ======
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
+  const thisMonthStr = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}`;
+
+  const [periodo, setPeriodo] = useState<"dia" | "mes" | "anio">("dia");
+  const [dia, setDia] = useState<string>(todayStr);
+  const [mes, setMes] = useState<string>(thisMonthStr);
+  const [anio, setAnio] = useState<string>(String(today.getFullYear()));
+
+  function rangoActual() {
+    let start = new Date(0);
+    let end = new Date();
+    if (periodo === "dia") {
+      const d = new Date(`${dia}T00:00:00`);
+      start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+      end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+    } else if (periodo === "mes") {
+      const [yStr, mStr] = mes.split("-");
+      const y = parseInt(yStr || String(today.getFullYear()), 10);
+      const m = (parseInt(mStr || String(today.getMonth() + 1), 10) - 1) as number; // 0-based
+      start = new Date(y, m, 1, 0, 0, 0, 0);
+      end = new Date(y, m + 1, 0, 23, 59, 59, 999); // último día del mes
+    } else {
+      const y = parseInt(anio || String(today.getFullYear()), 10);
+      start = new Date(y, 0, 1, 0, 0, 0, 0);
+      end = new Date(y, 11, 31, 23, 59, 59, 999);
+    }
+    return { start: start.getTime(), end: end.getTime() };
+  }
+
+  const { start, end } = rangoActual();
+
+  // Documentos dentro del rango (facturas y recibos)
+  const docsEnRango = state.invoices.filter((f: any) => {
+    const t = new Date(f.date_iso).getTime();
+    return t >= start && t <= end;
+  });
+
+  // Para métricas de ventas usamos sólo Facturas
+  const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
+
   const totalVentas = invoices.reduce((s: number, f: any) => s + f.total, 0);
   const totalEfectivo = invoices.reduce((s: number, f: any) => s + (f.payments?.cash || 0), 0);
   const totalTransf = invoices.reduce((s: number, f: any) => s + (f.payments?.transfer || 0), 0);
   const ganancia = invoices.reduce((s: number, f: any) => s + (f.total - (f.cost || 0)), 0);
-  const porVendedor = Object.values(groupBy(invoices, "vendor_name"))
-    .map((list: any) => ({ vendedor: (list as any)[0].vendor_name, total: (list as any).reduce((s: number, f: any) => s + f.total, 0) }))
+
+  const porVendedor = Object.values(
+    invoices.reduce((acc: any, f: any) => {
+      const k = f.vendor_name || "Sin vendedor";
+      acc[k] = acc[k] || { vendedor: k, total: 0 };
+      acc[k].total += f.total;
+      return acc;
+    }, {})
+  )
+    .map((x: any) => x)
     .sort((a: any, b: any) => b.total - a.total);
+
   const porSeccion = (() => {
     const m: any = {};
-    invoices.forEach((f: any) => f.items.forEach((it: any) => (m[it.section] = (m[it.section] || 0) + parseNum(it.qty) * parseNum(it.unitPrice))));
+    invoices.forEach((f: any) =>
+      f.items.forEach(
+        (it: any) => (m[it.section] = (m[it.section] || 0) + parseNum(it.qty) * parseNum(it.unitPrice))
+      )
+    );
     return Object.entries(m)
       .map(([section, total]) => ({ section, total }))
       .sort((a: any, b: any) => (b as any).total - (a as any).total);
   })();
+
+  // ====== NUEVO: Transferencias agrupadas por alias (usa todas las operaciones del rango) ======
+  const porAlias = (() => {
+    const m: any = {};
+    docsEnRango.forEach((f: any) => {
+      const tr = parseNum(f?.payments?.transfer || 0);
+      if (tr > 0) {
+        const alias = String((f?.payments?.alias || "Sin alias")).trim() || "Sin alias";
+        m[alias] = (m[alias] || 0) + tr;
+      }
+    });
+    return Object.entries(m)
+      .map(([alias, total]) => ({ alias, total }))
+      .sort((a: any, b: any) => (b as any).total - (a as any).total);
+  })();
+
   function borrarFactura(id: string) {
     // eslint-disable-next-line no-restricted-globals
     if (!confirm("¿Eliminar factura?")) return;
@@ -764,8 +835,35 @@ function ReportesTab({ state, setState }: any) {
     setState(st);
     if (hasSupabase) supabase.from("invoices").delete().eq("id", id);
   }
+
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
+      {/* Filtros de fecha */}
+      <Card title="Filtros">
+        <div className="grid md:grid-cols-4 gap-3">
+          <Select
+            label="Período"
+            value={periodo}
+            onChange={setPeriodo}
+            options={[
+              { value: "dia", label: "Día" },
+              { value: "mes", label: "Mes" },
+              { value: "anio", label: "Año" },
+            ]}
+          />
+          {periodo === "dia" && (
+            <Input label="Día" type="date" value={dia} onChange={setDia} />
+          )}
+          {periodo === "mes" && (
+            <Input label="Mes" type="month" value={mes} onChange={setMes} />
+          )}
+          {periodo === "anio" && (
+            <Input label="Año" type="number" value={anio} onChange={setAnio} />
+          )}
+        </div>
+      </Card>
+
+      {/* KPIs */}
       <div className="grid md:grid-cols-4 gap-3">
         <Card title="Ventas totales">
           <div className="text-2xl font-bold">{money(totalVentas)}</div>
@@ -781,6 +879,8 @@ function ReportesTab({ state, setState }: any) {
           <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
         </Card>
       </div>
+
+      {/* Por vendedor */}
       <Card title="Por vendedor">
         <div className="grid md:grid-cols-3 gap-3">
           {porVendedor.map((v: any) => (
@@ -789,8 +889,11 @@ function ReportesTab({ state, setState }: any) {
               <div className="text-sm">{money(v.total as number)}</div>
             </div>
           ))}
+          {porVendedor.length === 0 && <div className="text-sm text-slate-400">Sin datos en el período.</div>}
         </div>
       </Card>
+
+      {/* Por sección */}
       <Card title="Por sección">
         <div className="grid md:grid-cols-3 gap-3">
           {porSeccion.map((s: any) => (
@@ -799,8 +902,27 @@ function ReportesTab({ state, setState }: any) {
               <div className="text-sm">{money(s.total as number)}</div>
             </div>
           ))}
+          {porSeccion.length === 0 && <div className="text-sm text-slate-400">Sin datos en el período.</div>}
         </div>
       </Card>
+
+      {/* NUEVO: Transferencias por alias */}
+      <Card title="Transferencias por alias">
+        {porAlias.length === 0 ? (
+          <div className="text-sm text-slate-400">Sin transferencias en el período.</div>
+        ) : (
+          <div className="grid md:grid-cols-3 gap-3">
+            {porAlias.map((a: any) => (
+              <div key={a.alias} className="rounded-xl border border-slate-800 p-3 flex items-center justify-between">
+                <div className="text-sm font-medium truncate max-w-[60%]">{a.alias}</div>
+                <div className="text-sm">{money(a.total as number)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Listado de facturas (sólo Factura, en el período) */}
       <Card title="Listado de facturas">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -816,7 +938,7 @@ function ReportesTab({ state, setState }: any) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {state.invoices
+              {invoices
                 .slice()
                 .reverse()
                 .map((f: any) => (
@@ -834,6 +956,11 @@ function ReportesTab({ state, setState }: any) {
                     </td>
                   </tr>
                 ))}
+              {invoices.length === 0 && (
+                <tr>
+                  <td className="py-4 pr-4 text-slate-400" colSpan={7}>Sin facturas en el período.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -841,6 +968,7 @@ function ReportesTab({ state, setState }: any) {
     </div>
   );
 }
+
 
 /* Presupuestos */
 function PresupuestosTab({ state, setState, session }: any) {
