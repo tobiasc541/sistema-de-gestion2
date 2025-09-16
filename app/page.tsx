@@ -303,10 +303,10 @@ function FacturacionTab({ state, setState, session }: any) {
       await saveCountersSupabase(st.meta);
     }
 
-window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
-await nextPaint();        // <- espera dos frames para que la plantilla se pinte
-window.print();
-
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+    await nextPaint();
+    window.print();
+  }
 
   const total = calcInvoiceTotal(items);
   const paid = parseNum(payCash) + parseNum(payTransf);
@@ -657,11 +657,9 @@ function DeudoresTab({ state, setState }: any) {
       await saveCountersSupabase(st.meta);
     }
 
-    setTimeout(() => {
-      const evt = new CustomEvent("print-invoice", { detail: invoice } as any);
-      window.dispatchEvent(evt);
-      window.print();
-    }, 50);
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+    await nextPaint();
+    window.print();
   }
 
   return (
@@ -916,11 +914,9 @@ function PresupuestosTab({ state, setState, session }: any) {
       await supabase.from("budgets").update({ status: "Convertido" }).eq("id", b.id);
       await saveCountersSupabase(st.meta);
     }
-    setTimeout(() => {
-      const evt = new CustomEvent("print-invoice", { detail: invoice } as any);
-      window.dispatchEvent(evt);
-      window.print();
-    }, 50);
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+    await nextPaint();
+    window.print();
   }
   const total = calcInvoiceTotal(items);
   return (
@@ -1044,18 +1040,146 @@ function PresupuestosTab({ state, setState, session }: any) {
   );
 }
 
+/* ===== helpers para impresión (si no los tenés ya arriba) ===== */
+const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
+const nextPaint = () =>
+  new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res())));
 
+/* ===== Área de impresión ===== */
+function PrintArea() {
+  const [inv, setInv] = useState<any | null>(null);
 
+  useEffect(() => {
+    const handler = (e: any) => setInv(e.detail);
+    window.addEventListener("print-invoice", handler);
+    return () => window.removeEventListener("print-invoice", handler);
+  }, []);
 
+  if (!inv) return null;
 
+  const paidCash = parseNum(inv?.payments?.cash || 0);
+  const paidTransf = parseNum(inv?.payments?.transfer || 0);
+  const paid = paidCash + paidTransf;
+  const balance = Math.max(0, parseNum(inv.total) - paid);
+  const fullyPaid = balance <= 0.009;
+
+  return (
+    /* Se oculta en pantalla y se ve sólo al imprimir por globals.css:
+       @media screen {.only-print{display:none}} + @media print {.print-area{display:block!important}} */
+    <div className="only-print print-area p-14">
+      <div className="max-w-[780px] mx-auto text-black">
+        {/* Encabezado como en la foto */}
+        <div className="flex items-start justify-between">
+          <div>
+            <div style={{ fontWeight: 800, letterSpacing: 1 }}>FACTURA</div>
+            <div style={{ marginTop: 2 }}>MITOBICEL</div>
+          </div>
+          {/* Aquí podés poner tu logo si querés */}
+          {/* <img src="/logo.png" alt="logo" style={{ height: 36 }} /> */}
+        </div>
+
+        {/* Línea separadora */}
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 6px" }} />
+
+        {/* Cliente / Datos de factura (sin vencimiento ni descuento) */}
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div>
+            <div style={{ fontWeight: 700 }}>Cliente</div>
+            <div>{inv.client_name}</div>
+          </div>
+          <div className="text-right">
+            <div>
+              <b>Factura Nº:</b> {pad(inv.number)}
+            </div>
+            <div>
+              <b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}
+            </div>
+            <div>
+              <b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}
+            </div>
+          </div>
+        </div>
+
+        {/* Tabla de detalle (sin Impuesto ni Descuento) */}
+        <table className="print-table text-sm" style={{ marginTop: 10 }}>
+          <thead>
+            <tr>
+              <th style={{ width: "6%" }}>#</th>
+              <th>Descripción de artículo</th>
+              <th style={{ width: "12%" }}>Cantidad</th>
+              <th style={{ width: "18%" }}>Precio</th>
+              <th style={{ width: "18%" }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inv.items.map((it: any, i: number) => (
+              <tr key={i}>
+                <td style={{ textAlign: "right" }}>{i + 1}</td>
+                <td>{it.name}</td>
+                <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
+                <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
+                <td style={{ textAlign: "right" }}>{money(parseNum(it.qty) * parseNum(it.unitPrice))}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>
+                Total
+              </td>
+              <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        {/* Desglose de pago a la derecha como en la foto */}
+        <div className="grid grid-cols-2 gap-2 text-sm" style={{ marginTop: 8 }}>
+          <div />
+          <div>
+            <div>
+              <b>Método de pago:</b>
+            </div>
+            <div>CONTADO: {money(paidCash)}</div>
+            <div>TRANSFERENCIA: {money(paidTransf)}</div>
+            {inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
+            <div style={{ marginTop: 6 }}>
+              <b>Cantidad pagada:</b> {money(paid)}
+            </div>
+            <div>
+              <b>Cantidad adeudada:</b> {money(balance)}
+            </div>
+          </div>
+        </div>
+
+        {/* Marca de agua PAGADO opcional */}
+        {fullyPaid && (
+          <div
+            style={{
+              position: "fixed",
+              top: "55%",
+              left: "50%",
+              transform: "translate(-50%, -50%) rotate(-20deg)",
+              fontSize: 64,
+              fontWeight: 900,
+              letterSpacing: 4,
+              opacity: 0.08,
+            }}
+          >
+            PAGADO
+          </div>
+        )}
+
+        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+      </div>
+    </div>
+  );
+}
 
 /* ===== Login ===== */
 function Login({ onLogin, vendors, adminKey }: any) {
   const [role, setRole] = useState("vendedor");
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
-
-  const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 
   function handleSubmit(e: any) {
     e.preventDefault();
@@ -1070,9 +1194,7 @@ function Login({ onLogin, vendors, adminKey }: any) {
     }
 
     const v = vendors.find(
-      (v: any) =>
-        (v.name.toLowerCase() === name.trim().toLowerCase() || v.id === name.trim()) &&
-        v.key === key
+      (v: any) => (v.name.toLowerCase() === name.trim().toLowerCase() || v.id === name.trim()) && v.key === key
     );
 
     if (v) onLogin({ role: "vendedor", name: v.name, id: v.id });
@@ -1084,9 +1206,7 @@ function Login({ onLogin, vendors, adminKey }: any) {
       <div className="max-w-md w-full space-y-5">
         <div className="text-center">
           <h1 className="text-xl font-bold">{APP_TITLE}</h1>
-          <p className="text-slate-400 text-sm">
-            {hasSupabase ? "Conectado a Supabase" : "Sin base de datos"}
-          </p>
+          <p className="text-slate-400 text-sm">{hasSupabase ? "Conectado a Supabase" : "Sin base de datos"}</p>
         </div>
 
         <Card title="Ingreso">
@@ -1102,12 +1222,7 @@ function Login({ onLogin, vendors, adminKey }: any) {
             />
 
             {role === "vendedor" && (
-              <Input
-                label="Vendedor (nombre o ID)"
-                value={name}
-                onChange={setName}
-                placeholder="Ej: Tobi o v1"
-              />
+              <Input label="Vendedor (nombre o ID)" value={name} onChange={setName} placeholder="Ej: Tobi o v1" />
             )}
 
             <Input
@@ -1127,7 +1242,6 @@ function Login({ onLogin, vendors, adminKey }: any) {
     </div>
   );
 }
-
 
 /* ===== Página principal ===== */
 export default function Page() {
@@ -1152,151 +1266,36 @@ export default function Page() {
   }
 
   return (
-  <>
-    {/* Toda la app: NO se imprime (clase no-print) */}
-    <div className="min-h-screen bg-slate-950 text-slate-100 no-print">
-      <style>{`::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:#0b1220}::-webkit-scrollbar-thumb{background:#22304a;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#2f436a}`}</style>
+    <>
+      {/* Toda la app: NO se imprime (clase no-print) */}
+      <div className="min-h-screen bg-slate-950 text-slate-100 no-print">
+        <style>{`::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:#0b1220}::-webkit-scrollbar-thumb{background:#22304a;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#2f436a}`}</style>
 
-      {!session ? (
-        <Login onLogin={onLogin} vendors={state.vendors} adminKey={state.auth.adminKey} />
-      ) : (
-        <>
-          <Navbar current={tab} setCurrent={setTab} role={session.role} onLogout={onLogout} />
-          {tab === "Facturación" && <FacturacionTab state={state} setState={setState} session={session} />}
-          {tab === "Clientes" && <ClientesTab state={state} setState={setState} />}
-          {tab === "Productos" && <ProductosTab state={state} setState={setState} role={session.role} />}
-          {tab === "Deudores" && <DeudoresTab state={state} setState={setState} />}
-          {session.role === "admin" && tab === "Vendedores" && <VendedoresTab state={state} setState={setState} />}
-          {session.role === "admin" && tab === "Reportes" && <ReportesTab state={state} setState={setState} />}
-          {tab === "Presupuestos" && session.role === "admin" && (
-            <PresupuestosTab state={state} setState={setState} session={session} />
-          )}
-          {tab === "Presupuestos" && session.role !== "admin" && (
-            <div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">
-              Los presupuestos se gestionan por Admin.
+        {!session ? (
+          <Login onLogin={onLogin} vendors={state.vendors} adminKey={state.auth.adminKey} />
+        ) : (
+          <>
+            <Navbar current={tab} setCurrent={setTab} role={session.role} onLogout={onLogout} />
+            {tab === "Facturación" && <FacturacionTab state={state} setState={setState} session={session} />}
+            {tab === "Clientes" && <ClientesTab state={state} setState={setState} />}
+            {tab === "Productos" && <ProductosTab state={state} setState={setState} role={session.role} />}
+            {tab === "Deudores" && <DeudoresTab state={state} setState={setState} />}
+            {session.role === "admin" && tab === "Vendedores" && <VendedoresTab state={state} setState={setState} />}
+            {session.role === "admin" && tab === "Reportes" && <ReportesTab state={state} setState={setState} />}
+            {tab === "Presupuestos" && session.role === "admin" && <PresupuestosTab state={state} setState={setState} session={session} />}
+            {tab === "Presupuestos" && session.role !== "admin" && (
+              <div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">Los presupuestos se gestionan por Admin.</div>
+            )}
+
+            <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
+              {hasSupabase ? "Supabase activo" : "Datos en navegador"}
             </div>
-          )}
+          </>
+        )}
+      </div>
 
-          <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
-            {hasSupabase ? "Supabase activo" : "Datos en navegador"}
-          </div>
-        </>
-      )}
-    </div>
-
-    {/* Plantilla que SÍ se imprime */}
-   /* ===== helpers para impresión (si no los tenés ya arriba) ===== */
-const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
-const nextPaint = () =>
-  new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res())));
-
-/* ===== Área de impresión ===== */
-function PrintArea() {
-  const [inv, setInv] = useState<any | null>(null);
-
-  useEffect(() => {
-    const handler = (e: any) => setInv(e.detail);
-    window.addEventListener("print-invoice", handler);
-    return () => window.removeEventListener("print-invoice", handler);
-  }, []);
-
-  if (!inv) return null;
-
-  const paidCash   = parseNum(inv?.payments?.cash || 0);
-  const paidTransf = parseNum(inv?.payments?.transfer || 0);
-  const paid       = paidCash + paidTransf;
-  const balance    = Math.max(0, parseNum(inv.total) - paid);
-  const fullyPaid  = balance <= 0.009;
-
-  return (
-    /* Se oculta en pantalla y se ve sólo al imprimir por globals.css:
-       @media screen {.only-print{display:none}} + @media print {.print-area{display:block!important}} */
-    <div className="only-print print-area p-14">
-      <div className="max-w-[780px] mx-auto">
-
-        {/* Encabezado como en la foto */}
-        <div className="flex items-start justify-between">
-          <div>
-            <div style={{ fontWeight: 800, letterSpacing: 1 }}>FACTURA</div>
-            <div style={{ marginTop: 2 }}>MITOBICEL</div>
-          </div>
-          {/* Aquí podés poner tu logo si querés */}
-          {/* <img src="/logo.png" alt="logo" style={{ height: 36 }} /> */}
-        </div>
-
-        {/* Línea separadora */}
-        <div style={{ borderTop: "1px solid #000", margin: "10px 0 6px" }} />
-
-        {/* Cliente / Datos de factura (sin vencimiento ni descuento) */}
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div>
-            <div style={{ fontWeight: 700 }}>Cliente</div>
-            <div>{inv.client_name}</div>
-          </div>
-          <div className="text-right">
-            <div><b>Factura Nº:</b> {pad(inv.number)}</div>
-            <div><b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}</div>
-            <div><b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}</div>
-          </div>
-        </div>
-
-        {/* Tabla de detalle (sin Impuesto ni Descuento) */}
-        <table className="print-table text-sm" style={{ marginTop: 10 }}>
-          <thead>
-            <tr>
-              <th style={{ width: "6%" }}>#</th>
-              <th>Descripción de artículo</th>
-              <th style={{ width: "12%" }}>Cantidad</th>
-              <th style={{ width: "18%" }}>Precio</th>
-              <th style={{ width: "18%" }}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inv.items.map((it: any, i: number) => (
-              <tr key={i}>
-                <td style={{ textAlign: "right" }}>{i + 1}</td>
-                <td>{it.name}</td>
-                <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
-                <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
-                <td style={{ textAlign: "right" }}>
-                  {money(parseNum(it.qty) * parseNum(it.unitPrice))}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>Total</td>
-              <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
-            </tr>
-          </tfoot>
-        </table>
-
-        {/* Desglose de pago a la derecha como en la foto */}
-        <div className="grid grid-cols-2 gap-2 text-sm" style={{ marginTop: 8 }}>
-          <div />
-          <div>
-            <div><b>Método de pago:</b></div>
-            <div>CONTADO: {money(paidCash)}</div>
-            <div>TRANSFERENCIA: {money(paidTransf)}</div>
-            {inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
-            <div style={{ marginTop: 6 }}><b>Cantidad pagada:</b> {money(paid)}</div>
-            <div><b>Cantidad adeudada:</b> {money(balance)}</div>
-          </div>
-        </div>
-
-        {/* Marca de agua PAGADO opcional */}
-        {fullyPaid && (
-          <div
-            style={{
-              position: "fixed",
-              top: "55%",
-              left: "50%",
-              transform: "translate(-50%, -50%) rotate(-20deg)",
-              fontSize: 64,
-              fontWeight: 900,
-              letterSpacing: 4,
-              opacity: 0.08,
-            }}
-  </>
-);
+      {/* Plantilla que SÍ se imprime */}
+      <PrintArea />
+    </>
+  );
+}
