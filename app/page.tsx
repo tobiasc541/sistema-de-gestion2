@@ -1,0 +1,899 @@
+"use client";
+import React, { useEffect, useMemo, useState } from "react";
+import "./globals.css";
+import { supabase, hasSupabase } from "../lib/supabaseClient";
+
+/* ===== helpers ===== */
+const KEY = "sf_preview_state_v1";
+const pad = (n: number, width = 8) => String(n).padStart(width, "0");
+const money = (n: number) =>
+  new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(
+    isNaN(n as any) ? 0 : n || 0
+  );
+const parseNum = (v: any) => {
+  const x = typeof v === "number" ? v : parseFloat(String(v ?? "0").replace(",", "."));
+  return isNaN(x) ? 0 : x;
+};
+const todayISO = () => new Date().toISOString();
+const clone = (obj: any) => JSON.parse(JSON.stringify(obj));
+
+function seedState() {
+  return {
+    meta: { invoiceCounter: 1, budgetCounter: 1, lastSavedInvoiceId: null as null | string },
+    auth: { adminKey: "46892389" },
+    vendors: [
+      { id: "v1", name: "Tobi", key: "1234" },
+      { id: "v2", name: "Ale", key: "2222" },
+    ],
+    clients: [
+      { id: "c1", number: 1001, name: "Cliente MITOBICEL", debt: 0 },
+      { id: "c2", number: 1002, name: "Verdulería San Martín", debt: 25000 },
+      { id: "c3", number: 1003, name: "Carnicería El Toro", debt: 0 },
+    ],
+    products: [
+      { id: "p1", name: "Bolsas Camiseta 40x50 Reforzadas", section: "Almacén", list_label: "MITOBICEL", price1: 10600, price2: 10200, cost: 8500 },
+      { id: "p2", name: "Bolsas Consorcio 80x110 x10u", section: "Almacén", list_label: "ELSHOPPINGDLC", price1: 13500, price2: 12800, cost: 11100 },
+      { id: "p3", name: "Coca-Cola 1.5L", section: "Bebidas", list_label: "MITOBICEL", price1: 2500, price2: 2300, cost: 1800 },
+      { id: "p4", name: "Smirnoff 750ml", section: "Bebidas", list_label: "ELSHOPPINGDLC", price1: 9500, price2: 9100, cost: 7700 },
+      { id: "p5", name: "Lavandina 5L", section: "Limpieza", list_label: "MITOBICEL", price1: 6000, price2: 5700, cost: 4800 },
+      { id: "p6", name: "BOLSAS CAMISETAS", section: "Limpieza", list_label: "ELSHOPPINGDLC", price1: 1500, price2: 2000, cost: 900 },
+    ],
+    invoices: [] as any[],
+    budgets: [] as any[],
+  };
+}
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) {
+      const s = seedState();
+      localStorage.setItem(KEY, JSON.stringify(s));
+      return s;
+    }
+    return JSON.parse(raw);
+  } catch {
+    const s = seedState();
+    localStorage.setItem(KEY, JSON.stringify(s));
+    return s;
+  }
+}
+function saveLocal(state: any) {
+  localStorage.setItem(KEY, JSON.stringify(state));
+}
+
+async function loadFromSupabase(fallback: any) {
+  if (!hasSupabase) return fallback;
+  const out = clone(fallback);
+  // meta
+  const { data: meta } = await supabase.from("meta").select("*").eq("key", "counters").maybeSingle();
+  if (meta?.value) out.meta = { ...out.meta, ...meta.value };
+  // vendors
+  const { data: vendors } = await supabase.from("vendors").select("*");
+  if (vendors && vendors.length) out.vendors = vendors;
+  // clients
+  const { data: clients } = await supabase.from("clients").select("*");
+  if (clients && clients.length) out.clients = clients;
+  // products
+  const { data: products } = await supabase.from("products").select("*");
+  if (products && products.length) out.products = products;
+  // invoices
+  const { data: invoices } = await supabase.from("invoices").select("*").order("number");
+  if (invoices) out.invoices = invoices;
+  // budgets
+  const { data: budgets } = await supabase.from("budgets").select("*").order("number");
+  if (budgets) out.budgets = budgets;
+
+  // seed inicial si tablas vacías
+  if (!vendors?.length && !clients?.length && !products?.length) {
+    const s = seedState();
+    await supabase.from("vendors").insert(s.vendors);
+    await supabase.from("clients").insert(s.clients);
+    await supabase.from("products").insert(
+      s.products.map((p:any)=> ({...p, list_label: p.list_label ?? p.listLabel, listLabel: undefined}))
+    );
+    await supabase.from("meta").upsert({ key: "counters", value: { invoiceCounter: 1, budgetCounter: 1 } });
+    return await loadFromSupabase(fallback);
+  }
+  return out;
+}
+
+async function saveCountersSupabase(meta: any) {
+  if (!hasSupabase) return;
+  await supabase.from("meta").upsert({ key: "counters", value: { invoiceCounter: meta.invoiceCounter, budgetCounter: meta.budgetCounter }});
+}
+
+/* ===== UI atoms ===== */
+function Card({ title, actions, className = "", children }: any) {
+  return (
+    <div className={"rounded-2xl border border-slate-800 bg-slate-900/60 p-4 " + className}>
+      {(title || actions) && (
+        <div className="flex items-center justify-between mb-3">
+          {title && <h3 className="text-sm font-semibold text-slate-200">{title}</h3>}
+          {actions}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+function Button({ children, onClick, type = "button", tone = "emerald", className = "", disabled }: any) {
+  const map: any = {
+    emerald: "bg-emerald-600 hover:bg-emerald-500 border-emerald-700/50",
+    slate: "bg-slate-700 hover:bg-slate-600 border-slate-700",
+    red: "bg-red-600 hover:bg-red-500 border-red-700/50",
+  };
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold shadow-sm border disabled:opacity-60 ${map[tone]} ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+function Input({ label, value, onChange, placeholder = "", type = "text", className = "", disabled }: any) {
+  return (
+    <label className="block w-full">
+      {label && <div className="text-xs text-slate-300 mb-1">{label}</div>}
+      <input
+        value={value}
+        type={type}
+        onChange={(e) => onChange && onChange((e.target as HTMLInputElement).value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        className={`w-full rounded-xl bg-slate-900/60 border border-slate-700 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-60 ${className}`}
+      />
+    </label>
+  );
+}
+const NumberInput = (props: any) => <Input {...props} type="text" />;
+function Select({ label, value, onChange, options, className = "" }: any) {
+  return (
+    <label className="block w-full">
+      {label && <div className="text-xs text-slate-300 mb-1">{label}</div>}
+      <select
+        value={value}
+        onChange={(e) => onChange && onChange((e.target as HTMLSelectElement).value)}
+        className={`w-full rounded-xl bg-slate-900/60 border border-slate-700 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50 ${className}`}
+      >
+        {options.map((o: any) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+const Chip = ({ children, tone = "slate" }: any) => (
+  <span
+    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+      tone === "emerald" ? "bg-emerald-800/40 text-emerald-200 border-emerald-700/40" : "bg-slate-800/60 text-slate-200 border-slate-700/50"
+    } border`}
+  >
+    {children}
+  </span>
+);
+
+/* ===== helpers ===== */
+function ensureUniqueNumber(clients: any[]) {
+  const max = clients.reduce((m, c) => Math.max(m, c.number || 0), 1000);
+  return max + 1;
+}
+function calcInvoiceTotal(items: any[]) {
+  return items.reduce((s, it) => s + parseNum(it.qty) * parseNum(it.unitPrice), 0);
+}
+function calcInvoiceCost(items: any[]) {
+  return items.reduce((s, it) => s + parseNum(it.qty) * parseNum(it.cost || 0), 0);
+}
+function groupBy(arr: any[], key: string) {
+  return arr.reduce((acc: any, it: any) => {
+    const k = it[key] || "Otros";
+    (acc[k] = acc[k] || []).push(it);
+    return acc;
+  }, {} as any);
+}
+
+/* ===== UI Sections ===== */
+function Navbar({ current, setCurrent, role, onLogout }: any) {
+  const TABS = ["Facturación", "Clientes", "Productos", "Deudores", "Vendedores", "Reportes", "Presupuestos"];
+  const visibleTabs = role === "admin" ? TABS : ["Facturación", "Clientes", "Productos", "Deudores"];
+  return (
+    <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
+      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+        <div className="text-sm font-bold tracking-wide">💼 Facturación — {hasSupabase ? "Supabase" : "Local"}</div>
+        <nav className="flex-1 flex gap-1 flex-wrap">
+          {visibleTabs.map((t) => (
+            <button
+              key={t}
+              onClick={() => setCurrent(t)}
+              className={`px-3 py-1.5 rounded-xl text-sm border ${
+                current === t ? "bg-emerald-600 border-emerald-700" : "bg-slate-900/60 border-slate-800 hover:bg-slate-800"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </nav>
+        <button onClick={onLogout} className="ml-auto text-xs text-slate-400 hover:text-slate-200">
+          Salir
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FacturacionTab({ state, setState, session }: any) {
+  const [clientId, setClientId] = useState(state.clients[0]?.id || "");
+  const [vendorId, setVendorId] = useState(session.role === "admin" ? state.vendors[0]?.id : session.id);
+  const [priceList, setPriceList] = useState("1");
+  const [sectionFilter, setSectionFilter] = useState("Todas");
+  const [listFilter, setListFilter] = useState("Todas");
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<any[]>([]);
+  const [payCash, setPayCash] = useState("");
+  const [payTransf, setPayTransf] = useState("");
+  const [alias, setAlias] = useState("");
+
+  const client = state.clients.find((c: any) => c.id === clientId);
+  const vendor = state.vendors.find((v: any) => v.id === vendorId);
+
+  const sections = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "Otros")))] as string[];
+  const lists = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.list_label || "General")))] as string[];
+
+  const filteredProducts = state.products.filter((p: any) => {
+    const okS = sectionFilter === "Todas" || p.section === sectionFilter;
+    const okL = listFilter === "Todas" || p.list_label === listFilter;
+    const okQ = !query || p.name.toLowerCase().includes(query.toLowerCase());
+    return okS && okL && okQ;
+  });
+
+  function addItem(p: any) {
+    const existing = items.find((it: any) => it.productId === p.id);
+    const unit = priceList === "1" ? p.price1 : p.price2;
+    if (existing) setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it)));
+    else setItems([...items, { productId: p.id, name: p.name, section: p.section, qty: 1, unitPrice: unit, cost: p.cost }]);
+  }
+
+  async function saveAndPrint() {
+    if (!client || !vendor) {
+      alert("Seleccioná cliente y vendedor.");
+      return;
+    }
+    if (items.length === 0) {
+      alert("Agregá productos al carrito.");
+      return;
+    }
+    const total = calcInvoiceTotal(items);
+    const cash = parseNum(payCash);
+    const transf = parseNum(payTransf);
+    if (cash + transf > total) {
+      if (!confirm("El pago supera el total. ¿Continuar y registrar como pago total?")) return;
+    }
+
+    const st = clone(state);
+    const number = st.meta.invoiceCounter++;
+    const id = "inv_" + number;
+    const paid = Math.min(total, cash + transf);
+    const debtDelta = Math.max(0, total - paid);
+    const status = debtDelta > 0 ? "No Pagada" : "Pagada";
+
+    const invoice = {
+      id,
+      number,
+      date_iso: todayISO(),
+      client_id: client.id,
+      client_name: client.name,
+      vendor_id: vendor.id,
+      vendor_name: vendor.name,
+      items: clone(items),
+      total,
+      cost: calcInvoiceCost(items),
+      payments: { cash, transfer: transf, alias: alias.trim() },
+      status,
+      type: "Factura",
+    };
+    st.invoices.push(invoice);
+    st.meta.lastSavedInvoiceId = id;
+    const cl = st.clients.find((c: any) => c.id === client.id);
+    cl.debt = parseNum(cl.debt) + debtDelta;
+    setState(st);
+
+    if (hasSupabase) {
+      await supabase.from("invoices").insert(invoice);
+      await supabase.from("clients").update({ debt: cl.debt }).eq("id", client.id);
+      await saveCountersSupabase(st.meta);
+    }
+
+    setTimeout(() => {
+      const evt = new CustomEvent("print-invoice", { detail: invoice } as any);
+      window.dispatchEvent(evt);
+      window.print();
+    }, 50);
+  }
+
+  const total = calcInvoiceTotal(items);
+  const paid = parseNum(payCash) + parseNum(payTransf);
+  const toPay = Math.max(0, total - paid);
+  const grouped = groupBy(filteredProducts, "section");
+
+  return (
+    <div className="max-w-7xl mx-auto p-4 space-y-4">
+      <div className="grid md:grid-cols-3 gap-4">
+        <Card title="Encabezado">
+          <div className="grid grid-cols-2 gap-3">
+            <Select
+              label="Cliente"
+              value={clientId}
+              onChange={setClientId}
+              options={state.clients.map((c: any) => ({ value: c.id, label: `${c.number} — ${c.name}` }))}
+            />
+            <Select
+              label="Vendedor"
+              value={vendorId}
+              onChange={setVendorId}
+              options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))}
+            />
+            <div className="col-span-2 text-xs text-slate-300 mt-1">
+              Deuda del cliente: <span className="font-semibold">{money(client?.debt || 0)}</span>
+            </div>
+            <Select
+              label="Lista de precios"
+              value={priceList}
+              onChange={setPriceList}
+              options={[
+                { value: "1", label: "Lista 1" },
+                { value: "2", label: "Lista 2" },
+              ]}
+            />
+          </div>
+        </Card>
+
+        <Card title="Pagos">
+          <div className="grid grid-cols-2 gap-3">
+            <NumberInput label="Efectivo" value={payCash} onChange={setPayCash} placeholder="0" />
+            <NumberInput label="Transferencia" value={payTransf} onChange={setPayTransf} placeholder="0" />
+            <Input className="col-span-2" label="Alias / CVU destino" value={alias} onChange={setAlias} placeholder="ej: mitobicel.algo.banco" />
+            <div className="col-span-2 text-xs text-slate-300">
+              Pagado: <span className="font-semibold">{money(paid)}</span> — Falta: <span className="font-semibold">{money(toPay)}</span>
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Totales">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span>Subtotal</span>
+              <span>{money(total)}</span>
+            </div>
+            <div className="flex items-center justify-between text-lg font-bold">
+              <span>Total</span>
+              <span>{money(total)}</span>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button onClick={saveAndPrint} className="shadow-lg">Guardar e Imprimir</Button>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <Card title="Productos">
+        <div className="grid md:grid-cols-4 gap-2 mb-3">
+          <Select label="Sección" value={sectionFilter} onChange={setSectionFilter} options={(["Todas"] as any).concat(Array.from(new Set(state.products.map((p:any)=>p.section||"Otros")))).map((s:any)=>({value:s,label:s}))} />
+          <Select label="Lista" value={listFilter} onChange={setListFilter} options={(["Todas"] as any).concat(Array.from(new Set(state.products.map((p:any)=>p.list_label||"General")))).map((s:any)=>({value:s,label:s}))} />
+          <Input label="Buscar" value={query} onChange={setQuery} placeholder="Nombre del producto..." />
+          <div className="pt-6">
+            <Chip tone="emerald">Total productos: {filteredProducts.length}</Chip>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-4">
+          <div className="space-y-3">
+            {Object.entries(grouped).map(([sec, arr]: any) => (
+              <div key={sec} className="border border-slate-800 rounded-xl">
+                <div className="px-3 py-2 text-xs font-semibold bg-slate-800/70">{sec}</div>
+                <div className="divide-y divide-slate-800">
+                  {arr.map((p: any) => (
+                    <div key={p.id} className="flex items-center justify-between px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">{p.name}</div>
+                        <div className="text-xs text-slate-400">
+                          Lista1: {money(p.price1)} · Lista2: {money(p.price2)} <span className="text-[10px] text-slate-500 ml-1">{p.list_label}</span>
+                        </div>
+                      </div>
+                      <Button onClick={() => addItem(p)} tone="slate" className="shrink-0">Añadir</Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            <div className="text-sm font-semibold">Carrito</div>
+            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
+              {items.length === 0 && <div className="p-3 text-sm text-slate-400">Vacío</div>}
+              {items.map((it, idx) => (
+                <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-6">
+                    <div className="text-sm font-medium">{it.name}</div>
+                    <div className="text-xs text-slate-400">{it.section}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <NumberInput label="Cant." value={it.qty} onChange={(v:any)=>{ const q=Math.max(0,parseNum(v)); setItems(items.map((x,i)=> i===idx?{...x,qty:q}:x)); }} />
+                  </div>
+                  <div className="col-span-3">
+                    <NumberInput label="Precio" value={it.unitPrice} onChange={(v:any)=>{ const q=Math.max(0,parseNum(v)); setItems(items.map((x,i)=> i===idx?{...x,unitPrice:q}:x)); }} />
+                  </div>
+                  <div className="col-span-1 flex items-end justify-end pb-0.5">
+                    <button onClick={()=> setItems(items.filter((_:any,i:number)=> i!==idx))} className="text-xs text-red-400 hover:text-red-300">✕</button>
+                  </div>
+                  <div className="col-span-12 text-right text-xs text-slate-300 pt-1">
+                    Subtotal ítem: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function ClientesTab({ state, setState }: any) {
+  const [name, setName] = useState("");
+  const [number, setNumber] = useState(ensureUniqueNumber(state.clients));
+  async function addClient() {
+    if (!name.trim()) return;
+    const newClient = { id: "c"+Math.random().toString(36).slice(2,8), number: parseInt(String(number),10), name: name.trim(), debt: 0 };
+    const st = clone(state);
+    st.clients.push(newClient);
+    setState(st);
+    setName(""); setNumber(ensureUniqueNumber(st.clients));
+    if (hasSupabase) await supabase.from("clients").insert(newClient);
+  }
+  return (
+    <div className="max-w-5xl mx-auto p-4 space-y-4">
+      <Card title="Agregar cliente">
+        <div className="grid md:grid-cols-3 gap-3">
+          <NumberInput label="N° cliente" value={number} onChange={setNumber} />
+          <Input label="Nombre" value={name} onChange={setName} placeholder="Ej: Kiosco 9 de Julio" />
+          <div className="pt-6"><Button onClick={addClient}>Agregar</Button></div>
+        </div>
+      </Card>
+      <Card title="Listado">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400"><tr><th className="py-2 pr-4">N°</th><th className="py-2 pr-4">Nombre</th><th className="py-2 pr-4">Deuda</th></tr></thead>
+            <tbody className="divide-y divide-slate-800">
+              {state.clients.map((c:any)=>(<tr key={c.id}><td className="py-2 pr-4">{c.number}</td><td className="py-2 pr-4">{c.name}</td><td className="py-2 pr-4">{money(c.debt)}</td></tr>))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function ProductosTab({ state, setState, role }: any) {
+  const [name, setName] = useState("");
+  const [section, setSection] = useState("Almacén");
+  const [list_label, setListLabel] = useState("MITOBICEL");
+  const [price1, setPrice1] = useState("");
+  const [price2, setPrice2] = useState("");
+  const [cost, setCost] = useState("");
+
+  const [secFilter, setSecFilter] = useState("Todas");
+  const [listFilter, setListFilter] = useState("Todas");
+  const [q, setQ] = useState("");
+
+  const sections = ["Almacén", "Bebidas", "Limpieza", "Otros"];
+  const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
+
+  async function addProduct() {
+    if (!name.trim()) return;
+    const product = { id: "p"+Math.random().toString(36).slice(2,8), name: name.trim(), section, list_label, price1: parseNum(price1), price2: parseNum(price2), cost: parseNum(cost)};
+    const st = clone(state);
+    st.products.push(product);
+    setState(st);
+    setName(""); setPrice1(""); setPrice2(""); setCost("");
+    if (hasSupabase) await supabase.from("products").insert(product);
+  }
+
+  const filtered = state.products.filter((p:any)=>{
+    const okS = secFilter==="Todas" || p.section===secFilter;
+    const okL = listFilter==="Todas" || p.list_label===listFilter;
+    const okQ = !q || p.name.toLowerCase().includes(q.toLowerCase());
+    return okS && okL && okQ;
+  });
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card title="Crear producto">
+        <div className="grid md:grid-cols-6 gap-3">
+          <Input label="Nombre" value={name} onChange={setName} className="md:col-span-2" />
+          <Select label="Sección" value={section} onChange={setSection} options={sections.map((s)=>({value:s,label:s}))} />
+          <Select label="Lista" value={list_label} onChange={setListLabel} options={lists.map((s)=>({value:s,label:s}))} />
+          <NumberInput label="Precio lista 1" value={price1} onChange={setPrice1} />
+          <NumberInput label="Precio lista 2" value={price2} onChange={setPrice2} />
+          {role==="admin" && <NumberInput label="Costo (solo admin)" value={cost} onChange={setCost} />}
+          <div className="md:col-span-6"><Button onClick={addProduct}>Agregar</Button></div>
+        </div>
+      </Card>
+      <Card title="Listado de productos">
+        <div className="grid md:grid-cols-4 gap-2 mb-3">
+          <Select label="Sección" value={secFilter} onChange={setSecFilter} options={["Todas",...sections].map((s)=>({value:s,label:s}))} />
+          <Select label="Lista" value={listFilter} onChange={setListFilter} options={["Todas",...lists].map((s)=>({value:s,label:s}))} />
+          <Input label="Buscar" value={q} onChange={setQ} placeholder="Nombre..." />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400"><tr><th className="py-2 pr-4">Nombre</th><th className="py-2 pr-4">Sección</th><th className="py-2 pr-4">Lista</th><th className="py-2 pr-4">Lista 1</th><th className="py-2 pr-4">Lista 2</th>{role==="admin" && <th className="py-2 pr-4">Costo</th>}</tr></thead>
+            <tbody className="divide-y divide-slate-800">
+              {filtered.map((p:any)=>(<tr key={p.id}><td className="py-2 pr-4">{p.name}</td><td className="py-2 pr-4">{p.section}</td><td className="py-2 pr-4">{p.list_label}</td><td className="py-2 pr-4">{money(p.price1)}</td><td className="py-2 pr-4">{money(p.price2)}</td>{role==="admin" && <td className="py-2 pr-4">{money(p.cost)}</td>}</tr>))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function DeudoresTab({ state, setState }: any) {
+  const clients = state.clients.filter((c:any)=> parseNum(c.debt)>0);
+  const [active, setActive] = useState<string | null>(null);
+  const [cash, setCash] = useState("");
+  const [transf, setTransf] = useState("");
+  const [alias, setAlias] = useState("");
+
+  async function registrarPago() {
+    const cl = state.clients.find((c:any)=> c.id===active);
+    if (!cl) return;
+    const totalPago = parseNum(cash)+parseNum(transf);
+    if (totalPago<=0) return alert("Importe inválido.");
+    const st = clone(state);
+    const client = st.clients.find((c:any)=> c.id===active)!;
+    const aplicado = Math.min(totalPago, client.debt);
+    client.debt = Math.max(0, parseNum(client.debt) - aplicado);
+
+    const number = st.meta.invoiceCounter++;
+    const id = "inv_"+number;
+    const invoice = {
+      id, number, date_iso: todayISO(), client_id: client.id, client_name: client.name,
+      vendor_id: "admin", vendor_name: "Admin",
+      items: [{ productId:"pago", name:"Cancelación de deuda", section:"Deudas", qty:1, unitPrice:aplicado, cost:0 }],
+      total: aplicado, cost:0,
+      payments: { cash: parseNum(cash), transfer: parseNum(transf), alias: alias.trim() },
+      status: "Pago",
+      type: "Recibo"
+    };
+    st.invoices.push(invoice);
+    st.meta.lastSavedInvoiceId = id;
+    setState(st);
+    setCash(""); setTransf(""); setAlias(""); setActive(null);
+
+    if (hasSupabase) {
+      await supabase.from("invoices").insert(invoice);
+      await supabase.from("clients").update({ debt: client.debt }).eq("id", client.id);
+      await saveCountersSupabase(st.meta);
+    }
+
+    setTimeout(()=>{
+      const evt = new CustomEvent("print-invoice", { detail: invoice } as any);
+      window.dispatchEvent(evt);
+      window.print();
+    }, 50);
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto p-4 space-y-4">
+      <Card title="Deudores">
+        {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas.</div>}
+        <div className="divide-y divide-slate-800">
+          {clients.map((c:any)=>(
+            <div key={c.id} className="flex items-center justify-between py-2">
+              <div className="text-sm"><span className="font-medium">{c.name}</span> — <span className="text-slate-300">{money(c.debt)}</span></div>
+              <div><Button tone="slate" onClick={()=> setActive(c.id)}>Registrar pago</Button></div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {active && (
+        <Card title="Registrar pago">
+          <div className="grid md:grid-cols-4 gap-3">
+            <NumberInput label="Efectivo" value={cash} onChange={setCash} />
+            <NumberInput label="Transferencia" value={transf} onChange={setTransf} />
+            <Input label="Alias/CVU" value={alias} onChange={setAlias} />
+            <div className="pt-6"><Button onClick={registrarPago}>Guardar e imprimir recibo</Button></div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function VendedoresTab({ state, setState }: any) {
+  const [name, setName] = useState("");
+  const [key, setKey] = useState("");
+  async function add() {
+    if (!name.trim() || !key.trim()) return;
+    const vendor = { id: "v"+Math.random().toString(36).slice(2,8), name: name.trim(), key: key.trim() };
+    const st = clone(state);
+    st.vendors.push(vendor);
+    setState(st);
+    setName(""); setKey("");
+    if (hasSupabase) await supabase.from("vendors").insert(vendor);
+  }
+  return (
+    <div className="max-w-4xl mx-auto p-4 space-y-4">
+      <Card title="Agregar vendedor">
+        <div className="grid md:grid-cols-3 gap-3">
+          <Input label="Nombre" value={name} onChange={setName} />
+          <Input label="Clave" value={key} onChange={setKey} />
+          <div className="pt-6"><Button onClick={add}>Agregar</Button></div>
+        </div>
+      </Card>
+      <Card title="Listado">
+        <div className="divide-y divide-slate-800">
+          {state.vendors.map((v:any)=>(
+            <div key={v.id} className="flex items-center justify-between py-2">
+              <div className="text-sm"><span className="font-semibold">{v.name}</span> <span className="text-slate-500">({v.id})</span></div>
+              <span className="inline-flex text-xs bg-slate-800/60 border border-slate-700/50 rounded-full px-2 py-0.5">Clave: {v.key}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function ReportesTab({ state, setState }: any) {
+  const invoices = state.invoices.filter((f:any)=> f.type==="Factura");
+  const totalVentas = invoices.reduce((s:number,f:any)=> s+f.total, 0);
+  const totalEfectivo = invoices.reduce((s:number,f:any)=> s+(f.payments?.cash||0), 0);
+  const totalTransf = invoices.reduce((s:number,f:any)=> s+(f.payments?.transfer||0), 0);
+  const ganancia = invoices.reduce((s:number,f:any)=> s+(f.total-(f.cost||0)), 0);
+  const porVendedor = Object.values(groupBy(invoices,"vendor_name")).map((list:any)=> ({ vendedor: (list as any)[0].vendor_name, total: (list as any).reduce((s:number,f:any)=> s+f.total, 0)})).sort((a:any,b:any)=> b.total - a.total);
+  const porSeccion = (()=>{ const m:any={}; invoices.forEach((f:any)=> f.items.forEach((it:any)=> m[it.section]=(m[it.section]||0)+parseNum(it.qty)*parseNum(it.unitPrice))); return Object.entries(m).map(([section,total])=>({section,total})).sort((a:any,b:any)=>(b as any).total-(a as any).total) })();
+  function borrarFactura(id:string){ if(!confirm("¿Eliminar factura?")) return; const st=clone(state); st.invoices = st.invoices.filter((f:any)=> f.id!==id); setState(st); if(hasSupabase) supabase.from("invoices").delete().eq("id", id); }
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <div className="grid md:grid-cols-4 gap-3">
+        <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
+        <Card title="Efectivo"><div className="text-2xl font-bold">{money(totalEfectivo)}</div></Card>
+        <Card title="Transferencias"><div className="text-2xl font-bold">{money(totalTransf)}</div></Card>
+        <Card title="Ganancia estimada"><div className="text-2xl font-bold">{money(ganancia)}</div><div className="text-xs text-slate-400 mt-1">Total - Costos</div></Card>
+      </div>
+      <Card title="Por vendedor">
+        <div className="grid md:grid-cols-3 gap-3">
+        {porVendedor.map((v:any)=>(<div key={v.vendedor} className="rounded-xl border border-slate-800 p-3 flex items-center justify-between"><div className="text-sm font-medium">{v.vendedor}</div><div className="text-sm">{money(v.total as number)}</div></div>))}
+        </div>
+      </Card>
+      <Card title="Por sección">
+        <div className="grid md:grid-cols-3 gap-3">
+          {porSeccion.map((s:any)=>(<div key={s.section} className="rounded-xl border border-slate-800 p-3 flex items-center justify-between"><div className="text-sm font-medium">{s.section}</div><div className="text-sm">{money(s.total as number)}</div></div>))}
+        </div>
+      </Card>
+      <Card title="Listado de facturas">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400"><tr><th className="py-2 pr-4">N°</th><th className="py-2 pr-4">Fecha</th><th className="py-2 pr-4">Cliente</th><th className="py-2 pr-4">Vendedor</th><th className="py-2 pr-4">Total</th><th className="py-2 pr-4">Estado</th><th className="py-2 pr-4">Acciones</th></tr></thead>
+            <tbody className="divide-y divide-slate-800">
+              {state.invoices.slice().reverse().map((f:any)=>(
+                <tr key={f.id}>
+                  <td className="py-2 pr-4">{pad(f.number)}</td>
+                  <td className="py-2 pr-4">{new Date(f.date_iso).toLocaleString("es-AR")}</td>
+                  <td className="py-2 pr-4">{f.client_name}</td>
+                  <td className="py-2 pr-4">{f.vendor_name}</td>
+                  <td className="py-2 pr-4">{money(f.total)}</td>
+                  <td className="py-2 pr-4">{f.status}</td>
+                  <td className="py-2 pr-4"><button onClick={() => borrarFactura(f.id)} className="text-xs text-red-400 hover:text-red-300">Eliminar</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PresupuestosTab({ state, setState, session }: any){
+  const [clientId, setClientId] = useState(state.clients[0]?.id || "");
+  const [vendorId, setVendorId] = useState(session.role === "admin" ? state.vendors[0]?.id : session.id);
+  const [priceList, setPriceList] = useState("1");
+  const [items, setItems] = useState<any[]>([]);
+  const [query, setQuery] = useState("");
+  const client = state.clients.find((c:any)=> c.id===clientId);
+  const vendor = state.vendors.find((v:any)=> v.id===vendorId);
+  const filteredProducts = state.products.filter((p:any)=> !query || p.name.toLowerCase().includes(query.toLowerCase()));
+  function addItem(p:any){ const existing = items.find((it:any)=> it.productId===p.id); const unit = priceList==="1"?p.price1:p.price2; if(existing) setItems(items.map((it)=> it.productId===p.id? {...it, qty: parseNum(it.qty)+1 }: it)); else setItems([...items, {productId:p.id, name:p.name, section:p.section, qty:1, unitPrice:unit, cost:p.cost}]); }
+  async function guardarPresupuesto(){ if(!client||!vendor||items.length===0) return; const st=clone(state); const number=st.meta.budgetCounter++; const id="pr_"+number; const total=calcInvoiceTotal(items); const b={id, number, date_iso: todayISO(), client_id: client.id, client_name: client.name, vendor_id: vendor.id, vendor_name: vendor.name, items: clone(items), total, status:"Pendiente"}; st.budgets.push(b); setState(st); if(hasSupabase){ await supabase.from("budgets").insert(b); await saveCountersSupabase(st.meta);} alert("Presupuesto guardado."); setItems([]); }
+  async function convertirAFactura(b:any){ const st=clone(state); const number=st.meta.invoiceCounter++; const id="inv_"+number; const invoice={id, number, date_iso: todayISO(), client_id:b.client_id, client_name:b.client_name, vendor_id:b.vendor_id, vendor_name:b.vendor_name, items: clone(b.items), total: b.total, cost: calcInvoiceCost(b.items), payments:{cash:0,transfer:0,alias:""}, status:"No Pagada", type:"Factura"}; st.invoices.push(invoice); const budget = st.budgets.find((x:any)=> x.id===b.id)!; budget.status="Convertido"; setState(st); if(hasSupabase){ await supabase.from("invoices").insert(invoice); await supabase.from("budgets").update({ status: "Convertido" }).eq("id", b.id); await saveCountersSupabase(st.meta);} setTimeout(()=>{ const evt = new CustomEvent("print-invoice", { detail: invoice } as any); window.dispatchEvent(evt); window.print(); }, 50); }
+  const total = calcInvoiceTotal(items);
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card title="Nuevo presupuesto">
+        <div className="grid md:grid-cols-4 gap-3">
+          <Select label="Cliente" value={clientId} onChange={setClientId} options={state.clients.map((c:any)=>({value:c.id, label:`${c.number} — ${c.name}`}))} />
+          <Select label="Vendedor" value={vendorId} onChange={setVendorId} options={state.vendors.map((v:any)=>({value:v.id, label:v.name}))} />
+          <Select label="Lista de precios" value={priceList} onChange={setPriceList} options={[{value:"1",label:"Lista 1"},{value:"2",label:"Lista 2"}]} />
+          <Input label="Buscar producto" value={query} onChange={setQuery} placeholder="Nombre..." />
+        </div>
+        <div className="grid md:grid-cols-2 gap-4 mt-3">
+          <div className="space-y-2">
+            <div className="text-sm font-semibold">Productos</div>
+            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
+              {filteredProducts.map((p:any)=>(
+                <div key={p.id} className="px-3 py-2 flex items-center justify-between">
+                  <div className="min-w-0"><div className="text-sm font-medium truncate">{p.name}</div><div className="text-xs text-slate-400">L1: {money(p.price1)} L2: {money(p.price2)}</div></div>
+                  <Button tone="slate" onClick={()=> addItem(p)}>Añadir</Button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="text-sm font-semibold">Ítems</div>
+            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
+              {items.length===0 && <div className="p-3 text-sm text-slate-400">Vacío</div>}
+              {items.map((it:any, idx:number)=>(
+                <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-6"><div className="text-sm font-medium">{it.name}</div><div className="text-xs text-slate-400">{it.section}</div></div>
+                  <div className="col-span-2"><NumberInput label="Cant." value={it.qty} onChange={(v:any)=>{ const q=Math.max(0,parseNum(v)); setItems(items.map((x:any,i:number)=> i===idx?{...x,qty:q}:x)); }} /></div>
+                  <div className="col-span-3"><NumberInput label="Precio" value={it.unitPrice} onChange={(v:any)=>{ const q=Math.max(0,parseNum(v)); setItems(items.map((x:any,i:number)=> i===idx?{...x,unitPrice:q}:x)); }} /></div>
+                  <div className="col-span-1 flex items-end justify-end pb-0.5"><button onClick={()=> setItems(items.filter((_:any,i:number)=> i!==idx))} className="text-xs text-red-400 hover:text-red-300">✕</button></div>
+                  <div className="col-span-12 text-right text-xs text-slate-300 pt-1">Subtotal ítem: {money(parseNum(it.qty)*parseNum(it.unitPrice))}</div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between"><div className="text-sm">Total</div><div className="text-lg font-bold">{money(total)}</div></div>
+            <div className="flex justify-end"><Button onClick={guardarPresupuesto}>Guardar presupuesto</Button></div>
+          </div>
+        </div>
+      </Card>
+
+      <Card title="Presupuestos guardados">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400"><tr><th className="py-2 pr-4">N°</th><th className="py-2 pr-4">Fecha</th><th className="py-2 pr-4">Cliente</th><th className="py-2 pr-4">Vendedor</th><th className="py-2 pr-4">Total</th><th className="py-2 pr-4">Estado</th><th className="py-2 pr-4">Acción</th></tr></thead>
+            <tbody className="divide-y divide-slate-800">
+              {state.budgets.slice().reverse().map((b:any)=>(
+                <tr key={b.id}>
+                  <td className="py-2 pr-4">{pad(b.number)}</td>
+                  <td className="py-2 pr-4">{new Date(b.date_iso).toLocaleString("es-AR")}</td>
+                  <td className="py-2 pr-4">{b.client_name}</td>
+                  <td className="py-2 pr-4">{b.vendor_name}</td>
+                  <td className="py-2 pr-4">{money(b.total)}</td>
+                  <td className="py-2 pr-4">{b.status}</td>
+                  <td className="py-2 pr-4">{b.status==="Pendiente" ? <Button onClick={()=> convertirAFactura(b)}>Convertir a factura</Button> : <span className="text-xs">Convertido</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PrintArea(){
+  const [inv, setInv] = useState<any|null>(null);
+  useEffect(()=>{
+    const handler = (e:any)=> setInv(e.detail);
+    window.addEventListener("print-invoice", handler);
+    return ()=> window.removeEventListener("print-invoice", handler);
+  },[]);
+
+  return (
+    <div id="print-area" className="hidden">
+      <style>{`@media print { body * { visibility: hidden !important; } #__PRINT__, #__PRINT__ * { visibility: visible !important; } #__PRINT__ { position: absolute; inset: 0; padding: 0; margin: 0; } .no-print { display:none !important } }`}</style>
+      {inv && (
+        <div id="__PRINT__" className="p-6 text-black bg-white">
+          <div className="max-w-[720px] mx-auto text-black">
+            <div className="text-center">
+              <div className="text-xl font-bold">El Shopping de los Comerciantes</div>
+              <div className="text-sm">MITOBICEL · CUIT 20-00000000-0</div>
+              <div className="text-sm">Av. Demo 123 · Córdoba · Argentina</div>
+              <div className="mt-2 text-sm">
+                Factura N° <span className="font-bold">{pad(inv.number)}</span> — {new Date(inv.date_iso).toLocaleString("es-AR")}
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div><span className="font-semibold">Cliente:</span> {inv.client_name}</div>
+              <div><span className="font-semibold">Vendedor:</span> {inv.vendor_name}</div>
+            </div>
+            <table className="w-full mt-3 text-sm border-collapse">
+              <thead><tr><th className="border border-black px-2 py-1 text-left">Producto</th><th className="border border-black px-2 py-1 text-right">Cant.</th><th className="border border-black px-2 py-1 text-right">Precio</th><th className="border border-black px-2 py-1 text-right">Importe</th></tr></thead>
+              <tbody>
+                {inv.items.map((it:any, idx:number)=>(
+                  <tr key={idx}><td className="border border-black px-2 py-1">{it.name}</td><td className="border border-black px-2 py-1 text-right">{it.qty}</td><td className="border border-black px-2 py-1 text-right">{money(it.unitPrice)}</td><td className="border border-black px-2 py-1 text-right">{money(parseNum(it.qty)*parseNum(it.unitPrice))}</td></tr>
+                ))}
+              </tbody>
+              <tfoot><tr><td className="border border-black px-2 py-1 text-right font-semibold" colSpan={3}>TOTAL</td><td className="border border-black px-2 py-1 text-right font-bold">{money(inv.total)}</td></tr></tfoot>
+            </table>
+            <div className="mt-2 text-sm">
+              <div><span className="font-semibold">Pagos:</span> Efectivo {money(inv.payments?.cash||0)} — Transferencia {money(inv.payments?.transfer||0)} {inv.payments?.alias ? `(Alias/CVU: ${inv.payments.alias})` : ""}</div>
+              <div><span className="font-semibold">Estado:</span> {inv.status}</div>
+              {inv.status!=="Pagada" && (<div><span className="font-semibold">Saldo pendiente:</span> {money(Math.max(0, inv.total - ((inv.payments?.cash||0)+(inv.payments?.transfer||0))))}</div>)}
+            </div>
+            <div className="mt-6 text-center text-xs">Gracias por su compra</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Login({ onLogin, vendors, adminKey }: any){
+  const [role, setRole] = useState("vendedor");
+  const [name, setName] = useState("");
+  const [key, setKey] = useState("");
+  function handleSubmit(e:any){
+    e.preventDefault();
+    if(role==="admin"){
+      if(key===adminKey) onLogin({role:"admin", name:"Admin", id:"admin"});
+      else alert("Clave de administrador incorrecta.");
+      return;
+    }
+    const v = vendors.find((v:any)=> (v.name.toLowerCase()===name.trim().toLowerCase() || v.id===name.trim()) && v.key===key);
+    if(v) onLogin({role:"vendedor", name:v.name, id:v.id});
+    else alert("Vendedor o clave incorrecta.");
+  }
+  return (
+    <div className="min-h-screen grid place-items-center p-6">
+      <div className="max-w-md w-full space-y-5">
+        <div className="text-center"><h1 className="text-xl font-bold">Sistema de Facturación</h1><p className="text-slate-400 text-sm">{hasSupabase ? "Conectado a Supabase" : "Preview sin base de datos"}.</p></div>
+        <Card title="Ingreso">
+          <form className="space-y-3" onSubmit={handleSubmit}>
+            <Select label="Rol" value={role} onChange={setRole} options={[{value:"vendedor",label:"Vendedor"},{value:"admin",label:"Admin"}]} />
+            {role==="vendedor" && <Input label="Vendedor (nombre o ID)" value={name} onChange={setName} placeholder="Ej: Tobi o v1" />}
+            <Input label="Clave" value={key} onChange={setKey} placeholder={role==="admin"?"46892389":"Clave asignada"} type="password" />
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-slate-400">Admin demo: 46892389 | Vendedor demo: Tobi / 1234</div>
+              <Button type="submit">Entrar</Button>
+            </div>
+          </form>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+export default function Page(){
+  const [state, setState] = useState<any>(()=> loadLocal());
+  const [session, setSession] = useState<any|null>(null);
+  const [tab, setTab] = useState("Facturación");
+
+  useEffect(()=> { if (!hasSupabase) return; (async()=>{ const s = await loadFromSupabase(state); setState(s); })(); }, []);
+  useEffect(()=> saveLocal(state), [state]);
+
+  function onLogin(user:any){ setSession(user); setTab("Facturación"); }
+  function onLogout(){ setSession(null); }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <style>{`::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:#0b1220}::-webkit-scrollbar-thumb{background:#22304a;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#2f436a}`}</style>
+      {!session ? (
+        <Login onLogin={onLogin} vendors={state.vendors} adminKey={state.auth.adminKey} />
+      ) : (
+        <>
+          <Navbar current={tab} setCurrent={setTab} role={session.role} onLogout={onLogout} />
+          {tab==="Facturación" && <FacturacionTab state={state} setState={setState} session={session} />}
+          {tab==="Clientes" && <ClientesTab state={state} setState={setState} />}
+          {tab==="Productos" && <ProductosTab state={state} setState={setState} role={session.role} />}
+          {tab==="Deudores" && <DeudoresTab state={state} setState={setState} />}
+          {session.role==="admin" && tab==="Vendedores" && <VendedoresTab state={state} setState={setState} />}
+          {session.role==="admin" && tab==="Reportes" && <ReportesTab state={state} setState={setState} />}
+          {tab==="Presupuestos" && session.role==="admin" && <PresupuestosTab state={state} setState={setState} session={session} />}
+          {tab==="Presupuestos" && session.role!=="admin" && (<div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">Los presupuestos se gestionan por Admin.</div>)}
+          <PrintArea />
+          <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">{hasSupabase ? "Supabase activo" : "Datos en tu navegador"}</div>
+        </>
+      )}
+    </div>
+  );
+}
