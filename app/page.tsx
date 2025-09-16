@@ -234,7 +234,7 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
 }
 /* ===== Panel del cliente ===== */
 function ClientePanel({ state, setState, session }: any) {
-  const [accion, setAccion] = useState<"COMPRAR" | "PAGAR DEUDA" | "DEVOLUCIÓN">("COMPRAR");
+  const [accion, setAccion] = useState<"COMPRAR POR MAYOR" | "COMPRAR POR MENOR" >("COMPRAR");
 
   function genTicketCode() {
     const a = Math.random().toString(36).slice(2, 6);
@@ -277,9 +277,8 @@ function ClientePanel({ state, setState, session }: any) {
             value={accion}
             onChange={setAccion}
             options={[
-              { value: "COMPRAR", label: "COMPRAR" },
-              { value: "PAGAR DEUDA", label: "PAGAR DEUDA" },
-              { value: "DEVOLUCIÓN", label: "HACER UNA DEVOLUCIÓN" },
+              { value: "COMPRAR POR MENOR ", label: "COMPRAR POR MENOR" },
+              { value: "COMPRAR POR MAYOR", label: "COMPRAR POR MAYOR" },
             ]}
           />
           <div className="flex justify-end">
