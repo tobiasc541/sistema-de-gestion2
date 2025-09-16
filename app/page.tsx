@@ -629,13 +629,16 @@ function DeudoresTab({ state, setState }: any) {
     if (!cl) return;
     const totalPago = parseNum(cash) + parseNum(transf);
     if (totalPago <= 0) return alert("Importe inválido.");
+
     const st = clone(state);
     const client = st.clients.find((c: any) => c.id === active)!;
+
     const aplicado = Math.min(totalPago, client.debt);
-    client.debt = Math.max(0, parseNum(client.debt) - aplicado);
+    client.debt = Math.max(0, parseNum(client.debt) - aplicado); // actualizar deuda del cliente
 
     const number = st.meta.invoiceCounter++;
     const id = "inv_" + number;
+
     const invoice = {
       id,
       number,
@@ -650,10 +653,13 @@ function DeudoresTab({ state, setState }: any) {
       payments: { cash: parseNum(cash), transfer: parseNum(transf), alias: alias.trim() },
       status: "Pago",
       type: "Recibo",
+      client_debt_total: client.debt, // 👈 total adeudado del cliente luego de aplicar el pago
     };
+
     st.invoices.push(invoice);
     st.meta.lastSavedInvoiceId = id;
     setState(st);
+
     setCash("");
     setTransf("");
     setAlias("");
@@ -1198,6 +1204,7 @@ function PrintArea() {
   const paid = paidCash + paidTransf;
   const balance = Math.max(0, parseNum(inv.total) - paid);
   const fullyPaid = balance <= 0.009;
+  const clientDebtTotal = parseNum(inv?.client_debt_total ?? 0); // 👈 total adeudado histórico del cliente
 
   return (
     /* Se oculta en pantalla y se ve sólo al imprimir por globals.css:
@@ -1283,6 +1290,9 @@ function PrintArea() {
             </div>
             <div>
               <b>Cantidad adeudada:</b> {money(balance)}
+            </div>
+            <div style={{ marginTop: 6 }}>
+              <b>Total adeudado como cliente:</b> {money(clientDebtTotal)}
             </div>
           </div>
         </div>
