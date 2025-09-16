@@ -276,6 +276,10 @@ function FacturacionTab({ state, setState, session }: any) {
     const debtDelta = Math.max(0, total - paid);
     const status = debtDelta > 0 ? "No Pagada" : "Pagada";
 
+    // 👇 NUEVO: calcular la deuda total del cliente luego de esta factura
+    const cl = st.clients.find((c: any) => c.id === client.id)!;
+    const clientDebtAfter = parseNum(cl.debt) + debtDelta;
+
     const invoice = {
       id,
       number,
@@ -290,11 +294,15 @@ function FacturacionTab({ state, setState, session }: any) {
       payments: { cash, transfer: transf, alias: alias.trim() },
       status,
       type: "Factura",
+      client_debt_total: clientDebtAfter, // 👈 agregado para mostrar “Total adeudado del cliente” en la impresión
     };
+
     st.invoices.push(invoice);
     st.meta.lastSavedInvoiceId = id;
-    const cl = st.clients.find((c: any) => c.id === client.id)!;
-    cl.debt = parseNum(cl.debt) + debtDelta;
+
+    // actualizar la deuda del cliente con el nuevo total
+    cl.debt = clientDebtAfter;
+
     setState(st);
 
     if (hasSupabase) {
