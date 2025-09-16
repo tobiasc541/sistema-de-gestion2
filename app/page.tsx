@@ -20,6 +20,7 @@ const todayISO = () => new Date().toISOString();
 const clone = (obj: any) => JSON.parse(JSON.stringify(obj));
 
 /* ===== seed inicial (solo UI mientras carga Supabase) ===== */
+/* ===== seed inicial (solo UI mientras carga Supabase) ===== */
 function seedState() {
   return {
     meta: { invoiceCounter: 1, budgetCounter: 1, lastSavedInvoiceId: null as null | string },
@@ -29,8 +30,10 @@ function seedState() {
     products: [] as any[],
     invoices: [] as any[],
     budgets: [] as any[],
+    queue: [] as any[],            // <-- NUEVO: cola de tickets de clientes
   };
 }
+
 
 /* ===== Carga/actualización desde Supabase ===== */
 async function loadFromSupabase(fallback: any) {
@@ -197,7 +200,14 @@ function groupBy(arr: any[], key: string) {
 /* ===== Navbar ===== */
 function Navbar({ current, setCurrent, role, onLogout }: any) {
   const TABS = ["Facturación", "Clientes", "Productos", "Deudores", "Vendedores", "Reportes", "Presupuestos"];
-  const visibleTabs = role === "admin" ? TABS : ["Facturación", "Clientes", "Productos", "Deudores"];
+
+  const visibleTabs =
+    role === "admin"
+      ? TABS
+      : role === "vendedor"
+      ? ["Facturación", "Clientes", "Productos", "Deudores"]
+      : ["Panel"]; // cliente sólo ve “Panel”
+
   return (
     <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
@@ -222,6 +232,65 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     </div>
   );
 }
+/* ===== Panel del cliente ===== */
+function ClientePanel({ state, setState, session }: any) {
+  const [accion, setAccion] = useState<"COMPRAR" | "PAGAR DEUDA" | "DEVOLUCIÓN">("COMPRAR");
+
+  function genTicketCode() {
+    const a = Math.random().toString(36).slice(2, 6);
+    const b = Date.now().toString(36).slice(-5);
+    return ("T-" + a + "-" + b).toUpperCase();
+  }
+
+  async function continuar() {
+    const code = genTicketCode();
+    const ticket = {
+      id: code,
+      date_iso: todayISO(),
+      client_id: session.id,
+      client_number: session.number,
+      client_name: session.name,
+      action: accion,
+      status: "En cola",
+    };
+
+    // guardar ticket en la cola local
+    const st = clone(state);
+    st.queue.push(ticket);
+    setState(st);
+
+    // imprimir ticket
+    window.dispatchEvent(new CustomEvent("print-ticket", { detail: ticket } as any));
+    await nextPaint();
+    window.print();
+  }
+
+  return (
+    <div className="max-w-xl mx-auto p-6 space-y-4">
+      <Card title="Bienvenido/a">
+        <div className="text-sm mb-2">
+          Cliente: <b>{session.name}</b> — N° <b>{session.number}</b>
+        </div>
+        <div className="grid gap-3">
+          <Select
+            label="¿Qué desea hacer?"
+            value={accion}
+            onChange={setAccion}
+            options={[
+              { value: "COMPRAR", label: "COMPRAR" },
+              { value: "PAGAR DEUDA", label: "PAGAR DEUDA" },
+              { value: "DEVOLUCIÓN", label: "HACER UNA DEVOLUCIÓN" },
+            ]}
+          />
+          <div className="flex justify-end">
+            <Button onClick={continuar}>Continuar</Button>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 
 /* =====================  TABS  ===================== */
 /* Facturación */
@@ -1227,25 +1296,62 @@ const nextPaint = () =>
 /* ===== Área de impresión ===== */
 function PrintArea() {
   const [inv, setInv] = useState<any | null>(null);
+  const [ticket, setTicket] = useState<any | null>(null);
 
   useEffect(() => {
-    const handler = (e: any) => setInv(e.detail);
-    window.addEventListener("print-invoice", handler);
-    return () => window.removeEventListener("print-invoice", handler);
+    const hInv = (e: any) => { setTicket(null); setInv(e.detail); };
+    const hTic = (e: any) => { setInv(null); setTicket(e.detail); };
+    window.addEventListener("print-invoice", hInv);
+    window.addEventListener("print-ticket", hTic);
+    return () => {
+      window.removeEventListener("print-invoice", hInv);
+      window.removeEventListener("print-ticket", hTic);
+    };
   }, []);
 
-  if (!inv) return null;
+  if (!inv && !ticket) return null;
 
+  // ====== PLANTILLA DE TICKET ======
+  if (ticket) {
+    return (
+      <div className="only-print print-area p-14">
+        <div className="max-w-[520px] mx-auto text-black">
+          <div className="text-center">
+            <div style={{ fontWeight: 800, letterSpacing: 1, fontSize: 20 }}>TICKET DE TURNO</div>
+            <div style={{ marginTop: 2, fontSize: 12 }}>MITOBICEL</div>
+          </div>
+
+          <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+          <div className="text-sm space-y-1">
+            <div><b>Código:</b> {ticket.id}</div>
+            <div><b>Cliente:</b> {ticket.client_name} (N° {ticket.client_number})</div>
+            <div><b>Acción:</b> {ticket.action}</div>
+            <div><b>Fecha:</b> {new Date(ticket.date_iso).toLocaleString("es-AR")}</div>
+          </div>
+
+          <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+          <div className="text-sm" style={{ lineHeight: 1.35 }}>
+            POR FAVOR ESPERE A VER SU NÚMERO EN PANTALLA PARA INGRESAR A HACER SU PEDIDO
+            O GESTIONAR SU DEVOLUCIÓN.
+          </div>
+
+          <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ====== PLANTILLA DE FACTURA (tu versión con deuda total del cliente) ======
   const paidCash = parseNum(inv?.payments?.cash || 0);
   const paidTransf = parseNum(inv?.payments?.transfer || 0);
   const paid = paidCash + paidTransf;
   const balance = Math.max(0, parseNum(inv.total) - paid);
   const fullyPaid = balance <= 0.009;
-  const clientDebtTotal = parseNum(inv?.client_debt_total ?? 0); // 👈 total adeudado histórico del cliente
+  const clientDebtTotal = parseNum(inv?.client_debt_total ?? 0);
 
   return (
-    /* Se oculta en pantalla y se ve sólo al imprimir por globals.css:
-       @media screen {.only-print{display:none}} + @media print {.print-area{display:block!important}} */
     <div className="only-print print-area p-14">
       <div className="max-w-[780px] mx-auto text-black">
         {/* Encabezado como en la foto */}
@@ -1254,33 +1360,25 @@ function PrintArea() {
             <div style={{ fontWeight: 800, letterSpacing: 1 }}>FACTURA</div>
             <div style={{ marginTop: 2 }}>MITOBICEL</div>
           </div>
-          {/* Aquí podés poner tu logo si querés */}
-          {/* <img src="/logo.png" alt="logo" style={{ height: 36 }} /> */}
         </div>
 
         {/* Línea separadora */}
         <div style={{ borderTop: "1px solid #000", margin: "10px 0 6px" }} />
 
-        {/* Cliente / Datos de factura (sin vencimiento ni descuento) */}
+        {/* Cliente / Datos de factura */}
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>
             <div style={{ fontWeight: 700 }}>Cliente</div>
             <div>{inv.client_name}</div>
           </div>
           <div className="text-right">
-            <div>
-              <b>Factura Nº:</b> {pad(inv.number)}
-            </div>
-            <div>
-              <b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}
-            </div>
-            <div>
-              <b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}
-            </div>
+            <div><b>Factura Nº:</b> {pad(inv.number)}</div>
+            <div><b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}</div>
+            <div><b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}</div>
           </div>
         </div>
 
-        {/* Tabla de detalle (sin Impuesto ni Descuento) */}
+        {/* Tabla de detalle */}
         <table className="print-table text-sm" style={{ marginTop: 10 }}>
           <thead>
             <tr>
@@ -1304,33 +1402,23 @@ function PrintArea() {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>
-                Total
-              </td>
+              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>Total</td>
               <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
             </tr>
           </tfoot>
         </table>
 
-        {/* Desglose de pago a la derecha como en la foto */}
+        {/* Desglose de pago */}
         <div className="grid grid-cols-2 gap-2 text-sm" style={{ marginTop: 8 }}>
           <div />
           <div>
-            <div>
-              <b>Método de pago:</b>
-            </div>
+            <div><b>Método de pago:</b></div>
             <div>CONTADO: {money(paidCash)}</div>
             <div>TRANSFERENCIA: {money(paidTransf)}</div>
             {inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
-            <div style={{ marginTop: 6 }}>
-              <b>Cantidad pagada:</b> {money(paid)}
-            </div>
-            <div>
-              <b>Cantidad adeudada:</b> {money(balance)}
-            </div>
-            <div style={{ marginTop: 6 }}>
-              <b>Total adeudado como cliente:</b> {money(clientDebtTotal)}
-            </div>
+            <div style={{ marginTop: 6 }}><b>Cantidad pagada:</b> {money(paid)}</div>
+            <div><b>Cantidad adeudada:</b> {money(balance)}</div>
+            <div style={{ marginTop: 6 }}><b>Total adeudado como cliente:</b> {money(clientDebtTotal)}</div>
           </div>
         </div>
 
@@ -1358,30 +1446,45 @@ function PrintArea() {
   );
 }
 
+
 /* ===== Login ===== */
-function Login({ onLogin, vendors, adminKey }: any) {
+function Login({ onLogin, vendors, adminKey, clients }: any) {
   const [role, setRole] = useState("vendedor");
-  const [name, setName] = useState("");
-  const [key, setKey] = useState("");
+  const [name, setName] = useState("");          // vendedor: nombre o id
+  const [key, setKey] = useState("");            // vendedor/admin: clave
+  const [clientNumber, setClientNumber] = useState(""); // cliente: N° cliente
+
+  const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 
   function handleSubmit(e: any) {
     e.preventDefault();
 
     if (role === "admin") {
-      if (key === adminKey) {
-        onLogin({ role: "admin", name: "Admin", id: "admin" });
-      } else {
-        alert("Clave de administrador incorrecta.");
-      }
+      if (key === adminKey) onLogin({ role: "admin", name: "Admin", id: "admin" });
+      else alert("Clave de administrador incorrecta.");
       return;
     }
 
-    const v = vendors.find(
-      (v: any) => (v.name.toLowerCase() === name.trim().toLowerCase() || v.id === name.trim()) && v.key === key
-    );
+    if (role === "vendedor") {
+      const v = vendors.find(
+        (v: any) =>
+          (v.name.toLowerCase() === name.trim().toLowerCase() || v.id === name.trim()) &&
+          v.key === key
+      );
+      if (v) onLogin({ role: "vendedor", name: v.name, id: v.id });
+      else alert("Vendedor o clave incorrecta.");
+      return;
+    }
 
-    if (v) onLogin({ role: "vendedor", name: v.name, id: v.id });
-    else alert("Vendedor o clave incorrecta.");
+    // === CLIENTE ===
+    if (role === "cliente") {
+      const num = parseInt(String(clientNumber), 10);
+      if (!num) { alert("Ingrese un número de cliente válido."); return; }
+      const cl = clients.find((c: any) => parseInt(String(c.number), 10) === num);
+      if (!cl) { alert("N° de cliente no encontrado."); return; }
+      onLogin({ role: "cliente", name: cl.name, id: cl.id, number: cl.number });
+      return;
+    }
   }
 
   return (
@@ -1401,20 +1504,24 @@ function Login({ onLogin, vendors, adminKey }: any) {
               options={[
                 { value: "vendedor", label: "Vendedor" },
                 { value: "admin", label: "Admin" },
+                { value: "cliente", label: "Cliente" },   // <-- NUEVO
               ]}
             />
 
             {role === "vendedor" && (
-              <Input label="Vendedor (nombre o ID)" value={name} onChange={setName} placeholder="Ej: Tobi o v1" />
+              <>
+                <Input label="Vendedor (nombre o ID)" value={name} onChange={setName} placeholder="Ej: Tobi o v1" />
+                <Input label="Clave" value={key} onChange={setKey} placeholder="Clave asignada" type="password" />
+              </>
             )}
 
-            <Input
-              label="Clave"
-              value={key}
-              onChange={setKey}
-              placeholder={role === "admin" ? "Clave de administrador" : "Clave asignada"}
-              type="password"
-            />
+            {role === "admin" && (
+              <Input label="Clave admin" value={key} onChange={setKey} placeholder="Clave de administrador" type="password" />
+            )}
+
+            {role === "cliente" && (
+              <NumberInput label="N° de cliente" value={clientNumber} onChange={setClientNumber} placeholder="Ej: 1001" />
+            )}
 
             <div className="flex items-center justify-end">
               <Button type="submit">Entrar</Button>
@@ -1425,6 +1532,7 @@ function Login({ onLogin, vendors, adminKey }: any) {
     </div>
   );
 }
+
 
 /* ===== Página principal ===== */
 export default function Page() {
@@ -1442,7 +1550,7 @@ export default function Page() {
 
   function onLogin(user: any) {
     setSession(user);
-    setTab("Facturación");
+    setTab(user.role === "cliente" ? "Panel" : "Facturación"); // cliente entra al Panel
   }
   function onLogout() {
     setSession(null);
@@ -1455,18 +1563,25 @@ export default function Page() {
         <style>{`::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:#0b1220}::-webkit-scrollbar-thumb{background:#22304a;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#2f436a}`}</style>
 
         {!session ? (
-          <Login onLogin={onLogin} vendors={state.vendors} adminKey={state.auth.adminKey} />
+          <Login onLogin={onLogin} vendors={state.vendors} adminKey={state.auth.adminKey} clients={state.clients} />
         ) : (
           <>
             <Navbar current={tab} setCurrent={setTab} role={session.role} onLogout={onLogout} />
-            {tab === "Facturación" && <FacturacionTab state={state} setState={setState} session={session} />}
-            {tab === "Clientes" && <ClientesTab state={state} setState={setState} />}
-            {tab === "Productos" && <ProductosTab state={state} setState={setState} role={session.role} />}
-            {tab === "Deudores" && <DeudoresTab state={state} setState={setState} />}
+
+            {/* Panel de cliente */}
+            {session.role === "cliente" && tab === "Panel" && (
+              <ClientePanel state={state} setState={setState} session={session} />
+            )}
+
+            {/* Vendedor / Admin */}
+            {session.role !== "cliente" && tab === "Facturación" && <FacturacionTab state={state} setState={setState} session={session} />}
+            {session.role !== "cliente" && tab === "Clientes" && <ClientesTab state={state} setState={setState} />}
+            {session.role !== "cliente" && tab === "Productos" && <ProductosTab state={state} setState={setState} role={session.role} />}
+            {session.role !== "cliente" && tab === "Deudores" && <DeudoresTab state={state} setState={setState} />}
             {session.role === "admin" && tab === "Vendedores" && <VendedoresTab state={state} setState={setState} />}
             {session.role === "admin" && tab === "Reportes" && <ReportesTab state={state} setState={setState} />}
-            {tab === "Presupuestos" && session.role === "admin" && <PresupuestosTab state={state} setState={setState} session={session} />}
-            {tab === "Presupuestos" && session.role !== "admin" && (
+            {session.role === "admin" && tab === "Presupuestos" && <PresupuestosTab state={state} setState={setState} session={session} />}
+            {session.role !== "admin" && session.role !== "cliente" && tab === "Presupuestos" && (
               <div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">Los presupuestos se gestionan por Admin.</div>
             )}
 
@@ -1477,7 +1592,7 @@ export default function Page() {
         )}
       </div>
 
-      {/* Plantilla que SÍ se imprime */}
+      {/* Plantillas que SÍ se imprimen */}
       <PrintArea />
     </>
   );
