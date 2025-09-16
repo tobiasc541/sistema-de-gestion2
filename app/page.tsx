@@ -602,12 +602,21 @@ function ProductosTab({ state, setState, role }: any) {
   const [listFilter, setListFilter] = useState("Todas");
   const [q, setQ] = useState("");
 
-  // === NUEVO: creación y fuente dinámica de secciones ===
+  // === NUEVO: creación y fuente dinámica de secciones (tipado para TS) ===
   const [newSection, setNewSection] = useState("");
   const [extraSections, setExtraSections] = useState<string[]>([]);
-  const baseSections = ["Almacén", "Bebidas", "Limpieza", "Otros"];
-  const derivedSections = Array.from(new Set(state.products.map((p: any) => p.section).filter(Boolean)));
-  const sections = Array.from(new Set([...baseSections, ...derivedSections, ...extraSections]));
+
+  const baseSections: string[] = ["Almacén", "Bebidas", "Limpieza", "Otros"];
+  const derivedSections: string[] = Array.from(
+    new Set(
+      state.products
+        .map((p: any) => String(p.section ?? "").trim())
+        .filter((s: string) => !!s)
+    )
+  );
+  const sections: string[] = Array.from(
+    new Set<string>([...baseSections, ...derivedSections, ...extraSections])
+  );
 
   const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
 
@@ -632,11 +641,11 @@ function ProductosTab({ state, setState, role }: any) {
     if (hasSupabase) await supabase.from("products").insert(product);
   }
 
-  // NUEVO: agregar sección local (sin tocar otras partes del sistema)
+  // NUEVO: agregar sección local (tipando para evitar 'unknown')
   function addSection() {
     const s = newSection.trim();
     if (!s) return;
-    const exists = sections.some((x) => x.toLowerCase() === s.toLowerCase());
+    const exists = sections.some((x: string) => x.toLowerCase() === s.toLowerCase());
     if (exists) {
       alert("Esa sección ya existe.");
       return;
@@ -673,8 +682,18 @@ function ProductosTab({ state, setState, role }: any) {
       <Card title="Crear producto">
         <div className="grid md:grid-cols-6 gap-3">
           <Input label="Nombre" value={name} onChange={setName} className="md:col-span-2" />
-          <Select label="Sección" value={section} onChange={setSection} options={sections.map((s) => ({ value: s, label: s }))} />
-          <Select label="Lista" value={list_label} onChange={setListLabel} options={lists.map((s) => ({ value: s, label: s }))} />
+          <Select
+            label="Sección"
+            value={section}
+            onChange={setSection}
+            options={sections.map((s: string) => ({ value: s, label: s }))}
+          />
+          <Select
+            label="Lista"
+            value={list_label}
+            onChange={setListLabel}
+            options={lists.map((s) => ({ value: s, label: s }))}
+          />
           <NumberInput label="Precio lista 1" value={price1} onChange={setPrice1} />
           <NumberInput label="Precio lista 2" value={price2} onChange={setPrice2} />
           {role === "admin" && <NumberInput label="Costo (solo admin)" value={cost} onChange={setCost} />}
@@ -686,8 +705,18 @@ function ProductosTab({ state, setState, role }: any) {
 
       <Card title="Listado de productos">
         <div className="grid md:grid-cols-4 gap-2 mb-3">
-          <Select label="Sección" value={secFilter} onChange={setSecFilter} options={["Todas", ...sections].map((s) => ({ value: s, label: s }))} />
-          <Select label="Lista" value={listFilter} onChange={setListFilter} options={["Todas", ...lists].map((s) => ({ value: s, label: s }))} />
+          <Select
+            label="Sección"
+            value={secFilter}
+            onChange={setSecFilter}
+            options={["Todas", ...sections].map((s: string) => ({ value: s, label: s }))}
+          />
+          <Select
+            label="Lista"
+            value={listFilter}
+            onChange={setListFilter}
+            options={["Todas", ...lists].map((s) => ({ value: s, label: s }))}
+          />
           <Input label="Buscar" value={q} onChange={setQ} placeholder="Nombre..." />
         </div>
         <div className="overflow-x-auto">
@@ -720,6 +749,7 @@ function ProductosTab({ state, setState, role }: any) {
     </div>
   );
 }
+
 
 
 /* Deudores */
