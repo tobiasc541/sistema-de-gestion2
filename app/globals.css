@@ -9,3 +9,54 @@
 body { 
   @apply bg-slate-950 text-slate-100; 
 }
+/* ===== PRINT FIX ===== */
+@media print {
+  @page { size: A4 portrait; margin: 10mm; }
+
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Forzar modo claro solo al imprimir */
+  :root { color-scheme: light; }
+
+  /* Ocultar UI de la app y dejar solo el comprobante */
+  .no-print, nav, header, footer, .sidebar, .actions, .btn, .modal, .toast {
+    display: none !important;
+  }
+
+  /* Zona imprimible */
+  .print-area {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Limpio, sin fondos oscuros */
+  .print-area * {
+    background: transparent !important;
+    color: #000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  /* Tablas */
+  .print-table { width: 100%; border-collapse: collapse; }
+  .print-table th, .print-table td {
+    border: 1px solid #000; padding: 4px 6px; font-size: 12px;
+  }
+  .print-table thead { display: table-header-group; }
+
+  /* Utilidades */
+  .avoid-break { break-inside: avoid; page-break-inside: avoid; }
+  .page-break { break-after: page; page-break-after: always; }
+}
+
+@media screen {
+  .only-print { display: none; }
+}
