@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Sistema de Facturación (Supabase)",
+  title: "Sistema de Facturación By: Tobias Carrizo",
   description: "Versión con persistencia en Supabase + fallback local",
 };
 
