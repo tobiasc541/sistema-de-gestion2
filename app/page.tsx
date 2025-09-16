@@ -1047,13 +1047,6 @@ function PresupuestosTab({ state, setState, session }: any) {
 }
 
 /* ===== Área de impresión ===== */
-/* ---- helpers para impresión ---- */
-const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
-/** Espera dos repaints para asegurar que la zona imprimible se montó antes de llamar window.print() */
-const nextPaint = () =>
-  new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res())));
-
-/* ===== Área de impresión ===== */
 function PrintArea() {
   const [inv, setInv] = useState<any | null>(null);
 
@@ -1065,75 +1058,102 @@ function PrintArea() {
 
   if (!inv) return null;
 
+  const paid = parseNum(inv?.payments?.cash || 0) + parseNum(inv?.payments?.transfer || 0);
+  const balance = Math.max(0, parseNum(inv.total) - paid);
+  const fullyPaid = balance <= 0.01;
   const docLabel = inv.type === "Recibo" ? "Recibo de Pago" : "Factura";
 
   return (
-    // Oculta en pantalla, visible al imprimir por .print-area (globals.css v3)
+    // Oculta en pantalla, visible al imprimir por reglas de globals.css (only-print + print-area)
     <div className="only-print print-area p-6">
       <div className="max-w-[720px] mx-auto">
-        <div className="text-center">
-          <div className="text-xl font-bold">El Shopping de los Comerciantes</div>
-          <div className="text-sm">{APP_TITLE}</div>
-          <div className="mt-2 text-sm">
-            {docLabel} N° <span className="font-bold">{pad(inv.number)}</span> —{" "}
-            {new Date(inv.date_iso).toLocaleString("es-AR")}
+        {/* Encabezado */}
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-xs tracking-widest font-semibold">{docLabel}</div>
+            <div className="text-sm">MITOBICEL</div>
+          </div>
+          <div className="text-right text-sm">
+            <div><b>Factura Nº:</b> {pad(inv.number)}</div>
+            <div><b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}</div>
+            <div><b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}</div>
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-          <div><span className="font-semibold">Cliente:</span> {inv.client_name}</div>
-          <div className="text-right"><span className="font-semibold">Vendedor:</span> {inv.vendor_name}</div>
+        {/* Datos cliente / vendedor */}
+        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+          <div><b>Cliente</b><div>{inv.client_name}</div></div>
+          <div className="text-right"><b>Vendedor</b><div>{inv.vendor_name}</div></div>
         </div>
 
-        <table className="print-table mt-3 text-sm">
+        {/* Detalle */}
+        <table className="print-table mt-8 text-sm">
           <thead>
             <tr>
-              <th>Producto</th>
-              <th style={{ width: "12%" }}>Cant.</th>
-              <th style={{ width: "18%" }}>P.Unit</th>
+              <th style={{ width: "6%" }}>#</th>
+              <th>Descripción</th>
+              <th style={{ width: "12%" }}>Cantidad</th>
+              <th style={{ width: "18%" }}>Precio</th>
               <th style={{ width: "18%" }}>Importe</th>
             </tr>
           </thead>
           <tbody>
-            {inv.items.map((it: any, idx: number) => (
-              <tr key={idx}>
+            {inv.items.map((it: any, i: number) => (
+              <tr key={i}>
+                <td style={{ textAlign: "right" }}>{i + 1}</td>
                 <td>{it.name}</td>
-                <td style={{ textAlign: "right" }}>{it.qty}</td>
-                <td style={{ textAlign: "right" }}>{money(it.unitPrice)}</td>
-                <td style={{ textAlign: "right" }}>
-                  {money(parseNum(it.qty) * parseNum(it.unitPrice))}
-                </td>
+                <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
+                <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
+                <td style={{ textAlign: "right" }}>{money(parseNum(it.qty) * parseNum(it.unitPrice))}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={3} style={{ textAlign: "right", fontWeight: 600 }}>TOTAL</td>
+              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>Total</td>
               <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
             </tr>
           </tfoot>
         </table>
 
-        <div className="mt-2 text-sm">
+        {/* Pagos */}
+        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
           <div>
-            <span className="font-semibold">Pagos:</span> Efectivo {money(inv.payments?.cash || 0)} — Transferencia{" "}
-            {money(inv.payments?.transfer || 0)}{" "}
-            {inv.payments?.alias ? `(Alias/CVU: ${inv.payments.alias})` : ""}
+            <div><b>Método de pago</b></div>
+            <div>EFECTIVO: {money(inv?.payments?.cash || 0)}</div>
+            <div>TRANSFERENCIA: {money(inv?.payments?.transfer || 0)}</div>
+            {inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
           </div>
-          <div><span className="font-semibold">Estado:</span> {inv.status}</div>
-          {inv.status !== "Pagada" && (
-            <div>
-              <span className="font-semibold">Saldo pendiente:</span>{" "}
-              {money(Math.max(0, inv.total - ((inv.payments?.cash || 0) + (inv.payments?.transfer || 0))))}
-            </div>
-          )}
+          <div className="text-right">
+            <div><b>Cantidad pagada:</b> {money(paid)}</div>
+            <div><b>Cantidad adeudada:</b> {money(balance)}</div>
+          </div>
         </div>
 
-        <div className="mt-6 text-center text-xs">Gracias por su compra</div>
+        {/* Marca de agua "PAGADO" si corresponde */}
+        {fullyPaid && (
+          <div
+            style={{
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%) rotate(-20deg)",
+              fontSize: 64,
+              fontWeight: 900,
+              letterSpacing: 4,
+              opacity: 0.08,
+            }}
+          >
+            PAGADO
+          </div>
+        )}
+
+        <div className="mt-8 text-xs text-center">Gracias por su compra — {APP_TITLE}</div>
       </div>
     </div>
   );
 }
+
 
 
 /* ===== Login ===== */
