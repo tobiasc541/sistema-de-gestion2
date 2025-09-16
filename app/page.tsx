@@ -1047,86 +1047,94 @@ function PresupuestosTab({ state, setState, session }: any) {
 }
 
 /* ===== Área de impresión ===== */
+/* ---- helpers para impresión ---- */
+const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
+/** Espera dos repaints para asegurar que la zona imprimible se montó antes de llamar window.print() */
+const nextPaint = () =>
+  new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res())));
+
+/* ===== Área de impresión ===== */
 function PrintArea() {
   const [inv, setInv] = useState<any | null>(null);
+
   useEffect(() => {
     const handler = (e: any) => setInv(e.detail);
     window.addEventListener("print-invoice", handler);
     return () => window.removeEventListener("print-invoice", handler);
   }, []);
 
+  if (!inv) return null;
+
+  const docLabel = inv.type === "Recibo" ? "Recibo de Pago" : "Factura";
+
   return (
-    <div id="print-area" className="hidden">
-      <style>{`@media print { body * { visibility: hidden !important; } #__PRINT__, #__PRINT__ * { visibility: visible !important; } #__PRINT__ { position: absolute; inset: 0; padding: 0; margin: 0; } .no-print { display:none !important } }`}</style>
-      {inv && (
-        <div id="__PRINT__" className="p-6 text-black bg-white">
-          <div className="max-w-[720px] mx-auto text-black">
-            <div className="text-center">
-              <div className="text-xl font-bold">El Shopping de los Comerciantes</div>
-              <div className="text-sm">MITOBICEL · CUIT 20-00000000-0</div>
-              <div className="text-sm">Av. Demo 123 · Córdoba · Argentina</div>
-              <div className="mt-2 text-sm">
-                Factura N° <span className="font-bold">{pad(inv.number)}</span> — {new Date(inv.date_iso).toLocaleString("es-AR")}
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="font-semibold">Cliente:</span> {inv.client_name}
-              </div>
-              <div>
-                <span className="font-semibold">Vendedor:</span> {inv.vendor_name}
-              </div>
-            </div>
-            <table className="w-full mt-3 text-sm border-collapse">
-              <thead>
-                <tr>
-                  <th className="border border-black px-2 py-1 text-left">Producto</th>
-                  <th className="border border-black px-2 py-1 text-right">Cant.</th>
-                  <th className="border border-black px-2 py-1 text-right">Precio</th>
-                  <th className="border border-black px-2 py-1 text-right">Importe</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inv.items.map((it: any, idx: number) => (
-                  <tr key={idx}>
-                    <td className="border border-black px-2 py-1">{it.name}</td>
-                    <td className="border border-black px-2 py-1 text-right">{it.qty}</td>
-                    <td className="border border-black px-2 py-1 text-right">{money(it.unitPrice)}</td>
-                    <td className="border border-black px-2 py-1 text-right">{money(parseNum(it.qty) * parseNum(it.unitPrice))}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td className="border border-black px-2 py-1 text-right font-semibold" colSpan={3}>
-                    TOTAL
-                  </td>
-                  <td className="border border-black px-2 py-1 text-right font-bold">{money(inv.total)}</td>
-                </tr>
-              </tfoot>
-            </table>
-            <div className="mt-2 text-sm">
-              <div>
-                <span className="font-semibold">Pagos:</span> Efectivo {money(inv.payments?.cash || 0)} — Transferencia{" "}
-                {money(inv.payments?.transfer || 0)} {inv.payments?.alias ? `(Alias/CVU: ${inv.payments.alias})` : ""}
-              </div>
-              <div>
-                <span className="font-semibold">Estado:</span> {inv.status}
-              </div>
-              {inv.status !== "Pagada" && (
-                <div>
-                  <span className="font-semibold">Saldo pendiente:</span>{" "}
-                  {money(Math.max(0, inv.total - ((inv.payments?.cash || 0) + (inv.payments?.transfer || 0))))}
-                </div>
-              )}
-            </div>
-            <div className="mt-6 text-center text-xs">Gracias por su compra</div>
+    // Oculta en pantalla, visible al imprimir por .print-area (globals.css v3)
+    <div className="only-print print-area p-6">
+      <div className="max-w-[720px] mx-auto">
+        <div className="text-center">
+          <div className="text-xl font-bold">El Shopping de los Comerciantes</div>
+          <div className="text-sm">{APP_TITLE}</div>
+          <div className="mt-2 text-sm">
+            {docLabel} N° <span className="font-bold">{pad(inv.number)}</span> —{" "}
+            {new Date(inv.date_iso).toLocaleString("es-AR")}
           </div>
         </div>
-      )}
+
+        <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+          <div><span className="font-semibold">Cliente:</span> {inv.client_name}</div>
+          <div className="text-right"><span className="font-semibold">Vendedor:</span> {inv.vendor_name}</div>
+        </div>
+
+        <table className="print-table mt-3 text-sm">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th style={{ width: "12%" }}>Cant.</th>
+              <th style={{ width: "18%" }}>P.Unit</th>
+              <th style={{ width: "18%" }}>Importe</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inv.items.map((it: any, idx: number) => (
+              <tr key={idx}>
+                <td>{it.name}</td>
+                <td style={{ textAlign: "right" }}>{it.qty}</td>
+                <td style={{ textAlign: "right" }}>{money(it.unitPrice)}</td>
+                <td style={{ textAlign: "right" }}>
+                  {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={3} style={{ textAlign: "right", fontWeight: 600 }}>TOTAL</td>
+              <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div className="mt-2 text-sm">
+          <div>
+            <span className="font-semibold">Pagos:</span> Efectivo {money(inv.payments?.cash || 0)} — Transferencia{" "}
+            {money(inv.payments?.transfer || 0)}{" "}
+            {inv.payments?.alias ? `(Alias/CVU: ${inv.payments.alias})` : ""}
+          </div>
+          <div><span className="font-semibold">Estado:</span> {inv.status}</div>
+          {inv.status !== "Pagada" && (
+            <div>
+              <span className="font-semibold">Saldo pendiente:</span>{" "}
+              {money(Math.max(0, inv.total - ((inv.payments?.cash || 0) + (inv.payments?.transfer || 0))))}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 text-center text-xs">Gracias por su compra</div>
+      </div>
     </div>
   );
 }
+
 
 /* ===== Login ===== */
 function Login({ onLogin, vendors, adminKey }: any) {
