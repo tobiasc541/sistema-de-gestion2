@@ -1151,15 +1151,14 @@ function Login({ onLogin, vendors, adminKey }: any) {
       <div className="max-w-md w-full space-y-5">
         <div className="text-center">
           <h1 className="text-xl font-bold">Sistema de Facturación</h1>
-          <p className="text-slate-400 text-sm">{hasSupabase ? "Conectado a Supabase" : "Sin base de datos"}</p>
+          <p className="text-slate-400 text-sm">{hasSupabase ? "By : Tobias Carrizo" : }</p>
         </div>
         <Card title="Ingreso">
           <form className="space-y-3" onSubmit={handleSubmit}>
             <Select label="Rol" value={role} onChange={setRole} options={[{ value: "vendedor", label: "Vendedor" }, { value: "admin", label: "Admin" }]} />
             {role === "vendedor" && <Input label="Vendedor (nombre o ID)" value={name} onChange={setName} placeholder="Ej: Tobi o v1" />}
-            <Input label="Clave" value={key} onChange={setKey} placeholder={role === "admin" ? "46892389" : "Clave asignada"} type="password" />
+            <Input label="Clave" value={key} onChange={setKey} placeholder={role === "Ej : admin" ? "251695452" : "Clave asignada"} type="password" />
             <div className="flex items-center justify-between">
-              <div className="text-xs text-slate-400">Admin demo: 46892389 | Vendedor demo: Tobi / 1234</div>
               <Button type="submit">Entrar</Button>
             </div>
           </form>
