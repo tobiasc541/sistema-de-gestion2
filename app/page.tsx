@@ -1058,13 +1058,16 @@ function PrintArea() {
 
   if (!inv) return null;
 
-  const paid = parseNum(inv?.payments?.cash || 0) + parseNum(inv?.payments?.transfer || 0);
+  const paidCash = parseNum(inv?.payments?.cash || 0);
+  const paidTransf = parseNum(inv?.payments?.transfer || 0);
+  const paid = paidCash + paidTransf;
   const balance = Math.max(0, parseNum(inv.total) - paid);
-  const fullyPaid = balance <= 0.01;
+  const fullyPaid = balance <= 0.009; // tolerancia centavos
   const docLabel = inv.type === "Recibo" ? "Recibo de Pago" : "Factura";
 
   return (
-    // Oculta en pantalla, visible al imprimir por reglas de globals.css (only-print + print-area)
+    /* Se oculta en pantalla y se ve sólo al imprimir por las reglas de globals.css:
+       .only-print { display:none } (screen) + .print-area (print) */
     <div className="only-print print-area p-6">
       <div className="max-w-[720px] mx-auto">
         {/* Encabezado */}
@@ -1074,7 +1077,7 @@ function PrintArea() {
             <div className="text-sm">MITOBICEL</div>
           </div>
           <div className="text-right text-sm">
-            <div><b>Factura Nº:</b> {pad(inv.number)}</div>
+            <div><b>{docLabel} Nº:</b> {pad(inv.number)}</div>
             <div><b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}</div>
             <div><b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}</div>
           </div>
@@ -1086,12 +1089,12 @@ function PrintArea() {
           <div className="text-right"><b>Vendedor</b><div>{inv.vendor_name}</div></div>
         </div>
 
-        {/* Detalle */}
+        {/* Detalle de artículos */}
         <table className="print-table mt-8 text-sm">
           <thead>
             <tr>
               <th style={{ width: "6%" }}>#</th>
-              <th>Descripción</th>
+              <th>Descripción de artículo</th>
               <th style={{ width: "12%" }}>Cantidad</th>
               <th style={{ width: "18%" }}>Precio</th>
               <th style={{ width: "18%" }}>Importe</th>
@@ -1120,8 +1123,8 @@ function PrintArea() {
         <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
           <div>
             <div><b>Método de pago</b></div>
-            <div>EFECTIVO: {money(inv?.payments?.cash || 0)}</div>
-            <div>TRANSFERENCIA: {money(inv?.payments?.transfer || 0)}</div>
+            <div>CONTADO: {money(paidCash)}</div>
+            <div>TRANSFERENCIA: {money(paidTransf)}</div>
             {inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
           </div>
           <div className="text-right">
@@ -1130,7 +1133,7 @@ function PrintArea() {
           </div>
         </div>
 
-        {/* Marca de agua "PAGADO" si corresponde */}
+        {/* Marca de agua "PAGADO" si ya está saldado */}
         {fullyPaid && (
           <div
             style={{
@@ -1148,7 +1151,9 @@ function PrintArea() {
           </div>
         )}
 
-        <div className="mt-8 text-xs text-center">Gracias por su compra — {APP_TITLE}</div>
+        <div className="mt-8 text-xs text-center">
+          Gracias por su compra — Sistema de Gestión y Facturación — By Tobias Carrizo
+        </div>
       </div>
     </div>
   );
