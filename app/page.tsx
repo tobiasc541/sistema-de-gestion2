@@ -303,12 +303,10 @@ function FacturacionTab({ state, setState, session }: any) {
       await saveCountersSupabase(st.meta);
     }
 
-    setTimeout(() => {
-      const evt = new CustomEvent("print-invoice", { detail: invoice } as any);
-      window.dispatchEvent(evt);
-      window.print();
-    }, 50);
-  }
+window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+await nextPaint();        // <- espera dos frames para que la plantilla se pinte
+window.print();
+
 
   const total = calcInvoiceTotal(items);
   const paid = parseNum(payCash) + parseNum(payTransf);
@@ -1046,118 +1044,8 @@ function PresupuestosTab({ state, setState, session }: any) {
   );
 }
 
-/* ===== Área de impresión ===== */
-function PrintArea() {
-  const [inv, setInv] = useState<any | null>(null);
 
-  useEffect(() => {
-    const handler = (e: any) => setInv(e.detail);
-    window.addEventListener("print-invoice", handler);
-    return () => window.removeEventListener("print-invoice", handler);
-  }, []);
 
-  if (!inv) return null;
-
-  const paidCash = parseNum(inv?.payments?.cash || 0);
-  const paidTransf = parseNum(inv?.payments?.transfer || 0);
-  const paid = paidCash + paidTransf;
-  const balance = Math.max(0, parseNum(inv.total) - paid);
-  const fullyPaid = balance <= 0.009; // tolerancia centavos
-  const docLabel = inv.type === "Recibo" ? "Recibo de Pago" : "Factura";
-
-  return (
-    /* Se oculta en pantalla y se ve sólo al imprimir por las reglas de globals.css:
-       .only-print { display:none } (screen) + .print-area (print) */
-    <div className="only-print print-area p-6">
-      <div className="max-w-[720px] mx-auto">
-        {/* Encabezado */}
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="text-xs tracking-widest font-semibold">{docLabel}</div>
-            <div className="text-sm">MITOBICEL</div>
-          </div>
-          <div className="text-right text-sm">
-            <div><b>{docLabel} Nº:</b> {pad(inv.number)}</div>
-            <div><b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}</div>
-            <div><b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}</div>
-          </div>
-        </div>
-
-        {/* Datos cliente / vendedor */}
-        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-          <div><b>Cliente</b><div>{inv.client_name}</div></div>
-          <div className="text-right"><b>Vendedor</b><div>{inv.vendor_name}</div></div>
-        </div>
-
-        {/* Detalle de artículos */}
-        <table className="print-table mt-8 text-sm">
-          <thead>
-            <tr>
-              <th style={{ width: "6%" }}>#</th>
-              <th>Descripción de artículo</th>
-              <th style={{ width: "12%" }}>Cantidad</th>
-              <th style={{ width: "18%" }}>Precio</th>
-              <th style={{ width: "18%" }}>Importe</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inv.items.map((it: any, i: number) => (
-              <tr key={i}>
-                <td style={{ textAlign: "right" }}>{i + 1}</td>
-                <td>{it.name}</td>
-                <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
-                <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
-                <td style={{ textAlign: "right" }}>{money(parseNum(it.qty) * parseNum(it.unitPrice))}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>Total</td>
-              <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
-            </tr>
-          </tfoot>
-        </table>
-
-        {/* Pagos */}
-        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-          <div>
-            <div><b>Método de pago</b></div>
-            <div>CONTADO: {money(paidCash)}</div>
-            <div>TRANSFERENCIA: {money(paidTransf)}</div>
-            {inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
-          </div>
-          <div className="text-right">
-            <div><b>Cantidad pagada:</b> {money(paid)}</div>
-            <div><b>Cantidad adeudada:</b> {money(balance)}</div>
-          </div>
-        </div>
-
-        {/* Marca de agua "PAGADO" si ya está saldado */}
-        {fullyPaid && (
-          <div
-            style={{
-              position: "fixed",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%) rotate(-20deg)",
-              fontSize: 64,
-              fontWeight: 900,
-              letterSpacing: 4,
-              opacity: 0.08,
-            }}
-          >
-            PAGADO
-          </div>
-        )}
-
-        <div className="mt-8 text-xs text-center">
-          Gracias por su compra — Sistema de Gestión y Facturación — By Tobias Carrizo
-        </div>
-      </div>
-    </div>
-  );
-}
 
 
 
@@ -1264,8 +1152,11 @@ export default function Page() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+  <>
+    {/* Toda la app: NO se imprime (clase no-print) */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 no-print">
       <style>{`::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:#0b1220}::-webkit-scrollbar-thumb{background:#22304a;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#2f436a}`}</style>
+
       {!session ? (
         <Login onLogin={onLogin} vendors={state.vendors} adminKey={state.auth.adminKey} />
       ) : (
@@ -1277,16 +1168,135 @@ export default function Page() {
           {tab === "Deudores" && <DeudoresTab state={state} setState={setState} />}
           {session.role === "admin" && tab === "Vendedores" && <VendedoresTab state={state} setState={setState} />}
           {session.role === "admin" && tab === "Reportes" && <ReportesTab state={state} setState={setState} />}
-          {tab === "Presupuestos" && session.role === "admin" && <PresupuestosTab state={state} setState={setState} session={session} />}
-          {tab === "Presupuestos" && session.role !== "admin" && (
-            <div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">Los presupuestos se gestionan por Admin.</div>
+          {tab === "Presupuestos" && session.role === "admin" && (
+            <PresupuestosTab state={state} setState={setState} session={session} />
           )}
-          <PrintArea />
+          {tab === "Presupuestos" && session.role !== "admin" && (
+            <div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">
+              Los presupuestos se gestionan por Admin.
+            </div>
+          )}
+
           <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
             {hasSupabase ? "Supabase activo" : "Datos en navegador"}
           </div>
         </>
       )}
     </div>
-  );
-}
+
+    {/* Plantilla que SÍ se imprime */}
+   /* ===== helpers para impresión (si no los tenés ya arriba) ===== */
+const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
+const nextPaint = () =>
+  new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res())));
+
+/* ===== Área de impresión ===== */
+function PrintArea() {
+  const [inv, setInv] = useState<any | null>(null);
+
+  useEffect(() => {
+    const handler = (e: any) => setInv(e.detail);
+    window.addEventListener("print-invoice", handler);
+    return () => window.removeEventListener("print-invoice", handler);
+  }, []);
+
+  if (!inv) return null;
+
+  const paidCash   = parseNum(inv?.payments?.cash || 0);
+  const paidTransf = parseNum(inv?.payments?.transfer || 0);
+  const paid       = paidCash + paidTransf;
+  const balance    = Math.max(0, parseNum(inv.total) - paid);
+  const fullyPaid  = balance <= 0.009;
+
+  return (
+    /* Se oculta en pantalla y se ve sólo al imprimir por globals.css:
+       @media screen {.only-print{display:none}} + @media print {.print-area{display:block!important}} */
+    <div className="only-print print-area p-14">
+      <div className="max-w-[780px] mx-auto">
+
+        {/* Encabezado como en la foto */}
+        <div className="flex items-start justify-between">
+          <div>
+            <div style={{ fontWeight: 800, letterSpacing: 1 }}>FACTURA</div>
+            <div style={{ marginTop: 2 }}>MITOBICEL</div>
+          </div>
+          {/* Aquí podés poner tu logo si querés */}
+          {/* <img src="/logo.png" alt="logo" style={{ height: 36 }} /> */}
+        </div>
+
+        {/* Línea separadora */}
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 6px" }} />
+
+        {/* Cliente / Datos de factura (sin vencimiento ni descuento) */}
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div>
+            <div style={{ fontWeight: 700 }}>Cliente</div>
+            <div>{inv.client_name}</div>
+          </div>
+          <div className="text-right">
+            <div><b>Factura Nº:</b> {pad(inv.number)}</div>
+            <div><b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}</div>
+            <div><b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}</div>
+          </div>
+        </div>
+
+        {/* Tabla de detalle (sin Impuesto ni Descuento) */}
+        <table className="print-table text-sm" style={{ marginTop: 10 }}>
+          <thead>
+            <tr>
+              <th style={{ width: "6%" }}>#</th>
+              <th>Descripción de artículo</th>
+              <th style={{ width: "12%" }}>Cantidad</th>
+              <th style={{ width: "18%" }}>Precio</th>
+              <th style={{ width: "18%" }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inv.items.map((it: any, i: number) => (
+              <tr key={i}>
+                <td style={{ textAlign: "right" }}>{i + 1}</td>
+                <td>{it.name}</td>
+                <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
+                <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
+                <td style={{ textAlign: "right" }}>
+                  {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>Total</td>
+              <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        {/* Desglose de pago a la derecha como en la foto */}
+        <div className="grid grid-cols-2 gap-2 text-sm" style={{ marginTop: 8 }}>
+          <div />
+          <div>
+            <div><b>Método de pago:</b></div>
+            <div>CONTADO: {money(paidCash)}</div>
+            <div>TRANSFERENCIA: {money(paidTransf)}</div>
+            {inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
+            <div style={{ marginTop: 6 }}><b>Cantidad pagada:</b> {money(paid)}</div>
+            <div><b>Cantidad adeudada:</b> {money(balance)}</div>
+          </div>
+        </div>
+
+        {/* Marca de agua PAGADO opcional */}
+        {fullyPaid && (
+          <div
+            style={{
+              position: "fixed",
+              top: "55%",
+              left: "50%",
+              transform: "translate(-50%, -50%) rotate(-20deg)",
+              fontSize: 64,
+              fontWeight: 900,
+              letterSpacing: 4,
+              opacity: 0.08,
+            }}
+  </>
+);
