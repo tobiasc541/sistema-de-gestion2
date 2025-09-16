@@ -533,7 +533,13 @@ function ProductosTab({ state, setState, role }: any) {
   const [listFilter, setListFilter] = useState("Todas");
   const [q, setQ] = useState("");
 
-  const sections = ["Almacén", "Bebidas", "Limpieza", "Otros"];
+  // === NUEVO: creación y fuente dinámica de secciones ===
+  const [newSection, setNewSection] = useState("");
+  const [extraSections, setExtraSections] = useState<string[]>([]);
+  const baseSections = ["Almacén", "Bebidas", "Limpieza", "Otros"];
+  const derivedSections = Array.from(new Set(state.products.map((p: any) => p.section).filter(Boolean)));
+  const sections = Array.from(new Set([...baseSections, ...derivedSections, ...extraSections]));
+
   const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
 
   async function addProduct() {
@@ -557,6 +563,20 @@ function ProductosTab({ state, setState, role }: any) {
     if (hasSupabase) await supabase.from("products").insert(product);
   }
 
+  // NUEVO: agregar sección local (sin tocar otras partes del sistema)
+  function addSection() {
+    const s = newSection.trim();
+    if (!s) return;
+    const exists = sections.some((x) => x.toLowerCase() === s.toLowerCase());
+    if (exists) {
+      alert("Esa sección ya existe.");
+      return;
+    }
+    setExtraSections([...extraSections, s]);
+    setNewSection("");
+    setSection(s); // selecciona la nueva por comodidad
+  }
+
   const filtered = state.products.filter((p: any) => {
     const okS = secFilter === "Todas" || p.section === secFilter;
     const okL = listFilter === "Todas" || p.list_label === listFilter;
@@ -566,6 +586,21 @@ function ProductosTab({ state, setState, role }: any) {
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
+      {/* NUEVO: creador de secciones */}
+      <Card title="Crear sección">
+        <div className="grid md:grid-cols-3 gap-3">
+          <Input
+            label="Nombre de la sección"
+            value={newSection}
+            onChange={setNewSection}
+            placeholder="Ej: Perfumería, Librería…"
+          />
+          <div className="pt-6">
+            <Button onClick={addSection}>Agregar sección</Button>
+          </div>
+        </div>
+      </Card>
+
       <Card title="Crear producto">
         <div className="grid md:grid-cols-6 gap-3">
           <Input label="Nombre" value={name} onChange={setName} className="md:col-span-2" />
@@ -579,6 +614,7 @@ function ProductosTab({ state, setState, role }: any) {
           </div>
         </div>
       </Card>
+
       <Card title="Listado de productos">
         <div className="grid md:grid-cols-4 gap-2 mb-3">
           <Select label="Sección" value={secFilter} onChange={setSecFilter} options={["Todas", ...sections].map((s) => ({ value: s, label: s }))} />
@@ -615,6 +651,7 @@ function ProductosTab({ state, setState, role }: any) {
     </div>
   );
 }
+
 
 /* Deudores */
 function DeudoresTab({ state, setState }: any) {
