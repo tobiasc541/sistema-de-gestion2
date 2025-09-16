@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
-html { @apply dark; }
-body { @apply bg-slate-950 text-slate-100; }
+:root { 
+  color-scheme: dark; 
+}
+
+body { 
+  @apply bg-slate-950 text-slate-100; 
+}
