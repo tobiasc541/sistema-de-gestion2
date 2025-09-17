@@ -13,7 +13,7 @@ type Ticket = {
   client_name?: string | null;
   client_number?: number | null;
   action?: string | null;
-  status: "En cola" | "Aceptado" | "Cancelado";
+  status: "En fila" | "Aceptado" | "Cancelado";
   box?: number | null;
   accepted_by?: string | null;
   accepted_at?: string | null;
@@ -113,7 +113,7 @@ function TVClient() {
     const { data, error } = await supabase
       .from("tickets")
       .select("id, client_name, client_number, action, status, box, accepted_by, accepted_at")
-      .in("status", ["En cola", "Aceptado"])
+      .in("status", ["En fila", "Aceptado"])
       .order("accepted_at", { ascending: false, nullsFirst: true })
       .limit(100);
     if (error) return;
@@ -122,7 +122,7 @@ function TVClient() {
     const hid = hiddenIdsRef.current;
 
     const pend = (data || []).filter(
-      (t) => t.status === "En cola" && !hid.has(t.id)
+      (t) => t.status === "En fila" && !hid.has(t.id)
     );
 
     const acc = (data || []).filter((t) => {
@@ -158,7 +158,7 @@ function TVClient() {
           lastSpokenId.current = r.id;
           setSpotlight(r);
 
-          setTimeout(() => setSpotlight((s) => (s?.id === r.id ? null : s)), 5000);
+          setTimeout(() => setSpotlight((s) => (s?.id === r.id ? null : s)), SPOTLIGHT_MS);
 
           setTimeout(() => {
             setHiddenIds((prev) => {
@@ -176,7 +176,7 @@ function TVClient() {
   }, [soundOn]);
 
   /* =========================
-     Render (layout que no se recorta)
+     Render 
   ========================= */
   return (
     <div className={`h-screen overflow-hidden flex flex-col ${isDark ? "bg-black text-white" : "bg-white text-slate-900"}`}>
@@ -209,11 +209,11 @@ function TVClient() {
           </div>
         </div>
 
-        {/* Dos columnas */}
-        <div className="grid grid-cols-2 gap-6 lg:gap-8 px-6 pb-6 flex-1 min-h-0 overflow-hidden">
+        {/* Dos columnas con scroll infinito */}
+        <div className="grid grid-cols-2 gap-6 lg:gap-8 px-6 pb-6 flex-1 overflow-y-auto">
           {/* En fila */}
           <section
-            className={`rounded-2xl p-6 md:p-8 border-4 ${isDark ? "border-yellow-500 bg-slate-900/80" : "border-yellow-400 bg-yellow-50"} flex flex-col min-h-0`}
+            className={`rounded-2xl p-6 md:p-8 border-4 ${isDark ? "border-yellow-500 bg-slate-900/80" : "border-yellow-400 bg-yellow-50"} flex flex-col`}
           >
             <header className="shrink-0 text-xl md:text-2xl lg:text-3xl font-black mb-3 flex items-center gap-2">
               <span className="text-yellow-400">En fila</span>
@@ -222,36 +222,27 @@ function TVClient() {
               </span>
             </header>
 
-            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+            <div className="flex-1 overflow-y-auto pr-1">
               {pending.length === 0 ? (
                 <div className={`text-base md:text-lg ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                   Sin turnos pendientes.
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {pending.map((t) => {
                     const p = pickPalette(t);
                     return (
-                      /* TARJETA PENDIENTE (ACHICADA Y CON ESPACIO) */
                       <article
                         key={t.id}
-                        className={`rounded-xl ring-2 p-3 md:p-4 mx-2 my-2 ${p.ring} ${
+                        className={`rounded-xl ring-2 p-3 md:p-4 mx-2 ${p.ring} ${
                           isDark ? p.bg : "bg-white"
-                        } ${isDark ? "ring-offset-slate-900" : "ring-offset-white"} ring-offset-1 shadow-md`}
+                        } shadow-md`}
                       >
                         <div className={`text-lg md:text-xl font-extrabold ${p.title} break-words`}>
                           {t.client_name || "Cliente"}
                         </div>
                         <div className={`mt-1 text-sm md:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>
                           {t.action || "—"} {t.client_number ? `— N° ${t.client_number}` : ""}
-                        </div>
-                        <div className="mt-2 inline-flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${p.chip}`}>En cola</span>
-                          {t.box ? (
-                            <span className="px-2 py-0.5 rounded-full text-xs bg-slate-700/30 border border-slate-600/40">
-                              Caja {t.box}
-                            </span>
-                          ) : null}
                         </div>
                       </article>
                     );
@@ -263,7 +254,7 @@ function TVClient() {
 
           {/* Aceptados */}
           <section
-            className={`rounded-2xl p-6 md:p-8 border-4 ${isDark ? "border-green-500 bg-slate-900/80" : "border-green-400 bg-green-50"} flex flex-col min-h-0`}
+            className={`rounded-2xl p-6 md:p-8 border-4 ${isDark ? "border-green-500 bg-slate-900/80" : "border-green-400 bg-green-50"} flex flex-col`}
           >
             <header className="shrink-0 text-xl md:text-2xl lg:text-3xl font-black mb-3 flex items-center gap-2">
               <span className="text-green-400">Clientes aceptados</span>
@@ -272,22 +263,21 @@ function TVClient() {
               </span>
             </header>
 
-            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+            <div className="flex-1 overflow-y-auto pr-1">
               {accepted.length === 0 ? (
                 <div className={`text-base md:text-lg ${isDark ? "text-slate-400" : "text-slate-600"}`}>
                   Aún no hay aceptados.
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {accepted.map((t) => {
                     const p = pickPalette(t);
                     return (
-                      /* TARJETA ACEPTADO (ACHICADA Y CON ESPACIO) */
                       <article
                         key={t.id}
-                        className={`rounded-xl ring-2 p-3 md:p-4 mx-2 my-2 ${p.ring} ${
+                        className={`rounded-xl ring-2 p-3 md:p-4 mx-2 ${p.ring} ${
                           isDark ? "bg-black" : "bg-white"
-                        } ${isDark ? "ring-offset-slate-900" : "ring-offset-white"} ring-offset-1 shadow-md`}
+                        } shadow-md`}
                       >
                         <div className="text-lg md:text-xl font-extrabold break-words">
                           {t.client_name || "Cliente"} — Caja {t.box || 1}
@@ -302,9 +292,6 @@ function TVClient() {
                               })}`
                             : ""}
                         </div>
-                        <div className="mt-2 inline-flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${p.chip}`}>¡Aceptado!</span>
-                        </div>
                       </article>
                     );
                   })}
@@ -314,13 +301,13 @@ function TVClient() {
           </section>
         </div>
 
-        {/* Footer (fijo) */}
+        {/* Footer */}
         <div className="shrink-0 px-4 pb-4 text-center text-xs md:text-sm text-slate-500">
           Sistema de Gestión — Pantalla de Turnos
         </div>
       </div>
 
-      {/* Spotlight: anuncio gigante 5s al aceptar */}
+      {/* Spotlight */}
       {spotlight && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80">
           <div className="text-center px-8">
