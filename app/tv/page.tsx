@@ -44,9 +44,7 @@ export default function TVPage() {
     if (!hasSupabase) return;
     const { data, error } = await supabase
       .from("tickets")
-      .select(
-        "id, client_name, client_number, action, status, box, accepted_by, accepted_at"
-      )
+      .select("id, client_name, client_number, action, status, box, accepted_by, accepted_at")
       .in("status", ["En cola", "Aceptado"])
       .order("accepted_at", { ascending: false, nullsFirst: true })
       .limit(60);
@@ -81,6 +79,11 @@ export default function TVPage() {
           const caja = r.box || 1;
           speak(`${nombre}, puede pasar a la caja ${caja}`);
           lastSpokenId.current = r.id;
+
+          // auto-remover en 15 segundos
+          setTimeout(() => {
+            setAccepted((prev) => prev.filter((x) => x.id !== r.id));
+          }, 15000);
         }
       })
       .subscribe();
@@ -93,107 +96,67 @@ export default function TVPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-black text-white p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-4xl font-extrabold tracking-tight">
-            Turnos — <span className="text-emerald-400">{clock}</span>
-          </h1>
-          <button
-            onClick={fetchTickets}
-            className="rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 px-5 py-2 text-lg"
-          >
-            Actualizar
-          </button>
-        </div>
+    <div className="min-h-screen bg-black text-white p-6 flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-5xl font-extrabold">
+          Turnos — <span className="text-emerald-400">{clock}</span>
+        </h1>
+        <button
+          onClick={fetchTickets}
+          className="rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 px-6 py-3 text-lg"
+        >
+          Actualizar
+        </button>
+      </div>
 
-        {/* Ultimo llamado grande */}
-        {accepted.length > 0 && (
-          <div className="mb-6 p-6 rounded-2xl bg-emerald-600 animate-pulse text-center shadow-xl">
-            <div className="text-3xl font-bold">
-              {accepted[0].client_name || "Cliente"} — Caja {accepted[0].box || 1}
-            </div>
-            <div className="text-lg">
-              Aceptado por {accepted[0].accepted_by || "—"}
-            </div>
-          </div>
-        )}
-
-        {/* Grilla columnas */}
-        <div className="grid grid-cols-2 gap-6">
-          {/* En cola */}
-          <div className="rounded-2xl border-4 border-yellow-500 bg-yellow-900/30 p-4 shadow-lg">
-            <div className="text-2xl font-bold mb-3 text-yellow-400">En cola</div>
-            {pending.length === 0 && (
-              <div className="text-slate-300 text-lg">Sin turnos pendientes.</div>
-            )}
-            <div className="space-y-3">
-              {pending.map((t) => (
-                <div
-                  key={t.id}
-                  className="rounded-xl border border-yellow-400 bg-yellow-800/40 p-3 flex items-center justify-between"
-                >
-                  <div>
-                    <div className="font-bold text-lg">{t.client_name}</div>
-                    <div className="text-sm text-slate-200">
-                      {t.action} {t.client_number ? `— N° ${t.client_number}` : ""}
-                    </div>
-                  </div>
-                  <span className="px-3 py-1 rounded-full bg-yellow-400 text-black font-bold">
-                    En cola
-                  </span>
+      {/* Grilla columnas */}
+      <div className="flex-1 grid grid-cols-2 gap-8">
+        {/* En cola */}
+        <div className="rounded-2xl border-4 border-yellow-500 bg-slate-900/80 p-6">
+          <div className="text-4xl font-bold mb-4 text-yellow-400">En cola</div>
+          {pending.length === 0 && <div className="text-slate-400 text-2xl">Sin turnos pendientes.</div>}
+          <div className="space-y-4">
+            {pending.map((t) => (
+              <div key={t.id} className="rounded-xl border-2 border-yellow-500 bg-black p-4">
+                <div className="text-3xl font-extrabold">{t.client_name || "Cliente"}</div>
+                <div className="text-xl text-slate-300">
+                  {t.action || "—"} {t.client_number ? `— N° ${t.client_number}` : ""}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
+        </div>
 
-          {/* Aceptados */}
-          <div className="rounded-2xl border-4 border-emerald-500 bg-emerald-900/30 p-4 shadow-lg">
-            <div className="text-2xl font-bold mb-3 text-emerald-400">Aceptados</div>
-            {accepted.length === 0 && (
-              <div className="text-slate-300 text-lg">Aún no hay aceptados.</div>
-            )}
-            <div className="space-y-3">
-              {accepted.map((t, i) => (
-                <div
-                  key={t.id}
-                  className={`rounded-xl border-2 p-3 ${
-                    i === 0
-                      ? "border-emerald-400 bg-emerald-800/60"
-                      : "border-emerald-700 bg-emerald-900/40"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-lg">
-                        {t.client_name} — Caja {t.box}
-                      </div>
-                      <div className="text-xs text-slate-200">
-                        Aceptado por {t.accepted_by || "—"} —{" "}
-                        {t.accepted_at
-                          ? new Date(t.accepted_at).toLocaleTimeString("es-AR", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              second: "2-digit",
-                            })
-                          : "—"}
-                      </div>
-                    </div>
-                    <span className="px-3 py-1 rounded-full bg-emerald-400 text-black font-bold">
-                      Aceptado
-                    </span>
-                  </div>
+        {/* Aceptados */}
+        <div className="rounded-2xl border-4 border-green-500 bg-slate-900/80 p-6">
+          <div className="text-4xl font-bold mb-4 text-green-400">Clientes aceptados</div>
+          {accepted.length === 0 && <div className="text-slate-400 text-2xl">Aún no hay aceptados.</div>}
+          <div className="space-y-4">
+            {accepted.map((t) => (
+              <div key={t.id} className="rounded-xl border-4 border-green-500 bg-black p-4 animate-pulse">
+                <div className="text-4xl font-extrabold text-green-400">
+                  {t.client_name || "Cliente"} — Caja {t.box || 1}
                 </div>
-              ))}
-            </div>
+                <div className="text-xl text-slate-400">
+                  Aceptado por {t.accepted_by || "—"} —{" "}
+                  {t.accepted_at
+                    ? new Date(t.accepted_at).toLocaleTimeString("es-AR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })
+                    : "—"}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
+      </div>
 
-        {/* Footer */}
-        <div className="mt-10 text-sm text-slate-500 text-center">
-          Sistema de Gestión — Pantalla de Turnos
-        </div>
+      {/* Footer */}
+      <div className="mt-6 text-lg text-slate-500 text-center">
+        Sistema de Gestión — Pantalla de Turnos
       </div>
     </div>
   );
