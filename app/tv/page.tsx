@@ -272,7 +272,7 @@ function TVClient() {
                   Sin turnos pendientes.
                 </div>
               ) : (
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-4 pt-2">
                   {pending.map((t) => {
                     const p = pickPalette(t);
                     return (
@@ -328,7 +328,7 @@ function TVClient() {
                   Aún no hay aceptados.
                 </div>
               ) : (
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-4 pt-2">
                   {accepted.map((t) => {
                     const p = pickPalette(t);
                     return (
