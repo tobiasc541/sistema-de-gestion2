@@ -180,7 +180,7 @@ function TVClient() {
               {pending.length}
             </span>
           </header>
-
+-
           {pending.length === 0 ? (
             <div className={`text-2xl ${isDark ? "text-slate-400" : "text-slate-500"}`}>Sin turnos pendientes.</div>
           ) : (
