@@ -278,7 +278,7 @@ function TVClient() {
                     return (
                       <article
                         key={t.id}
-                        className={`rounded-xl ring-2 p-3 ${p.ring} ${
+                        className={`rounded-lg ring-1 p-2 ${p.ring} ${
                           isDark ? p.bg : "bg-white"
                         } shadow-md`}
                       >
@@ -334,7 +334,7 @@ function TVClient() {
                     return (
                       <article
                         key={t.id}
-                        className={`rounded-xl ring-2 p-3 ${p.ring} ${
+                        className={`rounded-lg ring-1 p-2 ${p.ring} ${
                           isDark ? "bg-black" : "bg-white"
                         } shadow-md`}
                       >
