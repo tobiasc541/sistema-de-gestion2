@@ -1233,53 +1233,71 @@ function ReportesTab({ state, setState }: any) {
         )}
       </Card>
 
-      <Card title="Listado de facturas">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-slate-400">
-              <tr>
-                <th className="py-2 pr-4">N°</th>
-                <th className="py-2 pr-4">Fecha</th>
-                <th className="py-2 pr-4">Cliente</th>
-                <th className="py-2 pr-4">Vendedor</th>
-                <th className="py-2 pr-4">Total</th>
-                <th className="py-2 pr-4">Estado</th>
-                <th className="py-2 pr-4">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {invoices
-                .slice()
-                .reverse()
-                .map((f: any) => (
-                  <tr key={f.id}>
-                    <td className="py-2 pr-4">{pad(f.number)}</td>
-                    <td className="py-2 pr-4">{new Date(f.date_iso).toLocaleString("es-AR")}</td>
-                    <td className="py-2 pr-4">{f.client_name}</td>
-                    <td className="py-2 pr-4">{f.vendor_name}</td>
-                    <td className="py-2 pr-4">{money(f.total)}</td>
-                    <td className="py-2 pr-4">{f.status}</td>
-                    <td className="py-2 pr-4">
-                      <button onClick={() => borrarFactura(f.id)} className="text-xs text-red-400 hover:text-red-300">
-                        Eliminar
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              {invoices.length === 0 && (
-                <tr>
-                  <td className="py-4 pr-4 text-slate-400" colSpan={7}>
-                    Sin facturas en el período.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-    </div>
-  );
-}
+    <Card title="Listado de facturas">
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="text-left text-slate-400">
+        <tr>
+          <th className="py-2 pr-4">N°</th>
+          <th className="py-2 pr-4">Fecha</th>
+          <th className="py-2 pr-4">Cliente</th>
+          <th className="py-2 pr-4">Vendedor</th>
+          <th className="py-2 pr-4">Total</th>
+          <th className="py-2 pr-4">Estado</th>
+          <th className="py-2 pr-4">Acciones</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-800">
+        {invoices
+          .slice()
+          .reverse()
+          .map((f: any) => (
+            <tr key={f.id}>
+              <td className="py-2 pr-4">{pad(f.number)}</td>
+              <td className="py-2 pr-4">{new Date(f.date_iso).toLocaleString("es-AR")}</td>
+              <td className="py-2 pr-4">{f.client_name}</td>
+              <td className="py-2 pr-4">{f.vendor_name}</td>
+              <td className="py-2 pr-4">{money(f.total)}</td>
+              <td className="py-2 pr-4">{f.status}</td>
+              <td className="py-2 pr-4 flex gap-3 items-center">
+                {/* Botón Descargar PDF */}
+                <button
+                  title="Descargar PDF"
+                  onClick={() => {
+                    const data = { ...f, type: "Factura" };
+                    window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
+                    setTimeout(() => window.print(), 0);
+                  }}
+                  className="text-blue-400 hover:text-blue-300 text-lg"
+                >
+                  📄
+                </button>
+
+                {/* Botón Eliminar */}
+                <button
+                  onClick={() => borrarFactura(f.id)}
+                  className="text-red-500 hover:text-red-400 text-lg"
+                  title="Eliminar factura"
+                >
+                  🗑️
+                </button>
+              </td>
+            </tr>
+          ))}
+
+        {/* Mensaje cuando no hay facturas */}
+        {invoices.length === 0 && (
+          <tr>
+            <td className="py-4 pr-4 text-slate-400" colSpan={7}>
+              Sin facturas en el período.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</Card>
+
 
 /* Presupuestos */
 function PresupuestosTab({ state, setState, session }: any) {
@@ -1512,6 +1530,24 @@ function PresupuestosTab({ state, setState, session }: any) {
   ) : (
     <span className="text-xs">Convertido</span>
   )}
+{/* Botón Eliminar */}
+  <button
+    title="Eliminar presupuesto"
+    onClick={() => {
+      if (confirm(`¿Seguro que deseas eliminar el presupuesto Nº ${pad(b.number)}?`)) {
+        const st = clone(state);
+        st.budgets = st.budgets.filter((x: any) => x.id !== b.id);
+        setState(st);
+        if (hasSupabase) {
+          supabase.from("budgets").delete().eq("id", b.id);
+        }
+        alert(`Presupuesto Nº ${pad(b.number)} eliminado.`);
+      }
+    }}
+    className="text-red-500 hover:text-red-400 text-lg ml-2"
+  >
+    🗑️
+  </button>
 </td>
 
 
