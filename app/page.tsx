@@ -912,34 +912,65 @@ function ColaTab({ state, setState, session }: any) {
     }
   }, []);
 
- async function accept(t: any, caja = "1") {
-  // actualizar estado local
+async function accept(t: any, caja = "1") {
+  // --- actualizar estado local
+  const now = new Date().toISOString();
   const st = clone(state);
   st.queue = Array.isArray(st.queue) ? st.queue : [];
   const i = st.queue.findIndex((x: any) => x.id === t.id);
-  if (i >= 0) st.queue[i] = { ...st.queue[i], status: "Aceptado", box: caja, accepted_by: session?.name || session?.id, accepted_at: new Date().toISOString() };
-  setState(st);
-  setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: "Aceptado", box: caja } : x)));
-
-  // persistir en Supabase
-  if (hasSupabase) {
-    const updates = {
-      status: "Aceptado" as const,
-      box: parseInt(caja),
-      accepted_by: session?.name ?? "-",
-      accepted_at: new Date().toISOString(),
+  if (i >= 0) {
+    st.queue[i] = {
+      ...st.queue[i],
+      status: "Aceptado",
+      box: Number(caja),
+      accepted_by: session?.name ?? session?.id ?? "-",
+      accepted_at: now,
     };
-    const { error } = await supabase.from("tickets").update(updates).eq("id", t.id);
-    if (error) console.error("Error al actualizar ticket:", error);
+  }
+  setState(st);
+  setTickets(prev =>
+    prev.map(x =>
+      x.id === t.id
+        ? {
+            ...x,
+            status: "Aceptado",
+            box: Number(caja),
+            accepted_by: session?.name ?? session?.id ?? "-",
+            accepted_at: now,
+          }
+        : x
+    )
+  );
+
+  // --- persistir en Supabase
+  if (hasSupabase) {
+    const { error } = await supabase
+      .from("tickets")
+      .update({
+        status: "Aceptado",
+        box: Number(caja),
+        accepted_by: session?.name ?? "-",
+        accepted_at: now,
+      })
+      .eq("id", t.id);
+
+    if (error) {
+      console.error("Supabase UPDATE tickets error:", error);
+      alert("No pude marcar el ticket como ACEPTADO en la base. Revisá la consola.");
+      // opcional: volver a cargar para no dejar la UI “mintiendo”
+      await refresh();
+      return;
+    }
   }
 
-  // aviso a la TV
+  // --- aviso a la TV
   try {
     const bc = new BroadcastChannel("turnos-tv");
     bc.postMessage({ type: "announce", client_name: t.client_name, caja });
   } catch {}
   alert(`${t.client_name} puede pasar a la CAJA ${caja}`);
 }
+
 
 
   async function cancel(t: any) {
@@ -1008,12 +1039,13 @@ function ColaTab({ state, setState, session }: any) {
                 {aceptados.map((t) => (
                   <div key={t.id} className="p-3 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">
-                        {t.client_name} — Caja {t.caja || "1"}
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        Aceptado por {t.accepted_by || "—"} · {new Date(t.date_iso).toLocaleTimeString("es-AR")}
-                      </div>
+                   <div className="text-sm font-medium truncate">
+  {t.client_name} — Caja {t.box ?? "1"}
+</div>
+<div className="text-xs text-slate-400">
+  Aceptado por {t.accepted_by || "—"} · {t.accepted_at ? new Date(t.accepted_at).toLocaleTimeString("es-AR") : "—"}
+</div>
+
                     </div>
                     <Chip tone="emerald">Aceptado</Chip>
                   </div>
