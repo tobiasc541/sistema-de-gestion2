@@ -199,14 +199,15 @@ function groupBy(arr: any[], key: string) {
 
 /* ===== Navbar ===== */
 function Navbar({ current, setCurrent, role, onLogout }: any) {
-  const TABS = ["Facturación", "Clientes", "Productos", "Deudores", "Vendedores", "Reportes", "Presupuestos"];
+ const TABS = ["Facturación", "Clientes", "Productos", "Deudores", "Vendedores", "Reportes", "Presupuestos", "Cola"];
 
-  const visibleTabs =
-    role === "admin"
-      ? TABS
-      : role === "vendedor"
-      ? ["Facturación", "Clientes", "Productos", "Deudores"]
-      : ["Panel"]; // cliente sólo ve “Panel”
+const visibleTabs =
+  role === "admin"
+    ? TABS
+    : role === "vendedor"
+    ? ["Facturación", "Clientes", "Productos", "Deudores", "Cola"]
+    : ["Panel"];
+
 
   return (
     <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
@@ -243,29 +244,35 @@ function ClientePanel({ state, setState, session }: any) {
     return ("T-" + a + "-" + b).toUpperCase();
   }
 
-  async function continuar() {
-    const code = genTicketCode();
-    const ticket = {
-      id: code,
-      date_iso: todayISO(),
-      client_id: session.id,
-      client_number: session.number,
-      client_name: session.name,
-      action: accion,
-      status: "En cola",
-    };
+async function continuar() {
+  const code = genTicketCode();
+  const ticket = {
+    id: code,
+    date_iso: todayISO(),
+    client_id: session.id,
+    client_number: session.number,
+    client_name: session.name,
+    action: accion,
+    status: "En cola" as const,
+  };
 
+  // guardar ticket en la cola local
+  const st = clone(state);
+  st.queue = Array.isArray(st.queue) ? st.queue : [];
+  st.queue.push(ticket);
+  setState(st);
 
-    // guardar ticket en la cola local
-    const st = clone(state);
-    st.queue.push(ticket);
-    setState(st);
-
-    // imprimir ticket
-    window.dispatchEvent(new CustomEvent("print-ticket", { detail: ticket } as any));
-    await nextPaint();
-    window.print();
+  // ⬇️ guardar en Supabase (si está disponible)
+  if (hasSupabase) {
+    await supabase.from("tickets").insert(ticket);
   }
+
+  // imprimir ticket
+  window.dispatchEvent(new CustomEvent("print-ticket", { detail: ticket } as any));
+  await nextPaint();
+  window.print();
+}
+
 
   return (
     <div className="max-w-xl mx-auto p-6 space-y-4">
@@ -1570,6 +1577,7 @@ export default function Page() {
   const [state, setState] = useState<any>(seedState()); // <- sin localStorage
   const [session, setSession] = useState<any | null>(null);
   const [tab, setTab] = useState("Facturación");
+  
 
   useEffect(() => {
     if (!hasSupabase) return;
@@ -1604,17 +1612,38 @@ export default function Page() {
               <ClientePanel state={state} setState={setState} session={session} />
             )}
 
-            {/* Vendedor / Admin */}
-            {session.role !== "cliente" && tab === "Facturación" && <FacturacionTab state={state} setState={setState} session={session} />}
-            {session.role !== "cliente" && tab === "Clientes" && <ClientesTab state={state} setState={setState} />}
-            {session.role !== "cliente" && tab === "Productos" && <ProductosTab state={state} setState={setState} role={session.role} />}
-            {session.role !== "cliente" && tab === "Deudores" && <DeudoresTab state={state} setState={setState} />}
-            {session.role === "admin" && tab === "Vendedores" && <VendedoresTab state={state} setState={setState} />}
-            {session.role === "admin" && tab === "Reportes" && <ReportesTab state={state} setState={setState} />}
-            {session.role === "admin" && tab === "Presupuestos" && <PresupuestosTab state={state} setState={setState} session={session} />}
-            {session.role !== "admin" && session.role !== "cliente" && tab === "Presupuestos" && (
-              <div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">Los presupuestos se gestionan por Admin.</div>
-            )}
+          {/* Vendedor / Admin */}
+{session.role !== "cliente" && tab === "Facturación" && (
+  <FacturacionTab state={state} setState={setState} session={session} />
+)}
+{session.role !== "cliente" && tab === "Clientes" && (
+  <ClientesTab state={state} setState={setState} />
+)}
+{session.role !== "cliente" && tab === "Productos" && (
+  <ProductosTab state={state} setState={setState} role={session.role} />
+)}
+{session.role !== "cliente" && tab === "Deudores" && (
+  <DeudoresTab state={state} setState={setState} />
+)}
+{/* 👇 Aca va ColaTab */}
+{session.role !== "cliente" && tab === "Cola" && (
+  <ColaTab state={state} setState={setState} session={session} />
+)}
+{session.role === "admin" && tab === "Vendedores" && (
+  <VendedoresTab state={state} setState={setState} />
+)}
+{session.role === "admin" && tab === "Reportes" && (
+  <ReportesTab state={state} setState={setState} />
+)}
+{session.role === "admin" && tab === "Presupuestos" && (
+  <PresupuestosTab state={state} setState={setState} session={session} />
+)}
+{session.role !== "admin" && session.role !== "cliente" && tab === "Presupuestos" && (
+  <div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">
+    Los presupuestos se gestionan por Admin.
+  </div>
+)}
+
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
               {hasSupabase ? "Supabase activo" : "Datos en navegador"}
