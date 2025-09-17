@@ -1285,19 +1285,21 @@ function ReportesTab({ state, setState }: any) {
             </tr>
           ))}
 
-        {/* Mensaje cuando no hay facturas */}
-        {invoices.length === 0 && (
-          <tr>
-            <td className="py-4 pr-4 text-slate-400" colSpan={7}>
-              Sin facturas en el período.
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  </div>
+           {/* Mensaje cuando no hay facturas */}
+      {invoices.length === 0 && (
+        <tr>
+          <td className="py-4 pr-4 text-slate-400" colSpan={7}>
+            Sin facturas en el período.
+          </td>
+        </tr>
+      )}
+    </tbody>
+  </table>
+</div>
 </Card>
-
+          </div>
+  );
+}
 
 /* Presupuestos */
 function PresupuestosTab({ state, setState, session }: any) {
