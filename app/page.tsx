@@ -197,7 +197,18 @@ function groupBy(arr: any[], key: string) {
 
 /* ===== Navbar ===== */
 function Navbar({ current, setCurrent, role, onLogout }: any) {
-  const TABS = ["Facturación", "Clientes", "Productos", "Deudores", "Vendedores", "Reportes", "Presupuestos", "Cola"];
+ const TABS = [
+  "Facturación",
+  "Clientes",
+  "Productos",
+  "Deudores",
+  "Vendedores",
+  "Reportes",
+  "Presupuestos",
+  "Gastos y Devoluciones", // <-- AGREGAR ESTA
+  "Cola"
+];
+
 
    const visibleTabs =
     role === "admin"
@@ -1562,6 +1573,107 @@ function PresupuestosTab({ state, setState, session }: any) {
     </div>
   );
 }
+/* Gastos y Devoluciones */
+function GastosDevolucionesTab({ state, setState, session }: any) {
+  const [modo, setModo] = useState("Gasto"); // "Gasto" o "Devolución"
+  const [tipoGasto, setTipoGasto] = useState("Proveedor");
+  const [detalle, setDetalle] = useState("");
+  const [montoEfectivo, setMontoEfectivo] = useState("");
+  const [montoTransferencia, setMontoTransferencia] = useState("");
+  const [alias, setAlias] = useState("");
+
+  const [clienteSeleccionado, setClienteSeleccionado] = useState("");
+  const [productosDevueltos, setProductosDevueltos] = useState<any[]>([]);
+
+  async function guardarGasto() {
+    if (!detalle.trim() || (parseNum(montoEfectivo) === 0 && parseNum(montoTransferencia) === 0)) {
+      alert("Completa los datos del gasto correctamente.");
+      return;
+    }
+
+    const gasto = {
+      id: "g" + Math.random().toString(36).slice(2, 8),
+      tipo: tipoGasto,
+      detalle,
+      efectivo: parseNum(montoEfectivo),
+      transferencia: parseNum(montoTransferencia),
+      alias,
+      date_iso: todayISO(),
+    };
+
+    const st = clone(state);
+    st.gastos = st.gastos || [];
+    st.gastos.push(gasto);
+    setState(st);
+
+    if (hasSupabase) await supabase.from("gastos").insert(gasto);
+
+    alert("Gasto guardado correctamente.");
+    setDetalle("");
+    setMontoEfectivo("");
+    setMontoTransferencia("");
+    setAlias("");
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto p-4 space-y-4">
+      <Card title="Gastos y Devoluciones">
+        <div className="grid md:grid-cols-2 gap-3">
+          <Select
+            label="Modo"
+            value={modo}
+            onChange={setModo}
+            options={[
+              { value: "Gasto", label: "Registrar Gasto" },
+              { value: "Devolución", label: "Registrar Devolución" },
+            ]}
+          />
+        </div>
+      </Card>
+
+      {modo === "Gasto" && (
+        <Card title="Registrar Gasto">
+          <div className="grid md:grid-cols-2 gap-3">
+            <Select
+              label="Tipo de gasto"
+              value={tipoGasto}
+              onChange={setTipoGasto}
+              options={[
+                { value: "Proveedor", label: "Proveedor" },
+                { value: "Otro", label: "Otro" },
+              ]}
+            />
+            <Input label="Detalle" value={detalle} onChange={setDetalle} placeholder="Ej: Coca-Cola, Luz, Transporte..." />
+            <NumberInput label="Monto en efectivo" value={montoEfectivo} onChange={setMontoEfectivo} placeholder="0" />
+            <NumberInput label="Monto en transferencia" value={montoTransferencia} onChange={setMontoTransferencia} placeholder="0" />
+            <Input label="Alias / CVU (opcional)" value={alias} onChange={setAlias} placeholder="alias.cuenta.banco" />
+            <div className="pt-6">
+              <Button onClick={guardarGasto}>Guardar gasto</Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {modo === "Devolución" && (
+        <Card title="Registrar Devolución">
+          <div className="grid md:grid-cols-2 gap-3">
+            <Select
+              label="Cliente"
+              value={clienteSeleccionado}
+              onChange={setClienteSeleccionado}
+              options={state.clients.map((c: any) => ({ value: c.id, label: `${c.number} - ${c.name}` }))}
+            />
+            <div className="pt-6">
+              <Button onClick={() => alert("Funcionalidad de devoluciones en progreso")}>
+                Seleccionar productos para devolución
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 /* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
@@ -1930,6 +2042,10 @@ export default function Page() {
                        {session.role !== "cliente" && tab === "Presupuestos" && (
               <PresupuestosTab state={state} setState={setState} session={session} />
             )}
+            {session.role !== "cliente" && tab === "Gastos y Devoluciones" && (
+  <GastosDevolucionesTab state={state} setState={setState} session={session} />
+)}
+
 
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
