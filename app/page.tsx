@@ -29,9 +29,12 @@ function seedState() {
     products: [] as any[],
     invoices: [] as any[],
     budgets: [] as any[],
-    queue: [] as any[], // cola de tickets local
+    gastos: [] as any[],
+    devoluciones: [] as any[],  // <--- AGREGAR ESTO
+    queue: [] as any[],
   };
 }
+
 
 /* ===== Carga/actualización desde Supabase ===== */
 async function loadFromSupabase(fallback: any) {
@@ -57,6 +60,10 @@ async function loadFromSupabase(fallback: any) {
   // invoices
   const { data: invoices } = await supabase.from("invoices").select("*").order("number");
   if (invoices) out.invoices = invoices;
+    // devoluciones
+  const { data: devoluciones } = await supabase.from("devoluciones").select("*").order("date_iso", { ascending: false });
+  if (devoluciones) out.devoluciones = devoluciones;
+
 
   // budgets
   const { data: budgets } = await supabase.from("budgets").select("*").order("number");
@@ -1584,10 +1591,54 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
 
   const [clienteSeleccionado, setClienteSeleccionado] = useState("");
   const [productosDevueltos, setProductosDevueltos] = useState<any[]>([]);
+  const [facturasCliente, setFacturasCliente] = useState<any[]>([]);
 
+useEffect(() => {
+  if (!clienteSeleccionado) return;
+
+  async function cargarFacturas() {
+    if (hasSupabase) {
+      const { data, error } = await supabase
+        .from("invoices")
+        .select("*")
+        .eq("client_id", clienteSeleccionado)
+        .order("date_iso", { ascending: false });
+
+      if (error) {
+        console.error("Error cargando facturas:", error);
+        return;
+      }
+
+      setFacturasCliente(data || []);
+    } else {
+      // Si no hay supabase, buscar en el estado local
+      const filtradas = state.invoices.filter(
+        (f: any) => f.client_id === clienteSeleccionado
+      );
+      setFacturasCliente(filtradas);
+    }
+  }
+
+  cargarFacturas();
+}, [clienteSeleccionado, state.invoices]);
+
+
+  // ==============================
+  // Funciones para guardar Gasto y Devolución
+  // ==============================
   async function guardarGasto() {
-    if (!detalle.trim() || (parseNum(montoEfectivo) === 0 && parseNum(montoTransferencia) === 0)) {
-      alert("Completa los datos del gasto correctamente.");
+    if (!detalle.trim()) {
+      alert("El campo 'Detalle' es obligatorio.");
+      return;
+    }
+
+    // Si los campos están vacíos, tratarlos como 0 automáticamente
+    const efectivoFinal = montoEfectivo.trim() === "" ? 0 : parseNum(montoEfectivo);
+    const transferenciaFinal = montoTransferencia.trim() === "" ? 0 : parseNum(montoTransferencia);
+
+    // Si ambos son 0, mostrar error
+    if (efectivoFinal === 0 && transferenciaFinal === 0) {
+      alert("Debes ingresar al menos un monto en efectivo o transferencia.");
       return;
     }
 
@@ -1595,8 +1646,8 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
       id: "g" + Math.random().toString(36).slice(2, 8),
       tipo: tipoGasto,
       detalle,
-      efectivo: parseNum(montoEfectivo),
-      transferencia: parseNum(montoTransferencia),
+      efectivo: efectivoFinal,
+      transferencia: transferenciaFinal,
       alias,
       date_iso: todayISO(),
     };
@@ -1615,6 +1666,51 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
     setAlias("");
   }
 
+  async function guardarDevolucion() {
+    if (!clienteSeleccionado) {
+      alert("Selecciona un cliente antes de guardar la devolución.");
+      return;
+    }
+
+    if (productosDevueltos.length === 0) {
+      alert("Debes seleccionar al menos un producto para devolver.");
+      return;
+    }
+
+    const clientName =
+      state.clients.find((c: any) => c.id === clienteSeleccionado)?.name || "Cliente desconocido";
+
+    const devolucion = {
+      id: "d" + Math.random().toString(36).slice(2, 8),
+      client_id: clienteSeleccionado,
+      client_name: clientName,
+      items: productosDevueltos, // productos seleccionados
+      metodo: "efectivo", // luego puedes cambiar esto para elegir "efectivo", "transferencia" o "saldo"
+      efectivo: parseNum(montoEfectivo),
+      transferencia: parseNum(montoTransferencia),
+      date_iso: todayISO(),
+    };
+
+    // Actualizar estado local
+    const st = clone(state);
+    st.devoluciones.push(devolucion);
+    setState(st);
+
+    // Guardar en Supabase
+    if (hasSupabase) {
+      await supabase.from("devoluciones").insert(devolucion);
+    }
+
+    alert("Devolución registrada con éxito.");
+    setProductosDevueltos([]); // limpiar productos seleccionados
+    setClienteSeleccionado("");
+    setMontoEfectivo("");
+    setMontoTransferencia("");
+  }
+
+  // ==============================
+  // UI: Renderizado
+  // ==============================
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
       <Card title="Gastos y Devoluciones">
@@ -1643,10 +1739,30 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
                 { value: "Otro", label: "Otro" },
               ]}
             />
-            <Input label="Detalle" value={detalle} onChange={setDetalle} placeholder="Ej: Coca-Cola, Luz, Transporte..." />
-            <NumberInput label="Monto en efectivo" value={montoEfectivo} onChange={setMontoEfectivo} placeholder="0" />
-            <NumberInput label="Monto en transferencia" value={montoTransferencia} onChange={setMontoTransferencia} placeholder="0" />
-            <Input label="Alias / CVU (opcional)" value={alias} onChange={setAlias} placeholder="alias.cuenta.banco" />
+            <Input
+              label="Detalle"
+              value={detalle}
+              onChange={setDetalle}
+              placeholder="Ej: Coca-Cola, Luz, Transporte..."
+            />
+            <NumberInput
+              label="Monto en efectivo"
+              value={montoEfectivo}
+              onChange={setMontoEfectivo}
+              placeholder="0"
+            />
+            <NumberInput
+              label="Monto en transferencia"
+              value={montoTransferencia}
+              onChange={setMontoTransferencia}
+              placeholder="0"
+            />
+            <Input
+              label="Alias / CVU (opcional)"
+              value={alias}
+              onChange={setAlias}
+              placeholder="alias.cuenta.banco"
+            />
             <div className="pt-6">
               <Button onClick={guardarGasto}>Guardar gasto</Button>
             </div>
@@ -1661,19 +1777,85 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
               label="Cliente"
               value={clienteSeleccionado}
               onChange={setClienteSeleccionado}
-              options={state.clients.map((c: any) => ({ value: c.id, label: `${c.number} - ${c.name}` }))}
+              options={state.clients.map((c: any) => ({
+                value: c.id,
+                label: `${c.number} - ${c.name}`,
+              }))}
             />
-            <div className="pt-6">
-              <Button onClick={() => alert("Funcionalidad de devoluciones en progreso")}>
-                Seleccionar productos para devolución
+          </div>
+
+          {/* Mostrar productos del cliente seleccionado */}
+          {facturasCliente.length > 0 ? (
+            <div className="mt-4">
+              <h4 className="text-sm font-semibold mb-2">Productos comprados</h4>
+              {facturasCliente.map((factura) => (
+                <div
+                  key={factura.id}
+                  className="mb-4 border border-slate-800 rounded-lg p-3"
+                >
+                  <div className="text-xs text-slate-400 mb-2">
+                    Factura #{factura.number} —{" "}
+                    {new Date(factura.date_iso).toLocaleDateString("es-AR")}
+                  </div>
+                  <table className="min-w-full text-sm">
+                    <thead className="text-slate-400">
+                      <tr>
+                        <th className="text-left py-1">Producto</th>
+                        <th className="text-right py-1">Cant.</th>
+                        <th className="text-right py-1">Precio</th>
+                        <th className="text-right py-1">Devolver</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {factura.items.map((item: any, idx: number) => (
+                        <tr key={idx} className="border-t border-slate-800">
+                          <td className="py-1">{item.name}</td>
+                          <td className="text-right py-1">{item.qty}</td>
+                          <td className="text-right py-1">${item.unitPrice}</td>
+                          <td className="text-right py-1">
+                            <button
+                              onClick={() => {
+                                // Agregar producto a la lista de devolución
+                                setProductosDevueltos((prev) => [
+                                  ...prev,
+                                  { ...item, facturaId: factura.id },
+                                ]);
+                              }}
+                              className="text-xs text-emerald-400 hover:text-emerald-300"
+                            >
+                              ➕ Seleccionar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          ) : (
+            clienteSeleccionado && (
+              <div className="text-xs text-slate-400 mt-4">
+                Este cliente no tiene compras registradas.
+              </div>
+            )
+          )}
+
+          {/* Botón para confirmar devolución */}
+          {productosDevueltos.length > 0 && (
+            <div className="mt-4 text-right">
+              <Button onClick={guardarDevolucion} tone="emerald">
+                Confirmar devolución
               </Button>
             </div>
-          </div>
+          )}
         </Card>
       )}
     </div>
   );
-}
+
+
+
 
 /* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
