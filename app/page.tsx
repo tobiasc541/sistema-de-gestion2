@@ -199,12 +199,13 @@ function groupBy(arr: any[], key: string) {
 function Navbar({ current, setCurrent, role, onLogout }: any) {
   const TABS = ["Facturación", "Clientes", "Productos", "Deudores", "Vendedores", "Reportes", "Presupuestos", "Cola"];
 
-  const visibleTabs =
+   const visibleTabs =
     role === "admin"
       ? TABS
       : role === "vendedor"
-      ? ["Facturación", "Clientes", "Productos", "Deudores", "Cola"]
+      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Cola"]
       : ["Panel"];
+
 
   return (
     <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
@@ -1324,37 +1325,50 @@ function PresupuestosTab({ state, setState, session }: any) {
     setItems([]);
   }
   async function convertirAFactura(b: any) {
-    const st = clone(state);
-    const number = st.meta.invoiceCounter++;
-    const id = "inv_" + number;
-    const invoice = {
-      id,
-      number,
-      date_iso: todayISO(),
-      client_id: b.client_id,
-      client_name: b.client_name,
-      vendor_id: b.vendor_id,
-      vendor_name: b.vendor_name,
-      items: clone(b.items),
-      total: b.total,
-      cost: calcInvoiceCost(b.items),
-      payments: { cash: 0, transfer: 0, alias: "" },
-      status: "No Pagada",
-      type: "Factura",
-    };
-    st.invoices.push(invoice);
-    const budget = st.budgets.find((x: any) => x.id === b.id)!;
-    budget.status = "Convertido";
-    setState(st);
-    if (hasSupabase) {
-      await supabase.from("invoices").insert(invoice);
-      await supabase.from("budgets").update({ status: "Convertido" }).eq("id", b.id);
-      await saveCountersSupabase(st.meta);
-    }
-    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
-    await nextPaint();
-    window.print();
+  const efectivoStr = prompt("¿Cuánto paga en EFECTIVO?", "0") ?? "0";
+  const transferenciaStr = prompt("¿Cuánto paga por TRANSFERENCIA?", "0") ?? "0";
+  const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
+
+  const efectivo = parseNum(efectivoStr);
+  const transferencia = parseNum(transferenciaStr);
+  const alias = aliasStr.trim();
+
+  const st = clone(state);
+  const number = st.meta.invoiceCounter++;
+  const id = "inv_" + number;
+
+  const invoice = {
+    id,
+    number,
+    date_iso: todayISO(),
+    client_id: b.client_id,
+    client_name: b.client_name,
+    vendor_id: b.vendor_id,
+    vendor_name: b.vendor_name,
+    items: clone(b.items),
+    total: b.total,
+    cost: calcInvoiceCost(b.items),
+    payments: { cash: efectivo, transfer: transferencia, alias },
+    status: "No Pagada",
+    type: "Factura",
+  };
+
+  st.invoices.push(invoice);
+  const budget = st.budgets.find((x: any) => x.id === b.id)!;
+  budget.status = "Convertido";
+  setState(st);
+
+  if (hasSupabase) {
+    await supabase.from("invoices").insert(invoice);
+    await supabase.from("budgets").update({ status: "Convertido" }).eq("id", b.id);
+    await saveCountersSupabase(st.meta);
   }
+
+  window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+  await nextPaint();
+  window.print();
+}
+
   const total = calcInvoiceTotal(items);
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
@@ -1464,12 +1478,41 @@ function PresupuestosTab({ state, setState, session }: any) {
                     <td className="py-2 pr-4">{money(b.total)}</td>
                     <td className="py-2 pr-4">{b.status}</td>
                     <td className="py-2 pr-4">
-                      {b.status === "Pendiente" ? (
-                        <Button onClick={() => convertirAFactura(b)}>Convertir a factura</Button>
-                      ) : (
-                        <span className="text-xs">Convertido</span>
-                      )}
-                    </td>
+                   <td className="py-2 pr-4 flex gap-2 items-center">
+  <button
+    title="Editar"
+    onClick={() => {
+      setClientId(b.client_id);
+      setVendorId(b.vendor_id);
+      setItems(clone(b.items));
+      alert(`Editando presupuesto Nº ${pad(b.number)}`);
+    }}
+    className="text-blue-400 hover:text-blue-300 text-lg"
+  >
+    ✏️
+  </button>
+
+  <button
+    title="Descargar PDF"
+    onClick={() => {
+      const data = { ...b, type: "Presupuesto" };
+      window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
+      setTimeout(() => window.print(), 0);
+    }}
+    className="text-red-400 hover:text-red-300 text-lg"
+  >
+    📄
+  </button>
+
+  {b.status === "Pendiente" ? (
+    <Button onClick={() => convertirAFactura(b)} tone="emerald">
+      Convertir a factura
+    </Button>
+  ) : (
+    <span className="text-xs">Convertido</span>
+  )}
+</td>
+
                   </tr>
                 ))}
             </tbody>
@@ -1561,7 +1604,8 @@ function PrintArea() {
       <div className="max-w-[780px] mx-auto text-black">
         <div className="flex items-start justify-between">
           <div>
-            <div style={{ fontWeight: 800, letterSpacing: 1 }}>FACTURA</div>
+                        <div style={{ fontWeight: 800, letterSpacing: 1 }}>{inv?.type === "Presupuesto" ? "PRESUPUESTO" : "FACTURA"}</div>
+
             <div style={{ marginTop: 2 }}>MITOBICEL</div>
           </div>
         </div>
@@ -1843,14 +1887,10 @@ export default function Page() {
             {session.role === "admin" && tab === "Reportes" && (
               <ReportesTab state={state} setState={setState} />
             )}
-            {session.role === "admin" && tab === "Presupuestos" && (
+                       {session.role !== "cliente" && tab === "Presupuestos" && (
               <PresupuestosTab state={state} setState={setState} session={session} />
             )}
-            {session.role !== "admin" && session.role !== "cliente" && tab === "Presupuestos" && (
-              <div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">
-                Los presupuestos se gestionan por Admin.
-              </div>
-            )}
+
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
               {hasSupabase ? "Supabase activo" : "Datos en navegador"}
