@@ -278,9 +278,9 @@ function TVClient() {
                     return (
                       <article
                         key={t.id}
-                        className={`rounded-lg ring-1 p-2 ${p.ring} ${
-                          isDark ? p.bg : "bg-white"
-                        } shadow-md`}
+                        className={`rounded-md ring-1 p-2 w-[95%] h-[60px] mx-auto ${p.ring} ${
+  isDark ? p.bg : "bg-white"
+} shadow-md`}
                       >
                         <div
                           className={`text-lg font-extrabold ${p.title} break-words`}
@@ -334,9 +334,10 @@ function TVClient() {
                     return (
                       <article
                         key={t.id}
-                        className={`rounded-lg ring-1 p-2 ${p.ring} ${
-                          isDark ? "bg-black" : "bg-white"
-                        } shadow-md`}
+                        className={`rounded-md ring-1 p-2 w-[95%] h-[60px] mx-auto ${p.ring} ${
+  isDark ? "bg-black" : "bg-white"
+} shadow-md`}
+
                       >
                         <div className="text-lg font-extrabold break-words">
                           {t.client_name || "Cliente"} — Caja {t.box || 1}
