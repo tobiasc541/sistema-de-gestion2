@@ -216,13 +216,13 @@ function TVClient() {
         </div>
 
         {/* Dos columnas: ocupa el resto, con scroll interno por columna */}
-        <div className="grid grid-cols-2 gap-4 lg:gap-6 px-4 pb-4 flex-1 min-h-0">
+       <div className="grid grid-cols-2 gap-4 lg:gap-6 px-4 pb-4 flex-1 min-h-0 overflow-hidden">
           {/* En cola */}
           <section
             className={`rounded-2xl p-4 border-4 ${isDark ? "border-yellow-500 bg-slate-900/80" : "border-yellow-400 bg-yellow-50"} flex flex-col min-h-0`}
           >
             <header className="shrink-0 text-xl md:text-2xl lg:text-3xl font-black mb-3 flex items-center gap-2">
-              <span className="text-yellow-400">En cola</span>
+             <span className="text-yellow-400">En fila</span>
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/40">
                 {pending.length}
               </span>
