@@ -2,34 +2,26 @@
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase, hasSupabase } from "../../lib/supabaseClient";
 
-/** ===== Tipos ===== */
+/** === Tipos mínimos según tu tabla tickets === */
 type Ticket = {
   id: string;
-  date_iso: string;
-  client_id: string;
-  client_number: number;
-  client_name: string;
-  action: string;
-  status: "En cola" | "Aceptado";
-  accepted_at?: string | null;
+  client_name?: string | null;
+  client_number?: number | null;
+  action?: string | null;
+  status: "En cola" | "Aceptado" | "Cancelado";
+  box?: number | null;
   accepted_by?: string | null;
-  counter_name?: string | null; // p.ej. "Caja 1"
+  accepted_at?: string | null; // timestamptz en Supabase
 };
 
-/** ===== Utils ===== */
+/** === Utils === */
 const pad2 = (n: number) => String(n).padStart(2, "0");
-const hourRange = (base = new Date()) => {
-  const s = new Date(base);
-  s.setMinutes(0, 0, 0);
-  const e = new Date(base);
-  e.setMinutes(59, 59, 999);
-  return { startISO: s.toISOString(), endISO: e.toISOString() };
-};
-
-// Anuncio opcional por voz en la TV
+function hhmmss(d = new Date()) {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
 function speak(text: string) {
   try {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -42,146 +34,172 @@ function speak(text: string) {
   } catch {}
 }
 
-/** ===== Pantalla TV ===== */
+/** === Página TV === */
 export default function TVPage() {
   const [pending, setPending] = useState<Ticket[]>([]);
   const [accepted, setAccepted] = useState<Ticket[]>([]);
   const [now, setNow] = useState(new Date());
-  const spoken = useRef<Set<string>>(new Set()); // para no repetir anuncios
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const clock = useMemo(() => hhmmss(now), [now]);
 
-  const refresh = useCallback(async () => {
+  /** === Carga inicial + polling suave cada 5 s === */
+  async function fetchTickets() {
     if (!hasSupabase) return;
-    const { startISO, endISO } = hourRange(new Date());
+    // Importante: NO filtramos por “hora actual” porque en tu tabla
+    // no hay un created_at visible. Mostramos los últimos 30 relevantes.
     const { data, error } = await supabase
       .from("tickets")
-      .select("*")
-      .gte("date_iso", startISO)
-      .lte("date_iso", endISO)
-      .order("date_iso", { ascending: true });
+      .select(
+        "id, client_name, client_number, action, status, box, accepted_by, accepted_at"
+      )
+      .in("status", ["En cola", "Aceptado"])
+      .order("accepted_at", { ascending: false, nullsFirst: true })
+      .limit(60);
+    if (error) return;
 
-    if (error || !data) return;
-
-    const pend = data.filter((t) => t.status !== "Aceptado");
-    const acc = data.filter((t) => t.status === "Aceptado");
+    const pend = (data || []).filter((t) => t.status === "En cola");
+    const acc = (data || []).filter((t) => t.status === "Aceptado");
 
     setPending(pend);
     setAccepted(acc);
-
-    // Anunciar sólo los nuevos aceptados que aún no se anunciaron
-    const nuevos = acc.filter((t) => !spoken.current.has(t.id));
-    nuevos.forEach((t) => {
-      spoken.current.add(t.id);
-      const caja = t.counter_name || "Caja 1";
-      speak(`Cliente ${t.client_name}, puede pasar a la ${caja}`);
-    });
-  }, []);
+  }
 
   useEffect(() => {
-    // Reloj en pantalla
-    const clock = setInterval(() => setNow(new Date()), 1000);
+    fetchTickets();
+    const t = setInterval(() => {
+      setNow(new Date());
+      fetchTickets();
+    }, 5000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    // Primer carga
-    refresh();
+  /** === Realtime (INSERT/UPDATE) sobre tickets === */
+  useEffect(() => {
+    if (!hasSupabase) return;
+    const ch = supabase
+      .channel("tv-tickets")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tickets" },
+        async (payload: any) => {
+          // Actualizamos lista completa (más simple y robusto)
+          await fetchTickets();
 
-    // Suscripción realtime (requiere Realtime habilitado en la tabla tickets)
-    if (hasSupabase) {
-      const ch = supabase
-        .channel("tv-tickets")
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "tickets" },
-          () => refresh()
-        )
-        .subscribe();
-      channelRef.current = ch;
-    }
-
-    // Polling de respaldo cada 15s
-    const poll = setInterval(refresh, 15000);
+          // Si pasó a Aceptado, avisamos por voz
+          const r = (payload.new || {}) as Ticket;
+          if (r.status === "Aceptado") {
+            const nombre = r.client_name || "Cliente";
+            const caja = r.box || 1;
+            speak(`${nombre}, puede pasar a la caja ${caja}`);
+          }
+        }
+      )
+      .subscribe();
 
     return () => {
-      clearInterval(clock);
-      clearInterval(poll);
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
+      try {
+        supabase.removeChannel(ch);
+      } catch {}
     };
-  }, [refresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const hhmm = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
-
+  /** === UI === */
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-            Turnos — <span className="tabular-nums">{hhmm}</span>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
+            Turnos — <span className="text-emerald-400">{clock}</span>
           </h1>
           <button
-            onClick={refresh}
-            className="rounded-xl px-4 py-2 text-sm font-semibold bg-slate-800 border border-slate-700 hover:bg-slate-700"
+            onClick={fetchTickets}
+            className="rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 text-sm"
           >
             Actualizar
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-          {/* EN COLA */}
-          <section>
-            <h2 className="text-lg font-semibold mb-3 text-slate-300">En cola</h2>
-            <div className="space-y-4">
-              {pending.length === 0 && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400">
-                  Sin turnos en esta hora.
-                </div>
-              )}
+        {/* Grilla columnas */}
+        <div className="grid md:grid-cols-2 gap-5">
+          {/* En cola */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+            <div className="text-lg font-semibold mb-3">En cola</div>
 
+            {pending.length === 0 && (
+              <div className="text-slate-400 text-sm">
+                Sin turnos en esta hora.
+              </div>
+            )}
+
+            <div className="space-y-3">
               {pending.map((t) => (
                 <div
                   key={t.id}
-                  className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-sm"
+                  className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 flex items-center justify-between"
                 >
-                  <div className="text-2xl font-extrabold tracking-tight truncate">
-                    {t.client_name}
+                  <div className="min-w-0">
+                    <div className="font-semibold truncate text-lg">
+                      {t.client_name || "Cliente"}
+                    </div>
+                    <div className="text-sm text-slate-300 truncate">
+                      {t.action || "—"}{" "}
+                      {t.client_number ? `— N° ${t.client_number}` : ""}
+                    </div>
                   </div>
-                  <div className="mt-1 text-sm text-slate-300">
-                    {t.action} — N° {t.client_number}
-                  </div>
+                  <span className="shrink-0 inline-flex rounded-full border border-amber-700/40 bg-amber-800/30 px-3 py-1 text-xs font-semibold">
+                    En cola
+                  </span>
                 </div>
               ))}
             </div>
-          </section>
+          </div>
 
-          {/* ACEPTADOS */}
-          <section>
-            <h2 className="text-lg font-semibold mb-3 text-slate-300">Aceptados</h2>
-            <div className="space-y-4">
-              {accepted.length === 0 && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-400">
-                  Aún no hay aceptados.
-                </div>
-              )}
+          {/* Aceptados */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+            <div className="text-lg font-semibold mb-3">Aceptados</div>
 
+            {accepted.length === 0 && (
+              <div className="text-slate-400 text-sm">Aún no hay aceptados.</div>
+            )}
+
+            <div className="space-y-3">
               {accepted.map((t) => (
                 <div
                   key={t.id}
-                  className="rounded-2xl border border-emerald-800/40 bg-emerald-900/20 p-5 shadow-sm"
+                  className="rounded-xl border border-slate-800 bg-slate-900/70 p-3"
                 >
-                  <div className="text-2xl font-extrabold tracking-tight truncate">
-                    {t.client_name}
-                  </div>
-                  <div className="mt-1 text-sm text-slate-300">
-                    {t.action} — N° {t.client_number}
-                  </div>
-                  <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-800/50 bg-emerald-700/30 px-3 py-1 text-sm font-semibold text-emerald-100">
-                    ✅ Puede pasar a <span className="font-bold">{t.counter_name || "Caja 1"}</span>
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate text-lg">
+                        {t.client_name || "Cliente"} —{" "}
+                        <span className="font-bold">
+                          Caja {t.box || 1}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        Aceptado por {t.accepted_by || "—"} —{" "}
+                        {t.accepted_at
+                          ? new Date(t.accepted_at).toLocaleTimeString(
+                              "es-AR",
+                              { hour: "2-digit", minute: "2-digit", second: "2-digit" }
+                            )
+                          : "—"}
+                      </div>
+                    </div>
+                    <span className="shrink-0 inline-flex rounded-full border border-emerald-700/40 bg-emerald-800/30 px-3 py-1 text-xs font-semibold">
+                      Aceptado
+                    </span>
                   </div>
                 </div>
               ))}
             </div>
-          </section>
+          </div>
         </div>
 
-        <div className="mt-8 text-center text-xs text-slate-500 select-none">
+        {/* Marca inferior */}
+        <div className="mt-8 text-[11px] text-slate-500">
           Sistema de Gestión — Pantalla de Turnos
         </div>
       </div>
