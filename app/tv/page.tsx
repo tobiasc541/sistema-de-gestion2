@@ -4,7 +4,7 @@ export const fetchCache = "force-no-store";
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, hasSupabase } from "../../lib/supabaseClient";
-import { useSearchParams } from "next/navigation";
+
 
 /* =========================
    Tipos y helpers
@@ -69,9 +69,16 @@ export default function Page() {
    Componente cliente real
 ========================= */
 function TVClient() {
-  const params = useSearchParams(); // ahora sí, dentro de <Suspense/>
-  const theme = (params.get("theme") || "dark").toLowerCase(); // ?theme=light para fondo claro
-  const isDark = theme !== "light";
+const [isDark, setIsDark] = useState(true);
+
+useEffect(() => {
+  if (typeof window !== "undefined") {
+    const params = new URLSearchParams(window.location.search);
+    const theme = (params.get("theme") || "dark").toLowerCase();
+    setIsDark(theme !== "light");
+  }
+}, []);
+
 
   const [pending, setPending] = useState<Ticket[]>([]);
   const [accepted, setAccepted] = useState<Ticket[]>([]);
