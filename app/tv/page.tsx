@@ -2,7 +2,7 @@
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { supabase, hasSupabase } from "../../lib/supabaseClient";
 import { useSearchParams } from "next/navigation";
 
@@ -22,6 +22,7 @@ type Ticket = {
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const hhmmss = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
 function speak(text: string) {
   try {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -54,10 +55,21 @@ const hashStr = (s: string) => {
 const pickPalette = (t: Ticket) => PALETTES[hashStr((t.client_name ?? t.id) + String(t.box ?? ""))];
 
 /* =========================
-   Componente principal
+   Wrapper con Suspense (arregla el error)
 ========================= */
-export default function TVPage() {
-  const params = useSearchParams();
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-3xl">Cargando…</div>}>
+      <TVClient />
+    </Suspense>
+  );
+}
+
+/* =========================
+   Componente cliente real
+========================= */
+function TVClient() {
+  const params = useSearchParams(); // ahora sí, dentro de <Suspense/>
   const theme = (params.get("theme") || "dark").toLowerCase(); // ?theme=light para fondo claro
   const isDark = theme !== "light";
 
@@ -109,7 +121,6 @@ export default function TVPage() {
       .channel("tv-tickets")
       .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, async (payload: any) => {
         const r = (payload.new || {}) as Ticket;
-        // Siempre refrescamos listas para ver cambios de estado
         await fetchTickets();
 
         // Cuando pasa a Aceptado => voz + anuncio gigante 5s + ocultar luego
