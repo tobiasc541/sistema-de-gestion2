@@ -1476,9 +1476,8 @@ function PresupuestosTab({ state, setState, session }: any) {
                     <td className="py-2 pr-4">{b.client_name}</td>
                     <td className="py-2 pr-4">{b.vendor_name}</td>
                     <td className="py-2 pr-4">{money(b.total)}</td>
-                    <td className="py-2 pr-4">{b.status}</td>
-                    <td className="py-2 pr-4">
-                   <td className="py-2 pr-4 flex gap-2 items-center">
+                    <td className="py-2 pr-4 flex gap-2 items-center">
+  {/* Botón Editar */}
   <button
     title="Editar"
     onClick={() => {
@@ -1492,6 +1491,7 @@ function PresupuestosTab({ state, setState, session }: any) {
     ✏️
   </button>
 
+  {/* Botón Descargar PDF */}
   <button
     title="Descargar PDF"
     onClick={() => {
@@ -1504,6 +1504,7 @@ function PresupuestosTab({ state, setState, session }: any) {
     📄
   </button>
 
+  {/* Botón Convertir o estado convertido */}
   {b.status === "Pendiente" ? (
     <Button onClick={() => convertirAFactura(b)} tone="emerald">
       Convertir a factura
@@ -1512,6 +1513,7 @@ function PresupuestosTab({ state, setState, session }: any) {
     <span className="text-xs">Convertido</span>
   )}
 </td>
+
 
                   </tr>
                 ))}
