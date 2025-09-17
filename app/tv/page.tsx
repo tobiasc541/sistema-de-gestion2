@@ -161,12 +161,14 @@ useEffect(() => {
      Render
   ========================= */
   return (
-    <div className={`min-h-screen p-6 flex flex-col ${isDark ? "bg-black text-white" : "bg-white text-slate-900"}`}>
+    <div className={`min-h-screen p-3 md:p-6 lg:p-8 flex flex-col ${isDark ? "bg-black text-white" : "bg-white text-slate-900"}`}>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-6xl font-extrabold tracking-tight">
-          Turnos — <span className="text-emerald-400">{clock}</span>
-        </h1>
+        <h1 className="text-4xl md:text-5xl lg:text-7xl font-extrabold tracking-tight">
+  Turnos — <span className="text-emerald-400">{clock}</span>
+</h1>
+
         <button
           onClick={fetchTickets}
           className={`rounded-2xl px-6 py-3 text-xl border transition
@@ -178,15 +180,17 @@ useEffect(() => {
       </div>
 
       {/* Dos columnas */}
-      <div className="flex-1 grid grid-cols-2 gap-8">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+
         {/* En cola */}
         <section className={`rounded-3xl p-6 border-4 ${isDark ? "border-yellow-500 bg-slate-900/80" : "border-yellow-400 bg-yellow-50"}`}>
-          <header className="text-5xl font-black mb-4 flex items-center gap-3">
-            <span className="text-yellow-400">En cola</span>
-            <span className="text-sm font-semibold px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/40">
-              {pending.length}
-            </span>
-          </header>
+         <header className="text-3xl md:text-4xl lg:text-6xl font-black mb-4 flex items-center gap-3">
+  <span className="text-yellow-400">En cola</span>
+  <span className="text-xs md:text-sm font-semibold px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/40">
+    {pending.length}
+  </span>
+</header>
+
 
           {pending.length === 0 ? (
             <div className={`text-2xl ${isDark ? "text-slate-400" : "text-slate-500"}`}>Sin turnos pendientes.</div>
@@ -195,13 +199,17 @@ useEffect(() => {
               {pending.map((t) => {
                 const p = pickPalette(t);
                 return (
-                  <article
-                    key={t.id}
-                    className={`rounded-2xl ring-4 p-5 ${p.ring} ${isDark ? p.bg : "bg-white"} shadow-lg`}
-                  >
-                    <div className={`text-4xl font-extrabold ${p.title} break-words`}>
-                      {t.client_name || "Cliente"}
-                    </div>
+                 <article
+  key={t.id}
+  className={`rounded-2xl ring-4 p-3 md:p-5 lg:p-8 ${p.ring} ${
+    isDark ? p.bg : "bg-white"
+  } shadow-lg transition-all duration-300`}
+>
+
+               <div className={`text-2xl md:text-3xl lg:text-5xl font-extrabold ${p.title} break-words`}>
+  {t.client_name || "Cliente"}
+</div>
+
                     <div className={`mt-1 text-xl ${isDark ? "text-slate-300" : "text-slate-600"}`}>
                       {t.action || "—"} {t.client_number ? `— N° ${t.client_number}` : ""}
                     </div>
@@ -218,12 +226,13 @@ useEffect(() => {
 
         {/* Aceptados */}
         <section className={`rounded-3xl p-6 border-4 ${isDark ? "border-green-500 bg-slate-900/80" : "border-green-400 bg-green-50"}`}>
-          <header className="text-5xl font-black mb-4 flex items-center gap-3">
-            <span className="text-green-400">Clientes aceptados</span>
-            <span className="text-sm font-semibold px-3 py-1 rounded-full bg-green-500/20 text-green-300 border border-green-500/40">
-              {accepted.length}
-            </span>
-          </header>
+         <header className="text-3xl md:text-4xl lg:text-6xl font-black mb-4 flex items-center gap-3">
+  <span className="text-green-400">Clientes aceptados</span>
+  <span className="text-xs md:text-sm font-semibold px-3 py-1 rounded-full bg-green-500/20 text-green-300 border border-green-500/40">
+    {accepted.length}
+  </span>
+</header>
+
 
           {accepted.length === 0 ? (
             <div className={`text-2xl ${isDark ? "text-slate-400" : "text-slate-600"}`}>Aún no hay aceptados.</div>
@@ -233,12 +242,16 @@ useEffect(() => {
                 const p = pickPalette(t);
                 return (
                   <article
-                    key={t.id}
-                    className={`rounded-2xl ring-4 p-5 ${p.ring} ${isDark ? "bg-black" : "bg-white"} shadow-lg`}
-                  >
-                    <div className={`text-4xl font-extrabold ${p.title} break-words`}>
-                      {t.client_name || "Cliente"} — Caja {t.box || 1}
-                    </div>
+  key={t.id}
+  className={`rounded-2xl ring-4 p-3 md:p-5 lg:p-8 ${p.ring} ${
+    isDark ? "bg-black" : "bg-white"
+  } shadow-lg transition-all duration-300`}
+>
+
+                   <div className="text-2xl md:text-3xl lg:text-5xl font-extrabold break-words">
+  {t.client_name || "Cliente"}
+</div>
+
                     <div className={`mt-1 text-xl ${isDark ? "text-slate-400" : "text-slate-600"}`}>
                       Aceptado {t.accepted_by ? `por ${t.accepted_by}` : ""}{" "}
                       {t.accepted_at
@@ -257,9 +270,10 @@ useEffect(() => {
       </div>
 
       {/* Footer */}
-      <footer className={`mt-6 text-center ${isDark ? "text-slate-500" : "text-slate-500"}`}>
-        Sistema de Gestión — Pantalla de Turnos
-      </footer>
+     <footer className="mt-6 text-center text-sm md:text-base lg:text-lg text-slate-500">
+  Sistema de Gestión — Pantalla de Turnos
+</footer>
+
 
       {/* Spotlight: anuncio gigante 5s al aceptar */}
       {spotlight && (
