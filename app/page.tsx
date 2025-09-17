@@ -282,14 +282,15 @@ async function continuar() {
         </div>
         <div className="grid gap-3">
           <Select
-            label="¿Qué desea hacer?"
-            value={accion}
-            onChange={setAccion}
-            options={[
-              { value: "COMPRAR POR MENOR ", label: "COMPRAR POR MENOR" },
-              { value: "COMPRAR POR MAYOR", label: "COMPRAR POR MAYOR" },
-            ]}
-          />
+  label="¿Qué desea hacer?"
+  value={accion}
+  onChange={setAccion}
+  options={[
+    { value: "COMPRAR POR MENOR", label: "COMPRAR POR MENOR" }, // <- sin espacio final
+    { value: "COMPRAR POR MAYOR", label: "COMPRAR POR MAYOR" },
+  ]}
+/>
+
           <div className="flex justify-end">
             <Button onClick={continuar}>Continuar</Button>
           </div>
@@ -852,6 +853,171 @@ function DeudoresTab({ state, setState }: any) {
           </div>
         </Card>
       )}
+    </div>
+  );
+}
+/* Cola (vendedor/admin): aceptar / cancelar turnos de la hora actual) */
+function ColaTab({ state, setState, session }: any) {
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Rango de la HORA actual
+  function hourRange(d = new Date()) {
+    const s = new Date(d);
+    s.setMinutes(0, 0, 0);
+    const e = new Date(d);
+    e.setMinutes(59, 59, 999);
+    return { startISO: s.toISOString(), endISO: e.toISOString() };
+  }
+
+  async function refresh() {
+    setLoading(true);
+    const { startISO, endISO } = hourRange();
+
+    if (hasSupabase) {
+      const { data, error } = await supabase
+        .from("tickets")
+        .select("*")
+        .gte("date_iso", startISO)
+        .lte("date_iso", endISO)
+        .order("date_iso", { ascending: true });
+
+      if (!error) setTickets(data || []);
+    } else {
+      // sin supabase: uso la cola local
+      const list = (state.queue || [])
+        .filter((t: any) => t.date_iso >= startISO && t.date_iso <= endISO)
+        .sort((a: any, b: any) => a.date_iso.localeCompare(b.date_iso));
+      setTickets(list);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    refresh();
+
+    // Realtime (si hay Supabase)
+    if (hasSupabase) {
+      const ch = supabase
+        .channel("rt-tickets")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "tickets" },
+          () => refresh()
+        )
+        .subscribe();
+      return () => {
+        supabase.removeChannel(ch);
+      };
+    }
+  }, []);
+
+  async function accept(t: any, caja = "1") {
+    // estado local
+    const st = clone(state);
+    st.queue = Array.isArray(st.queue) ? st.queue : [];
+    const i = st.queue.findIndex((x: any) => x.id === t.id);
+    if (i >= 0) st.queue[i] = { ...st.queue[i], status: "Aceptado", caja, accepted_by: session?.name || session?.id };
+    setState(st);
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: "Aceptado", caja } : x)));
+
+    // persistir
+    if (hasSupabase) {
+      await supabase
+        .from("tickets")
+        .update({ status: "Aceptado", caja, accepted_by: session?.name || session?.id })
+        .eq("id", t.id);
+    }
+
+    // Aviso para la TV (BroadcastChannel para mismos orígenes; con Supabase, la TV leerá del cambio)
+    try {
+      const bc = new BroadcastChannel("turnos-tv");
+      bc.postMessage({ type: "announce", client_name: t.client_name, caja });
+    } catch {}
+    alert(`${t.client_name} puede pasar a la CAJA ${caja}`);
+  }
+
+  async function cancel(t: any) {
+    // estado local
+    const st = clone(state);
+    st.queue = Array.isArray(st.queue) ? st.queue : [];
+    const i = st.queue.findIndex((x: any) => x.id === t.id);
+    if (i >= 0) st.queue[i] = { ...st.queue[i], status: "Cancelado" };
+    setState(st);
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: "Cancelado" } : x)));
+
+    // persistir
+    if (hasSupabase) {
+      await supabase.from("tickets").update({ status: "Cancelado" }).eq("id", t.id);
+    }
+  }
+
+  const pendientes = tickets.filter((t) => t.status === "En cola");
+  const aceptados = tickets.filter((t) => t.status === "Aceptado");
+
+  return (
+    <div className="max-w-4xl mx-auto p-4 space-y-4">
+      <Card
+        title="Turnos — Hora actual"
+        actions={
+          <Button tone="slate" onClick={refresh}>
+            Actualizar
+          </Button>
+        }
+      >
+        {loading && <div className="text-sm text-slate-400">Cargando…</div>}
+
+        {!loading && (
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <div className="text-sm font-semibold mb-2">En cola</div>
+              <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
+                {pendientes.length === 0 && (
+                  <div className="p-3 text-sm text-slate-400">Sin turnos en esta hora.</div>
+                )}
+                {pendientes.map((t) => (
+                  <div key={t.id} className="p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{t.client_name}</div>
+                      <div className="text-xs text-slate-400">
+                        #{t.id} · {new Date(t.date_iso).toLocaleTimeString("es-AR")} · {t.action}
+                      </div>
+                    </div>
+                    <div className="shrink-0 flex gap-2">
+                      <Button onClick={() => accept(t, "1")}>Aceptar (Caja 1)</Button>
+                      <Button tone="red" onClick={() => cancel(t)}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold mb-2">Aceptados</div>
+              <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
+                {aceptados.length === 0 && (
+                  <div className="p-3 text-sm text-slate-400">Nadie aceptado aún.</div>
+                )}
+                {aceptados.map((t) => (
+                  <div key={t.id} className="p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">
+                        {t.client_name} — Caja {t.caja || "1"}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        Aceptado por {t.accepted_by || "—"} · {new Date(t.date_iso).toLocaleTimeString("es-AR")}
+                      </div>
+                    </div>
+                    <Chip tone="emerald">Aceptado</Chip>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
