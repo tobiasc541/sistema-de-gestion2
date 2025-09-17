@@ -1386,47 +1386,45 @@ function PresupuestosTab({ state, setState, session }: any) {
             <div className="text-sm font-semibold">Ítems</div>
             <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
               {items.length === 0 && <div className="p-3 text-sm text-slate-400">Vacío</div>}
-              {items.map((it: any, idx: number) => (
-                <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
-                  <
-                <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
-                  <div className="col-span-6">
-                    <div className="text-sm font-medium">{it.name}</div>
-                    <div className="text-xs text-slate-400">{it.section}</div>
-                  </div>
-                  <div className="col-span-2">
-                    <NumberInput
-                      label="Cant."
-                      value={it.qty}
-                      onChange={(v: any) => {
-                        const q = Math.max(0, parseNum(v));
-                        setItems(items.map((x: any, i: number) => (i === idx ? { ...x, qty: q } : x)));
-                      }}
-                    />
-                  </div>
-                  <div className="col-span-3">
-                    <NumberInput
-                      label="Precio"
-                      value={it.unitPrice}
-                      onChange={(v: any) => {
-                        const q = Math.max(0, parseNum(v));
-                        setItems(items.map((x: any, i: number) => (i === idx ? { ...x, unitPrice: q } : x)));
-                      }}
-                    />
-                  </div>
-                  <div className="col-span-1 flex items-end justify-end pb-0.5">
-                    <button
-                      onClick={() => setItems(items.filter((_: any, i: number) => i !== idx))}
-                      className="text-xs text-red-400 hover:text-red-300"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <div className="col-span-12 text-right text-xs text-slate-300 pt-1">
-                    Subtotal ítem: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
-                  </div>
-                </div>
-              ))}
+         {items.map((it: any, idx: number) => (
+  <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
+    <div className="col-span-6">
+      <div className="text-sm font-medium">{it.name}</div>
+      <div className="text-xs text-slate-400">{it.section}</div>
+    </div>
+    <div className="col-span-2">
+      <NumberInput
+        label="Cant."
+        value={it.qty}
+        onChange={(v: any) => {
+          const q = Math.max(0, parseNum(v));
+          setItems(items.map((x: any, i: number) => (i === idx ? { ...x, qty: q } : x)));
+        }}
+      />
+    </div>
+    <div className="col-span-3">
+      <NumberInput
+        label="Precio"
+        value={it.unitPrice}
+        onChange={(v: any) => {
+          const q = Math.max(0, parseNum(v));
+          setItems(items.map((x: any, i: number) => (i === idx ? { ...x, unitPrice: q } : x)));
+        }}
+      />
+    </div>
+    <div className="col-span-1 flex items-end justify-end pb-0.5">
+      <button
+        onClick={() => setItems(items.filter((_: any, i: number) => i !== idx))}
+        className="text-xs text-red-400 hover:text-red-300"
+      >
+        ✕
+      </button>
+    </div>
+    <div className="col-span-12 text-right text-xs text-slate-300 pt-1">
+      Subtotal ítem: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+    </div>
+  </div>
+))}
             </div>
             <div className="flex items-center justify-between">
               <div className="text-sm">Total</div>
