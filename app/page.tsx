@@ -921,16 +921,16 @@ function ColaTab({ state, setState, session }: any) {
     setState(st);
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: "Aceptado", caja } : x)));
 
-    // persistir
-   if (hasSupabase) {
+if (hasSupabase) {
   const updates = {
     status: "Aceptado" as const,
-    box: parseInt(caja), // número de caja
-    accepted_by: session?.name ?? "—",
-    accepted_at: new Date().toISOString(),
+    box: parseInt(caja),             // se guarda el número de caja en la columna box
+    accepted_by: session?.name ?? "-", // se guarda quién aceptó
+    accepted_at: new Date().toISOString(), // ⬅️ nueva columna: hora de aceptación
   };
   await supabase.from("tickets").update(updates).eq("id", t.id);
 }
+
 
 
     // Aviso para la TV (BroadcastChannel para mismos orígenes; con Supabase, la TV leerá del cambio)
