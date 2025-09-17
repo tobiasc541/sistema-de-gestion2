@@ -1,0 +1,224 @@
+"use client";
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+
+import React, { useEffect, useMemo, useState } from "react";
+import { supabase, hasSupabase } from "../../lib/supabaseClient";
+
+/** ===== utils ===== */
+const pad2 = (n: number) => String(n).padStart(2, "0");
+function hourRange(date = new Date()) {
+  const s = new Date(date);
+  s.setMinutes(0, 0, 0);
+  const e = new Date(date);
+  e.setMinutes(59, 59, 999);
+  return { start: s.getTime(), end: e.getTime(), startISO: s.toISOString(), endISO: e.toISOString() };
+}
+const inThisHour = (iso: string, start: number, end: number) => {
+  const t = new Date(iso).getTime();
+  return t >= start && t <= end;
+};
+
+/** ===== voz opcional para el anuncio ===== */
+function speak(text: string) {
+  try {
+    if (!("speechSynthesis" in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "es-AR"; // o "es-ES"
+    u.rate = 1;
+    u.pitch = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  } catch {}
+}
+
+/** ===== Pantalla TV ===== */
+export default function TVPage() {
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [lastAccepted, setLastAccepted] = useState<any | null>(null);
+  const [now, setNow] = useState(new Date());
+  const range = useMemo(() => hourRange(now), [now]);
+
+  /** cargar/actualizar listado de la hora actual */
+  async function refresh() {
+    const { start, end, startISO, endISO } = range;
+
+    if (hasSupabase) {
+      const { data, error } = await supabase
+        .from("tickets")
+        .select("*")
+        .gte("date_iso", startISO)
+        .lte("date_iso", endISO)
+        .order("date_iso", { ascending: true });
+
+      if (!error) {
+        setTickets((data || []).filter((t) => inThisHour(t.date_iso, start, end)));
+      }
+    } else {
+      // Sin Supabase no hay forma remota de leer la DB;
+      // la pantalla igual puede recibir anuncios de aceptación por BroadcastChannel (abajo).
+      // Si la TV y el admin están en el MISMO navegador/origen, se podría sincronizar
+      // el estado vía localStorage/BroadcastChannel ampliado.
+    }
+  }
+
+  /** efectos: reloj + refrescos + realtime */
+  useEffect(() => {
+    // reloj cada 5s (y obliga a cambiar de ventana de hora cuando corresponde)
+    const t = setInterval(() => setNow(new Date()), 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    if (!hasSupabase) return;
+
+    // Suscripción en vivo (INSERT/UPDATE/DELETE)
+    const ch = supabase
+      .channel("tv-tickets")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tickets" },
+        (payload: any) => {
+          // Actualizo lista
+          refresh();
+
+          // Si alguien fue aceptado, muestro banner
+          const row = payload.new || payload.record;
+          if (row?.status === "Aceptado" && inThisHour(row.date_iso, range.start, range.end)) {
+            setLastAccepted(row);
+            speak(`${row.client_name}. Puede pasar a la caja ${row.caja || "1"}.`);
+            // oculto el banner después de unos segundos
+            setTimeout(() => setLastAccepted(null), 9000);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range.start, range.end]);
+
+  // Fallback: anunciar por BroadcastChannel (sirve incluso sin Supabase).
+  useEffect(() => {
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel("turnos-tv");
+      bc.onmessage = (e) => {
+        const msg = e.data || {};
+        if (msg.type === "announce") {
+          setLastAccepted({ client_name: msg.client_name, caja: msg.caja || "1" });
+          speak(`${msg.client_name}. Puede pasar a la caja ${msg.caja || "1"}.`);
+          setTimeout(() => setLastAccepted(null), 9000);
+        }
+        if (msg.type === "refresh") refresh();
+      };
+    } catch {}
+    return () => {
+      try {
+        bc?.close();
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** separar por estado */
+  const pendientes = tickets.filter((t) => t.status === "En cola");
+  const aceptados = tickets
+    .filter((t) => t.status === "Aceptado")
+    .sort((a, b) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+    .slice(0, 10);
+
+  /** UI */
+  const horaStr = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+
+  return (
+    <div className="min-h-screen w-full bg-black text-white">
+      {/* Header */}
+      <div className="px-6 py-4 flex items-center justify-between border-b border-white/10">
+        <div className="text-2xl font-extrabold tracking-wide">📺 Turnos — MITOBICEL</div>
+        <div className="text-lg font-medium opacity-80">Hora actual: {horaStr}</div>
+      </div>
+
+      {/* Banner de anuncio (overlay) */}
+      {lastAccepted && (
+        <div className="fixed inset-x-0 top-0 z-40">
+          <div className="mx-auto mt-8 w-[92%] rounded-2xl bg-emerald-600 text-black shadow-2xl ring-4 ring-emerald-300/50">
+            <div className="px-8 py-6 text-center">
+              <div className="text-[38px] md:text-[54px] font-extrabold leading-tight">
+                {lastAccepted.client_name}
+              </div>
+              <div className="mt-1 text-2xl md:text-3xl font-bold">PUEDE PASAR A LA CAJA {lastAccepted.caja || "1"}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Listas */}
+      <div className="p-6 grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* En cola */}
+        <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur">
+          <div className="px-6 py-4 flex items-center justify-between">
+            <div className="text-xl font-bold">En cola (hora actual)</div>
+            <button
+              onClick={refresh}
+              className="text-sm px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10"
+            >
+              Actualizar
+            </button>
+          </div>
+          <div className="divide-y divide-white/10">
+            {pendientes.length === 0 && (
+              <div className="px-6 py-8 text-lg opacity-70">Sin turnos pendientes en esta hora.</div>
+            )}
+            {pendientes.slice(0, 12).map((t) => (
+              <div key={t.id} className="px-6 py-3 flex items-center">
+                <div className="w-24 shrink-0 text-2xl font-extrabold tabular-nums">#{t.id.split("-").slice(-1)[0]}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-2xl font-bold truncate">{t.client_name}</div>
+                  <div className="text-sm opacity-70">
+                    {new Date(t.date_iso).toLocaleTimeString("es-AR")} · {t.action}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Aceptados (últimos) */}
+        <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur">
+          <div className="px-6 py-4 flex items-center justify-between">
+            <div className="text-xl font-bold">Llamados a caja</div>
+            <div className="text-sm opacity-70">Mostrando últimos 10</div>
+          </div>
+          <div className="divide-y divide-white/10">
+            {aceptados.length === 0 && (
+              <div className="px-6 py-8 text-lg opacity-70">Aún no hay llamados.</div>
+            )}
+            {aceptados.map((t) => (
+              <div key={t.id} className="px-6 py-3 flex items-center">
+                <div className="w-24 shrink-0">
+                  <div className="text-center text-xs opacity-70">Caja</div>
+                  <div className="text-3xl font-extrabold">{t.caja || "1"}</div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-2xl font-bold truncate">{t.client_name}</div>
+                  <div className="text-sm opacity-70">
+                    {new Date(t.date_iso).toLocaleTimeString("es-AR")} · {t.action}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* footer chico */}
+      <div className="px-6 py-3 text-xs opacity-60 border-t border-white/10">
+        Pantalla TV · actualiza en vivo con Supabase Realtime · Sólo muestra turnos de la hora actual.
+      </div>
+    </div>
+  );
+}
