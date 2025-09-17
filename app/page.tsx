@@ -913,151 +913,174 @@ function ColaTab({ state, setState, session }: any) {
   }, []);
 
 async function accept(t: any, caja = "1") {
-  // --- actualizar estado local
   const now = new Date().toISOString();
-  const st = clone(state);
-  st.queue = Array.isArray(st.queue) ? st.queue : [];
-  const i = st.queue.findIndex((x: any) => x.id === t.id);
-  if (i >= 0) {
-    st.queue[i] = {
-      ...st.queue[i],
-      status: "Aceptado",
-      box: Number(caja),
-      accepted_by: session?.name ?? session?.id ?? "-",
-      accepted_at: now,
-    };
-  }
-  setState(st);
-  setTickets(prev =>
-    prev.map(x =>
-      x.id === t.id
-        ? {
-            ...x,
-            status: "Aceptado",
-            box: Number(caja),
-            accepted_by: session?.name ?? session?.id ?? "-",
-            accepted_at: now,
-          }
-        : x
-    )
-  );
+  const boxVal = Number(caja);
 
-  // --- persistir en Supabase
   if (hasSupabase) {
-    const { error } = await supabase
+    // 1) Persistir y traer el row actualizado
+    const { data, error } = await supabase
       .from("tickets")
       .update({
         status: "Aceptado",
-        box: Number(caja),
+        box: boxVal,
         accepted_by: session?.name ?? "-",
         accepted_at: now,
       })
-      .eq("id", t.id);
+      .eq("id", t.id)
+      .select("*")
+      .single();
 
     if (error) {
       console.error("Supabase UPDATE tickets error:", error);
-      alert("No pude marcar el ticket como ACEPTADO en la base. Revisá la consola.");
-      // opcional: volver a cargar para no dejar la UI “mintiendo”
+      alert("No pude marcar el ticket como ACEPTADO en la base.");
       await refresh();
       return;
     }
+
+    // 2) Sincronizar UI con la verdad del server
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? data : x)));
+    const st = clone(state);
+    st.queue = Array.isArray(st.queue) ? st.queue : [];
+    const i = st.queue.findIndex((x: any) => x.id === t.id);
+    if (i >= 0) st.queue[i] = data;
+    setState(st);
+  } else {
+    // Modo local (sin Supabase)
+    const st = clone(state);
+    st.queue = Array.isArray(st.queue) ? st.queue : [];
+    const i = st.queue.findIndex((x: any) => x.id === t.id);
+    if (i >= 0) {
+      st.queue[i] = {
+        ...st.queue[i],
+        status: "Aceptado",
+        box: boxVal,
+        accepted_by: session?.name ?? session?.id ?? "-",
+        accepted_at: now,
+      };
+    }
+    setState(st);
+    setTickets((prev) =>
+      prev.map((x) =>
+        x.id === t.id
+          ? { ...x, status: "Aceptado", box: boxVal, accepted_by: session?.name ?? "-", accepted_at: now }
+          : x
+      )
+    );
   }
 
-  // --- aviso a la TV
+  // 3) Aviso a la TV
   try {
     const bc = new BroadcastChannel("turnos-tv");
-    bc.postMessage({ type: "announce", client_name: t.client_name, caja });
+    bc.postMessage({ type: "announce", client_name: t.client_name, caja: boxVal });
   } catch {}
-  alert(`${t.client_name} puede pasar a la CAJA ${caja}`);
+  alert(`${t.client_name} puede pasar a la CAJA ${boxVal}`);
 }
 
+async function cancel(t: any) {
+  if (hasSupabase) {
+    // Persistir y traer el row actualizado
+    const { data, error } = await supabase
+      .from("tickets")
+      .update({ status: "Cancelado" })
+      .eq("id", t.id)
+      .select("*")
+      .single();
 
+    if (error) {
+      console.error("Supabase UPDATE tickets cancel:", error);
+      alert("No pude CANCELAR el ticket en la base.");
+      await refresh();
+      return;
+    }
 
-  async function cancel(t: any) {
-    // estado local
+    // Sincronizar UI con server
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? data : x)));
+    const st = clone(state);
+    st.queue = Array.isArray(st.queue) ? st.queue : [];
+    const i = st.queue.findIndex((x: any) => x.id === t.id);
+    if (i >= 0) st.queue[i] = data;
+    setState(st);
+  } else {
+    // Modo local
     const st = clone(state);
     st.queue = Array.isArray(st.queue) ? st.queue : [];
     const i = st.queue.findIndex((x: any) => x.id === t.id);
     if (i >= 0) st.queue[i] = { ...st.queue[i], status: "Cancelado" };
     setState(st);
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: "Cancelado" } : x)));
-
-    // persistir
-    if (hasSupabase) {
-      await supabase.from("tickets").update({ status: "Cancelado" }).eq("id", t.id);
-    }
   }
+}
 
-  const pendientes = tickets.filter((t) => t.status === "En cola");
-  const aceptados = tickets.filter((t) => t.status === "Aceptado");
+const pendientes = tickets.filter((t) => t.status === "En cola");
+const aceptados = tickets.filter((t) => t.status === "Aceptado");
 
-  return (
-    <div className="max-w-4xl mx-auto p-4 space-y-4">
-      <Card
-        title="Turnos — Hora actual"
-        actions={
-          <Button tone="slate" onClick={refresh}>
-            Actualizar
-          </Button>
-        }
-      >
-        {loading && <div className="text-sm text-slate-400">Cargando…</div>}
+return (
+  <div className="max-w-4xl mx-auto p-4 space-y-4">
+    <Card
+      title="Turnos — Hora actual"
+      actions={
+        <Button tone="slate" onClick={refresh}>
+          Actualizar
+        </Button>
+      }
+    >
+      {loading && <div className="text-sm text-slate-400">Cargando…</div>}
 
-        {!loading && (
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <div className="text-sm font-semibold mb-2">En cola</div>
-              <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
-                {pendientes.length === 0 && (
-                  <div className="p-3 text-sm text-slate-400">Sin turnos en esta hora.</div>
-                )}
-                {pendientes.map((t) => (
-                  <div key={t.id} className="p-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{t.client_name}</div>
-                      <div className="text-xs text-slate-400">
-                        #{t.id} · {new Date(t.date_iso).toLocaleTimeString("es-AR")} · {t.action}
-                      </div>
-                    </div>
-                    <div className="shrink-0 flex gap-2">
-                      <Button onClick={() => accept(t, "1")}>Aceptar (Caja 1)</Button>
-                      <Button tone="red" onClick={() => cancel(t)}>
-                        Cancelar
-                      </Button>
+      {!loading && (
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <div className="text-sm font-semibold mb-2">En cola</div>
+            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
+              {pendientes.length === 0 && (
+                <div className="p-3 text-sm text-slate-400">Sin turnos en esta hora.</div>
+              )}
+              {pendientes.map((t) => (
+                <div key={t.id} className="p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{t.client_name}</div>
+                    <div className="text-xs text-slate-400">
+                      #{t.id} · {new Date(t.date_iso).toLocaleTimeString("es-AR")} · {t.action}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-sm font-semibold mb-2">Aceptados</div>
-              <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
-                {aceptados.length === 0 && (
-                  <div className="p-3 text-sm text-slate-400">Nadie aceptado aún.</div>
-                )}
-                {aceptados.map((t) => (
-                  <div key={t.id} className="p-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                   <div className="text-sm font-medium truncate">
-  {t.client_name} — Caja {t.box ?? "1"}
-</div>
-<div className="text-xs text-slate-400">
-  Aceptado por {t.accepted_by || "—"} · {t.accepted_at ? new Date(t.accepted_at).toLocaleTimeString("es-AR") : "—"}
-</div>
-
-                    </div>
-                    <Chip tone="emerald">Aceptado</Chip>
+                  <div className="shrink-0 flex gap-2">
+                    <Button onClick={() => accept(t, "1")}>Aceptar (Caja 1)</Button>
+                    <Button tone="red" onClick={() => cancel(t)}>
+                      Cancelar
+                    </Button>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
           </div>
-        )}
-      </Card>
-    </div>
-  );
-}
+
+          <div>
+            <div className="text-sm font-semibold mb-2">Aceptados</div>
+            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
+              {aceptados.length === 0 && (
+                <div className="p-3 text-sm text-slate-400">Nadie aceptado aún.</div>
+              )}
+              {aceptados.map((t) => (
+                <div key={t.id} className="p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {t.client_name} — Caja {t.box ?? "1"}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      Aceptado por {t.accepted_by || "—"} ·{" "}
+                      {t.accepted_at ? new Date(t.accepted_at).toLocaleTimeString("es-AR") : "—"}
+                    </div>
+                  </div>
+                  <Chip tone="emerald">Aceptado</Chip>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  </div>
+);
+
 
 /* Vendedores */
 function VendedoresTab({ state, setState }: any) {
