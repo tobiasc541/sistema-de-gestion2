@@ -20,7 +20,6 @@ const todayISO = () => new Date().toISOString();
 const clone = (obj: any) => JSON.parse(JSON.stringify(obj));
 
 /* ===== seed inicial (solo UI mientras carga Supabase) ===== */
-/* ===== seed inicial (solo UI mientras carga Supabase) ===== */
 function seedState() {
   return {
     meta: { invoiceCounter: 1, budgetCounter: 1, lastSavedInvoiceId: null as null | string },
@@ -30,10 +29,9 @@ function seedState() {
     products: [] as any[],
     invoices: [] as any[],
     budgets: [] as any[],
-    queue: [] as any[],            // <-- NUEVO: cola de tickets de clientes
+    queue: [] as any[], // cola de tickets local
   };
 }
-
 
 /* ===== Carga/actualización desde Supabase ===== */
 async function loadFromSupabase(fallback: any) {
@@ -64,7 +62,7 @@ async function loadFromSupabase(fallback: any) {
   const { data: budgets } = await supabase.from("budgets").select("*").order("number");
   if (budgets) out.budgets = budgets;
 
-  // si las tablas están vacías, sembramos datos demo para arrancar
+  // Si está vacío, sembrar datos de ejemplo
   if (!vendors?.length && !clients?.length && !products?.length) {
     const demo = {
       vendors: [
@@ -199,15 +197,14 @@ function groupBy(arr: any[], key: string) {
 
 /* ===== Navbar ===== */
 function Navbar({ current, setCurrent, role, onLogout }: any) {
- const TABS = ["Facturación", "Clientes", "Productos", "Deudores", "Vendedores", "Reportes", "Presupuestos", "Cola"];
+  const TABS = ["Facturación", "Clientes", "Productos", "Deudores", "Vendedores", "Reportes", "Presupuestos", "Cola"];
 
-const visibleTabs =
-  role === "admin"
-    ? TABS
-    : role === "vendedor"
-    ? ["Facturación", "Clientes", "Productos", "Deudores", "Cola"]
-    : ["Panel"];
-
+  const visibleTabs =
+    role === "admin"
+      ? TABS
+      : role === "vendedor"
+      ? ["Facturación", "Clientes", "Productos", "Deudores", "Cola"]
+      : ["Panel"];
 
   return (
     <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
@@ -233,9 +230,9 @@ const visibleTabs =
     </div>
   );
 }
+
 /* ===== Panel del cliente ===== */
 function ClientePanel({ state, setState, session }: any) {
-  // Estado inicial válido para el tipo
   const [accion, setAccion] = useState<"COMPRAR POR MAYOR" | "COMPRAR POR MENOR">("COMPRAR POR MAYOR");
 
   function genTicketCode() {
@@ -244,35 +241,34 @@ function ClientePanel({ state, setState, session }: any) {
     return ("T-" + a + "-" + b).toUpperCase();
   }
 
-async function continuar() {
-  const code = genTicketCode();
-  const ticket = {
-    id: code,
-    date_iso: todayISO(),
-    client_id: session.id,
-    client_number: session.number,
-    client_name: session.name,
-    action: accion,
-    status: "En cola" as const,
-  };
+  async function continuar() {
+    const code = genTicketCode();
+    const ticket = {
+      id: code,
+      date_iso: todayISO(),
+      client_id: session.id,
+      client_number: session.number,
+      client_name: session.name,
+      action: accion,
+      status: "En cola" as const,
+    };
 
-  // guardar ticket en la cola local
-  const st = clone(state);
-  st.queue = Array.isArray(st.queue) ? st.queue : [];
-  st.queue.push(ticket);
-  setState(st);
+    // guardar ticket en la cola local
+    const st = clone(state);
+    st.queue = Array.isArray(st.queue) ? st.queue : [];
+    st.queue.push(ticket);
+    setState(st);
 
-  // ⬇️ guardar en Supabase (si está disponible)
-  if (hasSupabase) {
-    await supabase.from("tickets").insert(ticket);
+    // guardar en Supabase (si está disponible)
+    if (hasSupabase) {
+      await supabase.from("tickets").insert(ticket);
+    }
+
+    // imprimir ticket
+    window.dispatchEvent(new CustomEvent("print-ticket", { detail: ticket } as any));
+    await nextPaint();
+    window.print();
   }
-
-  // imprimir ticket
-  window.dispatchEvent(new CustomEvent("print-ticket", { detail: ticket } as any));
-  await nextPaint();
-  window.print();
-}
-
 
   return (
     <div className="max-w-xl mx-auto p-6 space-y-4">
@@ -282,15 +278,14 @@ async function continuar() {
         </div>
         <div className="grid gap-3">
           <Select
-  label="¿Qué desea hacer?"
-  value={accion}
-  onChange={setAccion}
-  options={[
-    { value: "COMPRAR POR MENOR", label: "COMPRAR POR MENOR" }, // <- sin espacio final
-    { value: "COMPRAR POR MAYOR", label: "COMPRAR POR MAYOR" },
-  ]}
-/>
-
+            label="¿Qué desea hacer?"
+            value={accion}
+            onChange={setAccion}
+            options={[
+              { value: "COMPRAR POR MENOR", label: "COMPRAR POR MENOR" },
+              { value: "COMPRAR POR MAYOR", label: "COMPRAR POR MAYOR" },
+            ]}
+          />
           <div className="flex justify-end">
             <Button onClick={continuar}>Continuar</Button>
           </div>
@@ -299,7 +294,6 @@ async function continuar() {
     </div>
   );
 }
-
 
 /* =====================  TABS  ===================== */
 /* Facturación */
@@ -343,7 +337,6 @@ function FacturacionTab({ state, setState, session }: any) {
     const cash = parseNum(payCash);
     const transf = parseNum(payTransf);
     if (cash + transf > total) {
-      // eslint-disable-next-line no-restricted-globals
       if (!confirm("El pago supera el total. ¿Continuar y registrar como pago total?")) return;
     }
 
@@ -354,7 +347,6 @@ function FacturacionTab({ state, setState, session }: any) {
     const debtDelta = Math.max(0, total - paid);
     const status = debtDelta > 0 ? "No Pagada" : "Pagada";
 
-    // 👇 NUEVO: calcular la deuda total del cliente luego de esta factura
     const cl = st.clients.find((c: any) => c.id === client.id)!;
     const clientDebtAfter = parseNum(cl.debt) + debtDelta;
 
@@ -372,13 +364,12 @@ function FacturacionTab({ state, setState, session }: any) {
       payments: { cash, transfer: transf, alias: alias.trim() },
       status,
       type: "Factura",
-      client_debt_total: clientDebtAfter, // 👈 agregado para mostrar “Total adeudado del cliente” en la impresión
+      client_debt_total: clientDebtAfter,
     };
 
     st.invoices.push(invoice);
     st.meta.lastSavedInvoiceId = id;
 
-    // actualizar la deuda del cliente con el nuevo total
     cl.debt = clientDebtAfter;
 
     setState(st);
@@ -464,12 +455,7 @@ function FacturacionTab({ state, setState, session }: any) {
 
       <Card title="Productos">
         <div className="grid md:grid-cols-4 gap-2 mb-3">
-          <Select
-            label="Sección"
-            value={sectionFilter}
-            onChange={setSectionFilter}
-            options={sections.map((s: any) => ({ value: s, label: s }))}
-          />
+          <Select label="Sección" value={sectionFilter} onChange={setSectionFilter} options={sections.map((s: any) => ({ value: s, label: s }))} />
           <Select label="Lista" value={listFilter} onChange={setListFilter} options={lists.map((s: any) => ({ value: s, label: s }))} />
           <Input label="Buscar" value={query} onChange={setQuery} placeholder="Nombre del producto..." />
           <div className="pt-6">
@@ -536,7 +522,9 @@ function FacturacionTab({ state, setState, session }: any) {
                       ✕
                     </button>
                   </div>
-                  <div className="col-span-12 text-right text-xs text-slate-300 pt-1">Subtotal ítem: {money(parseNum(it.qty) * parseNum(it.unitPrice))}</div>
+                  <div className="col-span-12 text-right text-xs text-slate-300 pt-1">
+                    Subtotal ítem: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                  </div>
                 </div>
               ))}
             </div>
@@ -611,7 +599,7 @@ function ProductosTab({ state, setState, role }: any) {
   const [listFilter, setListFilter] = useState("Todas");
   const [q, setQ] = useState("");
 
-  // === NUEVO: creación y fuente dinámica de secciones (tipado para TS) ===
+  // creación dinámica de secciones
   const [newSection, setNewSection] = useState("");
   const [extraSections, setExtraSections] = useState<string[]>([]);
 
@@ -623,9 +611,7 @@ function ProductosTab({ state, setState, role }: any) {
         .filter((s: string) => !!s)
     )
   );
-  const sections: string[] = Array.from(
-    new Set<string>([...baseSections, ...derivedSections, ...extraSections])
-  );
+  const sections: string[] = Array.from(new Set<string>([...baseSections, ...derivedSections, ...extraSections]));
 
   const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
 
@@ -650,7 +636,6 @@ function ProductosTab({ state, setState, role }: any) {
     if (hasSupabase) await supabase.from("products").insert(product);
   }
 
-  // NUEVO: agregar sección local (tipando para evitar 'unknown')
   function addSection() {
     const s = newSection.trim();
     if (!s) return;
@@ -661,7 +646,7 @@ function ProductosTab({ state, setState, role }: any) {
     }
     setExtraSections([...extraSections, s]);
     setNewSection("");
-    setSection(s); // selecciona la nueva por comodidad
+    setSection(s);
   }
 
   const filtered = state.products.filter((p: any) => {
@@ -673,15 +658,9 @@ function ProductosTab({ state, setState, role }: any) {
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
-      {/* NUEVO: creador de secciones */}
       <Card title="Crear sección">
         <div className="grid md:grid-cols-3 gap-3">
-          <Input
-            label="Nombre de la sección"
-            value={newSection}
-            onChange={setNewSection}
-            placeholder="Ej: Perfumería, Librería…"
-          />
+          <Input label="Nombre de la sección" value={newSection} onChange={setNewSection} placeholder="Ej: Perfumería, Librería…" />
           <div className="pt-6">
             <Button onClick={addSection}>Agregar sección</Button>
           </div>
@@ -691,18 +670,8 @@ function ProductosTab({ state, setState, role }: any) {
       <Card title="Crear producto">
         <div className="grid md:grid-cols-6 gap-3">
           <Input label="Nombre" value={name} onChange={setName} className="md:col-span-2" />
-          <Select
-            label="Sección"
-            value={section}
-            onChange={setSection}
-            options={sections.map((s: string) => ({ value: s, label: s }))}
-          />
-          <Select
-            label="Lista"
-            value={list_label}
-            onChange={setListLabel}
-            options={lists.map((s) => ({ value: s, label: s }))}
-          />
+          <Select label="Sección" value={section} onChange={setSection} options={sections.map((s: string) => ({ value: s, label: s }))} />
+          <Select label="Lista" value={list_label} onChange={setListLabel} options={lists.map((s) => ({ value: s, label: s }))} />
           <NumberInput label="Precio lista 1" value={price1} onChange={setPrice1} />
           <NumberInput label="Precio lista 2" value={price2} onChange={setPrice2} />
           {role === "admin" && <NumberInput label="Costo (solo admin)" value={cost} onChange={setCost} />}
@@ -714,18 +683,8 @@ function ProductosTab({ state, setState, role }: any) {
 
       <Card title="Listado de productos">
         <div className="grid md:grid-cols-4 gap-2 mb-3">
-          <Select
-            label="Sección"
-            value={secFilter}
-            onChange={setSecFilter}
-            options={["Todas", ...sections].map((s: string) => ({ value: s, label: s }))}
-          />
-          <Select
-            label="Lista"
-            value={listFilter}
-            onChange={setListFilter}
-            options={["Todas", ...lists].map((s) => ({ value: s, label: s }))}
-          />
+          <Select label="Sección" value={secFilter} onChange={setSecFilter} options={["Todas", ...sections].map((s: string) => ({ value: s, label: s }))} />
+          <Select label="Lista" value={listFilter} onChange={setListFilter} options={["Todas", ...lists].map((s) => ({ value: s, label: s }))} />
           <Input label="Buscar" value={q} onChange={setQ} placeholder="Nombre..." />
         </div>
         <div className="overflow-x-auto">
@@ -759,8 +718,6 @@ function ProductosTab({ state, setState, role }: any) {
   );
 }
 
-
-
 /* Deudores */
 function DeudoresTab({ state, setState }: any) {
   const clients = state.clients.filter((c: any) => parseNum(c.debt) > 0);
@@ -779,7 +736,7 @@ function DeudoresTab({ state, setState }: any) {
     const client = st.clients.find((c: any) => c.id === active)!;
 
     const aplicado = Math.min(totalPago, client.debt);
-    client.debt = Math.max(0, parseNum(client.debt) - aplicado); // actualizar deuda del cliente
+    client.debt = Math.max(0, parseNum(client.debt) - aplicado);
 
     const number = st.meta.invoiceCounter++;
     const id = "inv_" + number;
@@ -798,7 +755,7 @@ function DeudoresTab({ state, setState }: any) {
       payments: { cash: parseNum(cash), transfer: parseNum(transf), alias: alias.trim() },
       status: "Pago",
       type: "Recibo",
-      client_debt_total: client.debt, // 👈 total adeudado del cliente luego de aplicar el pago
+      client_debt_total: client.debt,
     };
 
     st.invoices.push(invoice);
@@ -856,6 +813,7 @@ function DeudoresTab({ state, setState }: any) {
     </div>
   );
 }
+
 /* Cola (vendedor/admin): aceptar / cancelar turnos de la hora actual) */
 function ColaTab({ state, setState, session }: any) {
   const [tickets, setTickets] = useState<any[]>([]);
@@ -900,11 +858,7 @@ function ColaTab({ state, setState, session }: any) {
     if (hasSupabase) {
       const ch = supabase
         .channel("rt-tickets")
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "tickets" },
-          () => refresh()
-        )
+        .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, () => refresh())
         .subscribe();
       return () => {
         supabase.removeChannel(ch);
@@ -912,185 +866,161 @@ function ColaTab({ state, setState, session }: any) {
     }
   }, []);
 
-async function accept(t: any, caja = "1") {
-  const now = new Date().toISOString();
-  const boxVal = Number(caja);
+  async function accept(t: any, caja = "1") {
+    const now = new Date().toISOString();
+    const boxVal = Number(caja);
 
-  if (hasSupabase) {
-    // 1) Persistir y traer el row actualizado
-    const { data, error } = await supabase
-      .from("tickets")
-      .update({
-        status: "Aceptado",
-        box: boxVal,
-        accepted_by: session?.name ?? "-",
-        accepted_at: now,
-      })
-      .eq("id", t.id)
-      .select("*")
-      .single();
+    if (hasSupabase) {
+      // Persistir y traer el row actualizado
+      const { data, error } = await supabase
+        .from("tickets")
+        .update({
+          status: "Aceptado",
+          box: boxVal,
+          accepted_by: session?.name ?? "-",
+          accepted_at: now,
+        })
+        .eq("id", t.id)
+        .select("*")
+        .single();
 
-    if (error) {
-      console.error("Supabase UPDATE tickets error:", error);
-      alert("No pude marcar el ticket como ACEPTADO en la base.");
-      await refresh();
-      return;
-    }
-
-    // 2) Sincronizar UI con la verdad del server
-    setTickets((prev) => prev.map((x) => (x.id === t.id ? data : x)));
-    const st = clone(state);
-    st.queue = Array.isArray(st.queue) ? st.queue : [];
-    const i = st.queue.findIndex((x: any) => x.id === t.id);
-    if (i >= 0) st.queue[i] = data;
-    setState(st);
-  } else {
-    // Modo local (sin Supabase)
-    const st = clone(state);
-    st.queue = Array.isArray(st.queue) ? st.queue : [];
-    const i = st.queue.findIndex((x: any) => x.id === t.id);
-    if (i >= 0) {
-      st.queue[i] = {
-        ...st.queue[i],
-        status: "Aceptado",
-        box: boxVal,
-        accepted_by: session?.name ?? session?.id ?? "-",
-        accepted_at: now,
-      };
-    }
-    setState(st);
-    setTickets((prev) =>
-      prev.map((x) =>
-        x.id === t.id
-          ? { ...x, status: "Aceptado", box: boxVal, accepted_by: session?.name ?? "-", accepted_at: now }
-          : x
-      )
-    );
-  }
-
-  // 3) Aviso a la TV
-  try {
-    const bc = new BroadcastChannel("turnos-tv");
-    bc.postMessage({ type: "announce", client_name: t.client_name, caja: boxVal });
-  } catch {}
-  alert(`${t.client_name} puede pasar a la CAJA ${boxVal}`);
-}
-
-async function cancel(t: any) {
-  if (hasSupabase) {
-    // Persistir y traer el row actualizado
-    const { data, error } = await supabase
-      .from("tickets")
-      .update({ status: "Cancelado" })
-      .eq("id", t.id)
-      .select("*")
-      .single();
-
-    if (error) {
-      console.error("Supabase UPDATE tickets cancel:", error);
-      alert("No pude CANCELAR el ticket en la base.");
-      await refresh();
-      return;
-    }
-
-    // Sincronizar UI con server
-    setTickets((prev) => prev.map((x) => (x.id === t.id ? data : x)));
-    const st = clone(state);
-    st.queue = Array.isArray(st.queue) ? st.queue : [];
-    const i = st.queue.findIndex((x: any) => x.id === t.id);
-    if (i >= 0) st.queue[i] = data;
-    setState(st);
-  } else {
-    // Modo local
-    const st = clone(state);
-    st.queue = Array.isArray(st.queue) ? st.queue : [];
-    const i = st.queue.findIndex((x: any) => x.id === t.id);
-    if (i >= 0) st.queue[i] = { ...st.queue[i], status: "Cancelado" };
-    setState(st);
-    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: "Cancelado" } : x)));
-  }
-}
-
-const pendientes = tickets.filter((t) => t.status === "En cola");
-const aceptados = tickets.filter((t) => t.status === "Aceptado");
-
-return (
-  <div className="max-w-4xl mx-auto p-4 space-y-4">
-    <Card
-      title="Turnos — Hora actual"
-      actions={
-        <Button tone="slate" onClick={refresh}>
-          Actualizar
-        </Button>
+      if (error) {
+        console.error("Supabase UPDATE tickets error:", error);
+        alert("No pude marcar el ticket como ACEPTADO en la base.");
+        await refresh();
+        return;
       }
-    >
-      {loading && <div className="text-sm text-slate-400">Cargando…</div>}
 
-      {!loading && (
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <div className="text-sm font-semibold mb-2">En cola</div>
-            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
-              {pendientes.length === 0 && (
-                <div className="p-3 text-sm text-slate-400">Sin turnos en esta hora.</div>
-              )}
-              {pendientes.map((t) => (
-                <div key={t.id} className="p-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{t.client_name}</div>
-                    <div className="text-xs text-slate-400">
-                      #{t.id} · {new Date(t.date_iso).toLocaleTimeString("es-AR")} · {t.action}
+      // Sincronizar UI con la verdad del server
+      setTickets((prev) => prev.map((x) => (x.id === t.id ? data : x)));
+      const st = clone(state);
+      st.queue = Array.isArray(st.queue) ? st.queue : [];
+      const i = st.queue.findIndex((x: any) => x.id === t.id);
+      if (i >= 0) st.queue[i] = data;
+      setState(st);
+    } else {
+      // Modo local (sin Supabase)
+      const st = clone(state);
+      st.queue = Array.isArray(st.queue) ? st.queue : [];
+      const i = st.queue.findIndex((x: any) => x.id === t.id);
+      if (i >= 0) {
+        st.queue[i] = {
+          ...st.queue[i],
+          status: "Aceptado",
+          box: boxVal,
+          accepted_by: session?.name ?? session?.id ?? "-",
+          accepted_at: now,
+        };
+      }
+      setState(st);
+      setTickets((prev) =>
+        prev.map((x) =>
+          x.id === t.id ? { ...x, status: "Aceptado", box: boxVal, accepted_by: session?.name ?? "-", accepted_at: now } : x
+        )
+      );
+    }
+
+    // Aviso a la TV
+    try {
+      const bc = new BroadcastChannel("turnos-tv");
+      bc.postMessage({ type: "announce", client_name: t.client_name, caja: boxVal });
+    } catch {}
+    alert(`${t.client_name} puede pasar a la CAJA ${boxVal}`);
+  }
+
+  async function cancel(t: any) {
+    if (hasSupabase) {
+      // Persistir y traer el row actualizado
+      const { data, error } = await supabase.from("tickets").update({ status: "Cancelado" }).eq("id", t.id).select("*").single();
+
+      if (error) {
+        console.error("Supabase UPDATE tickets cancel:", error);
+        alert("No pude CANCELAR el ticket en la base.");
+        await refresh();
+        return;
+      }
+
+      // Sincronizar UI con server
+      setTickets((prev) => prev.map((x) => (x.id === t.id ? data : x)));
+      const st = clone(state);
+      st.queue = Array.isArray(st.queue) ? st.queue : [];
+      const i = st.queue.findIndex((x: any) => x.id === t.id);
+      if (i >= 0) st.queue[i] = data;
+      setState(st);
+    } else {
+      // Modo local
+      const st = clone(state);
+      st.queue = Array.isArray(st.queue) ? st.queue : [];
+      const i = st.queue.findIndex((x: any) => x.id === t.id);
+      if (i >= 0) st.queue[i] = { ...st.queue[i], status: "Cancelado" };
+      setState(st);
+      setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: "Cancelado" } : x)));
+    }
+  }
+
+  const pendientes = tickets.filter((t) => t.status === "En cola");
+  const aceptados = tickets.filter((t) => t.status === "Aceptado");
+
+  return (
+    <div className="max-w-4xl mx-auto p-4 space-y-4">
+      <Card
+        title="Turnos — Hora actual"
+        actions={
+          <Button tone="slate" onClick={refresh}>
+            Actualizar
+          </Button>
+        }
+      >
+        {loading && <div className="text-sm text-slate-400">Cargando…</div>}
+
+        {!loading && (
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <div className="text-sm font-semibold mb-2">En cola</div>
+              <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
+                {pendientes.length === 0 && <div className="p-3 text-sm text-slate-400">Sin turnos en esta hora.</div>}
+                {pendientes.map((t) => (
+                  <div key={t.id} className="p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{t.client_name}</div>
+                      <div className="text-xs text-slate-400">
+                        #{t.id} · {new Date(t.date_iso).toLocaleTimeString("es-AR")} · {t.action}
+                      </div>
+                    </div>
+                    <div className="shrink-0 flex gap-2">
+                      <Button onClick={() => accept(t, "1")}>Aceptar (Caja 1)</Button>
+                      <Button tone="red" onClick={() => cancel(t)}>
+                        Cancelar
+                      </Button>
                     </div>
                   </div>
-                  <div className="shrink-0 flex gap-2">
-                    <Button onClick={() => accept(t, "1")}>Aceptar (Caja 1)</Button>
-                    <Button tone="red" onClick={() => cancel(t)}>
-                      Cancelar
-                    </Button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold mb-2">Aceptados</div>
+              <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
+                {aceptados.length === 0 && <div className="p-3 text-sm text-slate-400">Nadie aceptado aún.</div>}
+                {aceptados.map((t) => (
+                  <div key={t.id} className="p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{t.client_name} — Caja {t.box ?? "1"}</div>
+                      <div className="text-xs text-slate-400">
+                        Aceptado por {t.accepted_by || "—"} · {t.accepted_at ? new Date(t.accepted_at).toLocaleTimeString("es-AR") : "—"}
+                      </div>
+                    </div>
+                    <Chip tone="emerald">Aceptado</Chip>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-
-          <div>
-            <div className="text-sm font-semibold mb-2">Aceptados</div>
-            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
-              {aceptados.length === 0 && (
-                <div className="p-3 text-sm text-slate-400">Nadie aceptado aún.</div>
-              )}
-              {aceptados.map((t) => (
-                <div key={t.id} className="p-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">
-                      {t.client_name} — Caja {t.box ?? "1"}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      Aceptado por {t.accepted_by || "—"} ·{" "}
-                      {t.accepted_at ? new Date(t.accepted_at).toLocaleTimeString("es-AR") : "—"}
-                    </div>
-                  </div>
-                  <Chip tone="emerald">Aceptado</Chip>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </Card>
-  </div>
-);
-   return (
-     <div className="max-w-4xl mx-auto p-4 space-y-4">
-       ...
-     </div>
-   );
- }
-+/* ⬆️ ESTA LLAVE FALTABA para cerrar function ColaTab */
-
- /* Vendedores */
- function VendedoresTab({ state, setState }: any) {
-
+        )}
+      </Card>
+    </div>
+  );
+}
 
 /* Vendedores */
 function VendedoresTab({ state, setState }: any) {
@@ -1156,9 +1086,9 @@ function ReportesTab({ state, setState }: any) {
     } else if (periodo === "mes") {
       const [yStr, mStr] = mes.split("-");
       const y = parseInt(yStr || String(today.getFullYear()), 10);
-      const m = (parseInt(mStr || String(today.getMonth() + 1), 10) - 1) as number; // 0-based
+      const m = (parseInt(mStr || String(today.getMonth() + 1), 10) - 1) as number;
       start = new Date(y, m, 1, 0, 0, 0, 0);
-      end = new Date(y, m + 1, 0, 23, 59, 59, 999); // último día del mes
+      end = new Date(y, m + 1, 0, 23, 59, 59, 999);
     } else {
       const y = parseInt(anio || String(today.getFullYear()), 10);
       start = new Date(y, 0, 1, 0, 0, 0, 0);
@@ -1197,16 +1127,14 @@ function ReportesTab({ state, setState }: any) {
   const porSeccion = (() => {
     const m: any = {};
     invoices.forEach((f: any) =>
-      f.items.forEach(
-        (it: any) => (m[it.section] = (m[it.section] || 0) + parseNum(it.qty) * parseNum(it.unitPrice))
-      )
+      f.items.forEach((it: any) => (m[it.section] = (m[it.section] || 0) + parseNum(it.qty) * parseNum(it.unitPrice)))
     );
     return Object.entries(m)
       .map(([section, total]) => ({ section, total }))
       .sort((a: any, b: any) => (b as any).total - (a as any).total);
   })();
 
-  // ====== NUEVO: Transferencias agrupadas por alias (usa todas las operaciones del rango) ======
+  // Transferencias agrupadas por alias (usa todas las operaciones del rango)
   const porAlias = (() => {
     const m: any = {};
     docsEnRango.forEach((f: any) => {
@@ -1222,7 +1150,6 @@ function ReportesTab({ state, setState }: any) {
   })();
 
   function borrarFactura(id: string) {
-    // eslint-disable-next-line no-restricted-globals
     if (!confirm("¿Eliminar factura?")) return;
     const st = clone(state);
     st.invoices = st.invoices.filter((f: any) => f.id !== id);
@@ -1232,7 +1159,6 @@ function ReportesTab({ state, setState }: any) {
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
-      {/* Filtros de fecha */}
       <Card title="Filtros">
         <div className="grid md:grid-cols-4 gap-3">
           <Select
@@ -1245,19 +1171,12 @@ function ReportesTab({ state, setState }: any) {
               { value: "anio", label: "Año" },
             ]}
           />
-          {periodo === "dia" && (
-            <Input label="Día" type="date" value={dia} onChange={setDia} />
-          )}
-          {periodo === "mes" && (
-            <Input label="Mes" type="month" value={mes} onChange={setMes} />
-          )}
-          {periodo === "anio" && (
-            <Input label="Año" type="number" value={anio} onChange={setAnio} />
-          )}
+          {periodo === "dia" && <Input label="Día" type="date" value={dia} onChange={setDia} />}
+          {periodo === "mes" && <Input label="Mes" type="month" value={mes} onChange={setMes} />}
+          {periodo === "anio" && <Input label="Año" type="number" value={anio} onChange={setAnio} />}
         </div>
       </Card>
 
-      {/* KPIs */}
       <div className="grid md:grid-cols-4 gap-3">
         <Card title="Ventas totales">
           <div className="text-2xl font-bold">{money(totalVentas)}</div>
@@ -1274,7 +1193,6 @@ function ReportesTab({ state, setState }: any) {
         </Card>
       </div>
 
-      {/* Por vendedor */}
       <Card title="Por vendedor">
         <div className="grid md:grid-cols-3 gap-3">
           {porVendedor.map((v: any) => (
@@ -1287,7 +1205,6 @@ function ReportesTab({ state, setState }: any) {
         </div>
       </Card>
 
-      {/* Por sección */}
       <Card title="Por sección">
         <div className="grid md:grid-cols-3 gap-3">
           {porSeccion.map((s: any) => (
@@ -1300,7 +1217,6 @@ function ReportesTab({ state, setState }: any) {
         </div>
       </Card>
 
-      {/* NUEVO: Transferencias por alias */}
       <Card title="Transferencias por alias">
         {porAlias.length === 0 ? (
           <div className="text-sm text-slate-400">Sin transferencias en el período.</div>
@@ -1316,7 +1232,6 @@ function ReportesTab({ state, setState }: any) {
         )}
       </Card>
 
-      {/* Listado de facturas (sólo Factura, en el período) */}
       <Card title="Listado de facturas">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -1352,7 +1267,9 @@ function ReportesTab({ state, setState }: any) {
                 ))}
               {invoices.length === 0 && (
                 <tr>
-                  <td className="py-4 pr-4 text-slate-400" colSpan={7}>Sin facturas en el período.</td>
+                  <td className="py-4 pr-4 text-slate-400" colSpan={7}>
+                    Sin facturas en el período.
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -1362,7 +1279,6 @@ function ReportesTab({ state, setState }: any) {
     </div>
   );
 }
-
 
 /* Presupuestos */
 function PresupuestosTab({ state, setState, session }: any) {
@@ -1404,7 +1320,6 @@ function PresupuestosTab({ state, setState, session }: any) {
       await supabase.from("budgets").insert(b);
       await saveCountersSupabase(st.meta);
     }
-    // eslint-disable-next-line no-alert
     alert("Presupuesto guardado.");
     setItems([]);
   }
@@ -1458,9 +1373,7 @@ function PresupuestosTab({ state, setState, session }: any) {
                 <div key={p.id} className="px-3 py-2 flex items-center justify-between">
                   <div className="min-w-0">
                     <div className="text-sm font-medium truncate">{p.name}</div>
-                    <div className="text-xs text-slate-400">
-                      L1: {money(p.price1)} L2: {money(p.price2)}
-                    </div>
+                    <div className="text-xs text-slate-400">L1: {money(p.price1)} L2: {money(p.price2)}</div>
                   </div>
                   <Button tone="slate" onClick={() => addItem(p)}>
                     Añadir
@@ -1474,6 +1387,8 @@ function PresupuestosTab({ state, setState, session }: any) {
             <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
               {items.length === 0 && <div className="p-3 text-sm text-slate-400">Vacío</div>}
               {items.map((it: any, idx: number) => (
+                <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
+                  <
                 <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
                   <div className="col-span-6">
                     <div className="text-sm font-medium">{it.name}</div>
@@ -1500,11 +1415,16 @@ function PresupuestosTab({ state, setState, session }: any) {
                     />
                   </div>
                   <div className="col-span-1 flex items-end justify-end pb-0.5">
-                    <button onClick={() => setItems(items.filter((_: any, i: number) => i !== idx))} className="text-xs text-red-400 hover:text-red-300">
+                    <button
+                      onClick={() => setItems(items.filter((_: any, i: number) => i !== idx))}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
                       ✕
                     </button>
                   </div>
-                  <div className="col-span-12 text-right text-xs text-slate-300 pt-1">Subtotal ítem: {money(parseNum(it.qty) * parseNum(it.unitPrice))}</div>
+                  <div className="col-span-12 text-right text-xs text-slate-300 pt-1">
+                    Subtotal ítem: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1562,10 +1482,9 @@ function PresupuestosTab({ state, setState, session }: any) {
   );
 }
 
-/* ===== helpers para impresión (si no los tenés ya arriba) ===== */
+/* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
-const nextPaint = () =>
-  new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res())));
+const nextPaint = () => new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res())));
 
 /* ===== Área de impresión ===== */
 function PrintArea() {
@@ -1573,8 +1492,14 @@ function PrintArea() {
   const [ticket, setTicket] = useState<any | null>(null);
 
   useEffect(() => {
-    const hInv = (e: any) => { setTicket(null); setInv(e.detail); };
-    const hTic = (e: any) => { setInv(null); setTicket(e.detail); };
+    const hInv = (e: any) => {
+      setTicket(null);
+      setInv(e.detail);
+    };
+    const hTic = (e: any) => {
+      setInv(null);
+      setTicket(e.detail);
+    };
     window.addEventListener("print-invoice", hInv);
     window.addEventListener("print-ticket", hTic);
     return () => {
@@ -1585,7 +1510,7 @@ function PrintArea() {
 
   if (!inv && !ticket) return null;
 
-  // ====== PLANTILLA DE TICKET ======
+  // ==== PLANTILLA: TICKET ====
   if (ticket) {
     return (
       <div className="only-print print-area p-14">
@@ -1598,10 +1523,18 @@ function PrintArea() {
           <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
 
           <div className="text-sm space-y-1">
-            <div><b>Código:</b> {ticket.id}</div>
-            <div><b>Cliente:</b> {ticket.client_name} (N° {ticket.client_number})</div>
-            <div><b>Acción:</b> {ticket.action}</div>
-            <div><b>Fecha:</b> {new Date(ticket.date_iso).toLocaleString("es-AR")}</div>
+            <div>
+              <b>Código:</b> {ticket.id}
+            </div>
+            <div>
+              <b>Cliente:</b> {ticket.client_name} (N° {ticket.client_number})
+            </div>
+            <div>
+              <b>Acción:</b> {ticket.action}
+            </div>
+            <div>
+              <b>Fecha:</b> {new Date(ticket.date_iso).toLocaleString("es-AR")}
+            </div>
           </div>
 
           <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
@@ -1617,7 +1550,7 @@ function PrintArea() {
     );
   }
 
-  // ====== PLANTILLA DE FACTURA (tu versión con deuda total del cliente) ======
+  // ==== PLANTILLA: FACTURA ====
   const paidCash = parseNum(inv?.payments?.cash || 0);
   const paidTransf = parseNum(inv?.payments?.transfer || 0);
   const paid = paidCash + paidTransf;
@@ -1628,7 +1561,6 @@ function PrintArea() {
   return (
     <div className="only-print print-area p-14">
       <div className="max-w-[780px] mx-auto text-black">
-        {/* Encabezado como en la foto */}
         <div className="flex items-start justify-between">
           <div>
             <div style={{ fontWeight: 800, letterSpacing: 1 }}>FACTURA</div>
@@ -1636,23 +1568,26 @@ function PrintArea() {
           </div>
         </div>
 
-        {/* Línea separadora */}
         <div style={{ borderTop: "1px solid #000", margin: "10px 0 6px" }} />
 
-        {/* Cliente / Datos de factura */}
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>
             <div style={{ fontWeight: 700 }}>Cliente</div>
             <div>{inv.client_name}</div>
           </div>
           <div className="text-right">
-            <div><b>Factura Nº:</b> {pad(inv.number)}</div>
-            <div><b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}</div>
-            <div><b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}</div>
+            <div>
+              <b>Factura Nº:</b> {pad(inv.number)}
+            </div>
+            <div>
+              <b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}
+            </div>
+            <div>
+              <b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}
+            </div>
           </div>
         </div>
 
-        {/* Tabla de detalle */}
         <table className="print-table text-sm" style={{ marginTop: 10 }}>
           <thead>
             <tr>
@@ -1676,27 +1611,34 @@ function PrintArea() {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>Total</td>
+              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>
+                Total
+              </td>
               <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
             </tr>
           </tfoot>
         </table>
 
-        {/* Desglose de pago */}
         <div className="grid grid-cols-2 gap-2 text-sm" style={{ marginTop: 8 }}>
           <div />
           <div>
-            <div><b>Método de pago:</b></div>
+            <div>
+              <b>Método de pago:</b>
+            </div>
             <div>CONTADO: {money(paidCash)}</div>
             <div>TRANSFERENCIA: {money(paidTransf)}</div>
             {inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
-            <div style={{ marginTop: 6 }}><b>Cantidad pagada:</b> {money(paid)}</div>
-            <div><b>Cantidad adeudada:</b> {money(balance)}</div>
-            <div style={{ marginTop: 6 }}><b>Total adeudado como cliente:</b> {money(clientDebtTotal)}</div>
+            <div style={{ marginTop: 6 }}>
+              <b>Cantidad pagada:</b> {money(paid)}
+            </div>
+            <div>
+              <b>Cantidad adeudada:</b> {money(balance)}</div>
+            <div style={{ marginTop: 6 }}>
+              <b>Total adeudado como cliente:</b> {money(clientDebtTotal)}
+            </div>
           </div>
         </div>
 
-        {/* Marca de agua PAGADO opcional */}
         {fullyPaid && (
           <div
             style={{
@@ -1720,13 +1662,12 @@ function PrintArea() {
   );
 }
 
-
 /* ===== Login ===== */
 function Login({ onLogin, vendors, adminKey, clients }: any) {
   const [role, setRole] = useState("vendedor");
-  const [name, setName] = useState("");          // vendedor: nombre o id
-  const [key, setKey] = useState("");            // vendedor/admin: clave
-  const [clientNumber, setClientNumber] = useState(""); // cliente: N° cliente
+  const [name, setName] = useState("");
+  const [key, setKey] = useState("");
+  const [clientNumber, setClientNumber] = useState("");
 
   const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 
@@ -1750,12 +1691,18 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
       return;
     }
 
-    // === CLIENTE ===
+    // CLIENTE
     if (role === "cliente") {
       const num = parseInt(String(clientNumber), 10);
-      if (!num) { alert("Ingrese un número de cliente válido."); return; }
+      if (!num) {
+        alert("Ingrese un número de cliente válido.");
+        return;
+      }
       const cl = clients.find((c: any) => parseInt(String(c.number), 10) === num);
-      if (!cl) { alert("N° de cliente no encontrado."); return; }
+      if (!cl) {
+        alert("N° de cliente no encontrado.");
+        return;
+      }
       onLogin({ role: "cliente", name: cl.name, id: cl.id, number: cl.number });
       return;
     }
@@ -1766,7 +1713,9 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
       <div className="max-w-md w-full space-y-5">
         <div className="text-center">
           <h1 className="text-xl font-bold">{APP_TITLE}</h1>
-          <p className="text-slate-400 text-sm">{hasSupabase ? "Conectado a Supabase" : "Sin base de datos"}</p>
+          <p className="text-slate-400 text-sm">
+            {hasSupabase ? "Conectado a Supabase" : "Sin base de datos"}
+          </p>
         </div>
 
         <Card title="Ingreso">
@@ -1778,23 +1727,45 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
               options={[
                 { value: "vendedor", label: "Vendedor" },
                 { value: "admin", label: "Admin" },
-                { value: "cliente", label: "Cliente" },   // <-- NUEVO
+                { value: "cliente", label: "Cliente" },
               ]}
             />
 
             {role === "vendedor" && (
               <>
-                <Input label="Vendedor (nombre o ID)" value={name} onChange={setName} placeholder="Ej: Tobi o v1" />
-                <Input label="Clave" value={key} onChange={setKey} placeholder="Clave asignada" type="password" />
+                <Input
+                  label="Vendedor (nombre o ID)"
+                  value={name}
+                  onChange={setName}
+                  placeholder="Ej: Tobi o v1"
+                />
+                <Input
+                  label="Clave"
+                  value={key}
+                  onChange={setKey}
+                  placeholder="Clave asignada"
+                  type="password"
+                />
               </>
             )}
 
             {role === "admin" && (
-              <Input label="Clave admin" value={key} onChange={setKey} placeholder="Clave de administrador" type="password" />
+              <Input
+                label="Clave admin"
+                value={key}
+                onChange={setKey}
+                placeholder="Clave de administrador"
+                type="password"
+              />
             )}
 
             {role === "cliente" && (
-              <NumberInput label="N° de cliente" value={clientNumber} onChange={setClientNumber} placeholder="Ej: 1001" />
+              <NumberInput
+                label="N° de cliente"
+                value={clientNumber}
+                onChange={setClientNumber}
+                placeholder="Ej: 1001"
+              />
             )}
 
             <div className="flex items-center justify-end">
@@ -1807,13 +1778,11 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
   );
 }
 
-
 /* ===== Página principal ===== */
 export default function Page() {
-  const [state, setState] = useState<any>(seedState()); // <- sin localStorage
+  const [state, setState] = useState<any>(seedState());
   const [session, setSession] = useState<any | null>(null);
   const [tab, setTab] = useState("Facturación");
-  
 
   useEffect(() => {
     if (!hasSupabase) return;
@@ -1825,7 +1794,7 @@ export default function Page() {
 
   function onLogin(user: any) {
     setSession(user);
-    setTab(user.role === "cliente" ? "Panel" : "Facturación"); // cliente entra al Panel
+    setTab(user.role === "cliente" ? "Panel" : "Facturación");
   }
   function onLogout() {
     setSession(null);
@@ -1833,12 +1802,17 @@ export default function Page() {
 
   return (
     <>
-      {/* Toda la app: NO se imprime (clase no-print) */}
+      {/* App visible (no se imprime) */}
       <div className="min-h-screen bg-slate-950 text-slate-100 no-print">
         <style>{`::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:#0b1220}::-webkit-scrollbar-thumb{background:#22304a;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#2f436a}`}</style>
 
         {!session ? (
-          <Login onLogin={onLogin} vendors={state.vendors} adminKey={state.auth.adminKey} clients={state.clients} />
+          <Login
+            onLogin={onLogin}
+            vendors={state.vendors}
+            adminKey={state.auth.adminKey}
+            clients={state.clients}
+          />
         ) : (
           <>
             <Navbar current={tab} setCurrent={setTab} role={session.role} onLogout={onLogout} />
@@ -1848,38 +1822,37 @@ export default function Page() {
               <ClientePanel state={state} setState={setState} session={session} />
             )}
 
-          {/* Vendedor / Admin */}
-{session.role !== "cliente" && tab === "Facturación" && (
-  <FacturacionTab state={state} setState={setState} session={session} />
-)}
-{session.role !== "cliente" && tab === "Clientes" && (
-  <ClientesTab state={state} setState={setState} />
-)}
-{session.role !== "cliente" && tab === "Productos" && (
-  <ProductosTab state={state} setState={setState} role={session.role} />
-)}
-{session.role !== "cliente" && tab === "Deudores" && (
-  <DeudoresTab state={state} setState={setState} />
-)}
-{/* 👇 Aca va ColaTab */}
-{session.role !== "cliente" && tab === "Cola" && (
-  <ColaTab state={state} setState={setState} session={session} />
-)}
-{session.role === "admin" && tab === "Vendedores" && (
-  <VendedoresTab state={state} setState={setState} />
-)}
-{session.role === "admin" && tab === "Reportes" && (
-  <ReportesTab state={state} setState={setState} />
-)}
-{session.role === "admin" && tab === "Presupuestos" && (
-  <PresupuestosTab state={state} setState={setState} session={session} />
-)}
-{session.role !== "admin" && session.role !== "cliente" && tab === "Presupuestos" && (
-  <div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">
-    Los presupuestos se gestionan por Admin.
-  </div>
-)}
-
+            {/* Vendedor / Admin */}
+            {session.role !== "cliente" && tab === "Facturación" && (
+              <FacturacionTab state={state} setState={setState} session={session} />
+            )}
+            {session.role !== "cliente" && tab === "Clientes" && (
+              <ClientesTab state={state} setState={setState} />
+            )}
+            {session.role !== "cliente" && tab === "Productos" && (
+              <ProductosTab state={state} setState={setState} role={session.role} />
+            )}
+            {session.role !== "cliente" && tab === "Deudores" && (
+              <DeudoresTab state={state} setState={setState} />
+            )}
+            {/* Cola */}
+            {session.role !== "cliente" && tab === "Cola" && (
+              <ColaTab state={state} setState={setState} session={session} />
+            )}
+            {session.role === "admin" && tab === "Vendedores" && (
+              <VendedoresTab state={state} setState={setState} />
+            )}
+            {session.role === "admin" && tab === "Reportes" && (
+              <ReportesTab state={state} setState={setState} />
+            )}
+            {session.role === "admin" && tab === "Presupuestos" && (
+              <PresupuestosTab state={state} setState={setState} session={session} />
+            )}
+            {session.role !== "admin" && session.role !== "cliente" && tab === "Presupuestos" && (
+              <div className="max-w-3xl mx-auto p-6 text-sm text-slate-300">
+                Los presupuestos se gestionan por Admin.
+              </div>
+            )}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
               {hasSupabase ? "Supabase activo" : "Datos en navegador"}
@@ -1888,7 +1861,7 @@ export default function Page() {
         )}
       </div>
 
-      {/* Plantillas que SÍ se imprimen */}
+      {/* Plantillas que sí se imprimen */}
       <PrintArea />
     </>
   );
