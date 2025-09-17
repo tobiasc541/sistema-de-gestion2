@@ -161,7 +161,7 @@ function TVClient() {
      Render
   ========================= */
   return (
-    <div className={`min-h-screen p-4 flex flex-col ${isDark ? "bg-black text-white" : "bg-white text-slate-900"}`}>
+   <div className={`h-screen overflow-hidden flex flex-col ${isDark ? "bg-black text-white" : "bg-white text-slate-900"}`}>
       <div className="max-w-screen-2xl w-full mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
@@ -181,10 +181,10 @@ function TVClient() {
         </div>
 
         {/* Dos columnas */}
-        <div className="flex-1 grid grid-cols-2 gap-4 lg:gap-6">
+        <div className="flex-1 grid grid-cols-2 gap-4 lg:gap-6 h-full">
           {/* En cola */}
           <section
-            className={`rounded-2xl p-4 border-4 ${
+  className={`rounded-2xl p-4 border-4 overflow-y-auto ${
               isDark ? "border-yellow-500 bg-slate-900/80" : "border-yellow-400 bg-yellow-50"
             }`}
           >
@@ -233,7 +233,7 @@ function TVClient() {
 
           {/* Aceptados */}
           <section
-            className={`rounded-2xl p-4 border-4 ${
+  className={`rounded-2xl p-4 border-4 overflow-y-auto ${
               isDark ? "border-green-500 bg-slate-900/80" : "border-green-400 bg-green-50"
             }`}
           >
