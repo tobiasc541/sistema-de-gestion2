@@ -255,42 +255,6 @@ function ClientePanel({ state, setState, session }: any) {
       status: "En cola",
     };
 
-    // guardar ticket en la cola local
-    const st = clone(state);
-    st.queue = Array.isArray(st.queue) ? st.queue : [];
-    st.queue.push(ticket);
-    setState(st);
-
-    // imprimir ticket
-    window.dispatchEvent(new CustomEvent("print-ticket", { detail: ticket } as any));
-    await nextPaint();
-    window.print();
-  }
-
-  return (
-    <div className="max-w-xl mx-auto p-6 space-y-4">
-      <Card title="Bienvenido/a">
-        <div className="text-sm mb-2">
-          Cliente: <b>{session.name}</b> — N° <b>{session.number}</b>
-        </div>
-        <div className="grid gap-3">
-          <Select
-            label="¿Qué desea hacer?"
-            value={accion}
-            onChange={(v: any) => setAccion(v as "COMPRAR POR MAYOR" | "COMPRAR POR MENOR")}
-            options={[
-              { value: "COMPRAR POR MAYOR", label: "COMPRAR POR MAYOR" },
-              { value: "COMPRAR POR MENOR", label: "COMPRAR POR MENOR" },
-            ]}
-          />
-          <div className="flex justify-end">
-            <Button onClick={continuar}>Continuar</Button>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
 
     // guardar ticket en la cola local
     const st = clone(state);
