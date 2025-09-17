@@ -216,10 +216,10 @@ function TVClient() {
         </div>
 
         {/* Dos columnas: ocupa el resto, con scroll interno por columna */}
-       <div className="grid grid-cols-2 gap-4 lg:gap-6 px-4 pb-4 flex-1 min-h-0 overflow-hidden">
+       <div className="grid grid-cols-2 gap-6 lg:gap-8 px-6 pb-6 flex-1 min-h-0 overflow-hidden">
           {/* En cola */}
           <section
-            className={`rounded-2xl p-4 border-4 ${isDark ? "border-yellow-500 bg-slate-900/80" : "border-yellow-400 bg-yellow-50"} flex flex-col min-h-0`}
+            className={`rounded-2xl p-6 md:p-8 border-4 ${isDark ? "border-yellow-500 bg-slate-900/80" : "border-yellow-400 bg-yellow-50"} flex flex-col min-h-0`}
           >
             <header className="shrink-0 text-xl md:text-2xl lg:text-3xl font-black mb-3 flex items-center gap-2">
              <span className="text-yellow-400">En fila</span>
@@ -238,8 +238,8 @@ function TVClient() {
                   {pending.map((t) => {
                     const p = pickPalette(t);
                     return (
-                      <article key={t.id} className={`rounded-xl ring-4 p-3 md:p-4 ${p.ring} ${isDark ? p.bg : "bg-white"} shadow-md`}>
-                        <div className={`text-lg md:text-xl font-extrabold ${p.title} break-words`}>
+                      <article key={t.id} className={`rounded-2xl ring-4 p-4 md:p-5 ${p.ring} ${isDark ? p.bg : "bg-white"} ${isDark ? "ring-offset-slate-900" : "ring-offset-white"} ring-offset-2 shadow-lg`}>
+                       <div className={`text-xl md:text-2xl font-extrabold ${p.title} break-words`}>
                           {t.client_name || "Cliente"}
                         </div>
                         <div className={`mt-1 text-sm md:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>
@@ -263,7 +263,7 @@ function TVClient() {
 
           {/* Aceptados */}
           <section
-            className={`rounded-2xl p-4 border-4 ${isDark ? "border-green-500 bg-slate-900/80" : "border-green-400 bg-green-50"} flex flex-col min-h-0`}
+            className={`rounded-2xl p-6 md:p-8 border-4 ${isDark ? "border-green-500 bg-slate-900/80" : "border-green-400 bg-green-50"} flex flex-col min-h-0`}
           >
             <header className="shrink-0 text-xl md:text-2xl lg:text-3xl font-black mb-3 flex items-center gap-2">
               <span className="text-green-400">Clientes aceptados</span>
@@ -282,8 +282,8 @@ function TVClient() {
                   {accepted.map((t) => {
                     const p = pickPalette(t);
                     return (
-                      <article key={t.id} className={`rounded-xl ring-4 p-3 md:p-4 ${p.ring} ${isDark ? "bg-black" : "bg-white"} shadow-md`}>
-                        <div className="text-lg md:text-xl font-extrabold break-words">
+                      <article key={t.id} className={`rounded-2xl ring-4 p-4 md:p-5 ${p.ring} ${isDark ? "bg-black" : "bg-white"} ${isDark ? "ring-offset-slate-900" : "ring-offset-white"} ring-offset-2 shadow-lg`}>
+                       <div className="text-xl md:text-2xl font-extrabold break-words">
                           {t.client_name || "Cliente"} — Caja {t.box || 1}
                         </div>
                         <div className={`mt-1 text-sm md:text-base ${isDark ? "text-slate-400" : "text-slate-600"}`}>
