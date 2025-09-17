@@ -912,34 +912,35 @@ function ColaTab({ state, setState, session }: any) {
     }
   }, []);
 
-  async function accept(t: any, caja = "1") {
-    // estado local
-    const st = clone(state);
-    st.queue = Array.isArray(st.queue) ? st.queue : [];
-    const i = st.queue.findIndex((x: any) => x.id === t.id);
-    if (i >= 0) st.queue[i] = { ...st.queue[i], status: "Aceptado", caja, accepted_by: session?.name || session?.id };
-    setState(st);
-    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: "Aceptado", caja } : x)));
+ async function accept(t: any, caja = "1") {
+  // actualizar estado local
+  const st = clone(state);
+  st.queue = Array.isArray(st.queue) ? st.queue : [];
+  const i = st.queue.findIndex((x: any) => x.id === t.id);
+  if (i >= 0) st.queue[i] = { ...st.queue[i], status: "Aceptado", box: caja, accepted_by: session?.name || session?.id, accepted_at: new Date().toISOString() };
+  setState(st);
+  setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: "Aceptado", box: caja } : x)));
 
-if (hasSupabase) {
-  const updates = {
-    status: "Aceptado" as const,
-    box: parseInt(caja),             // se guarda el número de caja en la columna box
-    accepted_by: session?.name ?? "-", // se guarda quién aceptó
-    accepted_at: new Date().toISOString(), // ⬅️ nueva columna: hora de aceptación
-  };
-  await supabase.from("tickets").update(updates).eq("id", t.id);
+  // persistir en Supabase
+  if (hasSupabase) {
+    const updates = {
+      status: "Aceptado" as const,
+      box: parseInt(caja),
+      accepted_by: session?.name ?? "-",
+      accepted_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from("tickets").update(updates).eq("id", t.id);
+    if (error) console.error("Error al actualizar ticket:", error);
+  }
+
+  // aviso a la TV
+  try {
+    const bc = new BroadcastChannel("turnos-tv");
+    bc.postMessage({ type: "announce", client_name: t.client_name, caja });
+  } catch {}
+  alert(`${t.client_name} puede pasar a la CAJA ${caja}`);
 }
 
-
-
-    // Aviso para la TV (BroadcastChannel para mismos orígenes; con Supabase, la TV leerá del cambio)
-    try {
-      const bc = new BroadcastChannel("turnos-tv");
-      bc.postMessage({ type: "announce", client_name: t.client_name, caja });
-    } catch {}
-    alert(`${t.client_name} puede pasar a la CAJA ${caja}`);
-  }
 
   async function cancel(t: any) {
     // estado local
