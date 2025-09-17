@@ -93,7 +93,6 @@ function TVClient() {
       try { localStorage.setItem("tv-sound-on", next ? "1" : "0"); } catch {}
       return next;
     });
-    // Desbloqueo de audio en algunos navegadores
     try { window?.speechSynthesis?.resume?.(); } catch {}
   };
 
@@ -128,9 +127,9 @@ function TVClient() {
 
     const acc = (data || []).filter((t) => {
       if (t.status !== "Aceptado" || hid.has(t.id)) return false;
-      if (!t.accepted_at) return true; // por si faltara timestamp
+      if (!t.accepted_at) return true;
       const ts = new Date(t.accepted_at).getTime();
-      return nowTs - ts < SHOW_ACCEPTED_MS; // solo los últimos 2 min
+      return nowTs - ts < SHOW_ACCEPTED_MS;
     });
 
     setPending(pend);
@@ -151,7 +150,6 @@ function TVClient() {
         const r = (payload.new || {}) as Ticket;
         await fetchTickets();
 
-        // Si pasa a Aceptado => voz + spotlight 5s + ocultar a los 2 min
         if (r.status === "Aceptado" && r.id !== lastSpokenId.current && !hiddenIdsRef.current.has(r.id)) {
           const nombre = r.client_name || "Cliente";
           const caja = r.box || 1;
@@ -160,10 +158,8 @@ function TVClient() {
           lastSpokenId.current = r.id;
           setSpotlight(r);
 
-          // cierra spotlight a los 5s
-          setTimeout(() => setSpotlight((s) => (s?.id === r.id ? null : s)), SPOTLIGHT_MS);
+          setTimeout(() => setSpotlight((s) => (s?.id === r.id ? null : s)), 5000);
 
-          // oculta tarjeta a los 2 min
           setTimeout(() => {
             setHiddenIds((prev) => {
               const next = new Set(prev);
@@ -192,7 +188,6 @@ function TVClient() {
           </h1>
 
           <div className="flex items-center gap-2">
-            {/* Botón sonido */}
             <button
               onClick={toggleSound}
               title={soundOn ? "Desactivar sonido" : "Activar sonido"}
@@ -203,7 +198,6 @@ function TVClient() {
               {soundOn ? "🔊" : "🔈"}
             </button>
 
-            {/* Botón actualizar */}
             <button
               onClick={fetchTickets}
               className={`rounded-lg px-4 py-2 text-sm md:text-base border transition ${
@@ -215,14 +209,14 @@ function TVClient() {
           </div>
         </div>
 
-        {/* Dos columnas: ocupa el resto, con scroll interno por columna */}
-       <div className="grid grid-cols-2 gap-6 lg:gap-8 px-6 pb-6 flex-1 min-h-0 overflow-hidden">
-          {/* En cola */}
+        {/* Dos columnas */}
+        <div className="grid grid-cols-2 gap-6 lg:gap-8 px-6 pb-6 flex-1 min-h-0 overflow-hidden">
+          {/* En fila */}
           <section
             className={`rounded-2xl p-6 md:p-8 border-4 ${isDark ? "border-yellow-500 bg-slate-900/80" : "border-yellow-400 bg-yellow-50"} flex flex-col min-h-0`}
           >
             <header className="shrink-0 text-xl md:text-2xl lg:text-3xl font-black mb-3 flex items-center gap-2">
-             <span className="text-yellow-400">En fila</span>
+              <span className="text-yellow-400">En fila</span>
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/40">
                 {pending.length}
               </span>
@@ -234,12 +228,18 @@ function TVClient() {
                   Sin turnos pendientes.
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {pending.map((t) => {
                     const p = pickPalette(t);
                     return (
-                      <article key={t.id} className={`rounded-2xl ring-4 p-4 md:p-5 ${p.ring} ${isDark ? p.bg : "bg-white"} ${isDark ? "ring-offset-slate-900" : "ring-offset-white"} ring-offset-2 shadow-lg`}>
-                       <div className={`text-xl md:text-2xl font-extrabold ${p.title} break-words`}>
+                      /* TARJETA PENDIENTE (ACHICADA Y CON ESPACIO) */
+                      <article
+                        key={t.id}
+                        className={`rounded-xl ring-2 p-3 md:p-4 mx-2 my-2 ${p.ring} ${
+                          isDark ? p.bg : "bg-white"
+                        } ${isDark ? "ring-offset-slate-900" : "ring-offset-white"} ring-offset-1 shadow-md`}
+                      >
+                        <div className={`text-lg md:text-xl font-extrabold ${p.title} break-words`}>
                           {t.client_name || "Cliente"}
                         </div>
                         <div className={`mt-1 text-sm md:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>
@@ -278,12 +278,18 @@ function TVClient() {
                   Aún no hay aceptados.
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {accepted.map((t) => {
                     const p = pickPalette(t);
                     return (
-                      <article key={t.id} className={`rounded-2xl ring-4 p-4 md:p-5 ${p.ring} ${isDark ? "bg-black" : "bg-white"} ${isDark ? "ring-offset-slate-900" : "ring-offset-white"} ring-offset-2 shadow-lg`}>
-                       <div className="text-xl md:text-2xl font-extrabold break-words">
+                      /* TARJETA ACEPTADO (ACHICADA Y CON ESPACIO) */
+                      <article
+                        key={t.id}
+                        className={`rounded-xl ring-2 p-3 md:p-4 mx-2 my-2 ${p.ring} ${
+                          isDark ? "bg-black" : "bg-white"
+                        } ${isDark ? "ring-offset-slate-900" : "ring-offset-white"} ring-offset-1 shadow-md`}
+                      >
+                        <div className="text-lg md:text-xl font-extrabold break-words">
                           {t.client_name || "Cliente"} — Caja {t.box || 1}
                         </div>
                         <div className={`mt-1 text-sm md:text-base ${isDark ? "text-slate-400" : "text-slate-600"}`}>
