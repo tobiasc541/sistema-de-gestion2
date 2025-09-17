@@ -2,10 +2,9 @@
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { supabase, hasSupabase } from "../../lib/supabaseClient";
 
-/** === Tipos mínimos según tu tabla tickets === */
 type Ticket = {
   id: string;
   client_name?: string | null;
@@ -14,10 +13,9 @@ type Ticket = {
   status: "En cola" | "Aceptado" | "Cancelado";
   box?: number | null;
   accepted_by?: string | null;
-  accepted_at?: string | null; // timestamptz en Supabase
+  accepted_at?: string | null;
 };
 
-/** === Utils === */
 const pad2 = (n: number) => String(n).padStart(2, "0");
 function hhmmss(d = new Date()) {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -34,18 +32,16 @@ function speak(text: string) {
   } catch {}
 }
 
-/** === Página TV === */
 export default function TVPage() {
   const [pending, setPending] = useState<Ticket[]>([]);
   const [accepted, setAccepted] = useState<Ticket[]>([]);
   const [now, setNow] = useState(new Date());
+  const lastSpokenId = useRef<string | null>(null);
+
   const clock = useMemo(() => hhmmss(now), [now]);
 
-  /** === Carga inicial + polling suave cada 5 s === */
   async function fetchTickets() {
     if (!hasSupabase) return;
-    // Importante: NO filtramos por “hora actual” porque en tu tabla
-    // no hay un created_at visible. Mostramos los últimos 30 relevantes.
     const { data, error } = await supabase
       .from("tickets")
       .select(
@@ -70,30 +66,23 @@ export default function TVPage() {
       fetchTickets();
     }, 5000);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** === Realtime (INSERT/UPDATE) sobre tickets === */
   useEffect(() => {
     if (!hasSupabase) return;
     const ch = supabase
       .channel("tv-tickets")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "tickets" },
-        async (payload: any) => {
-          // Actualizamos lista completa (más simple y robusto)
-          await fetchTickets();
+      .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, async (payload: any) => {
+        await fetchTickets();
 
-          // Si pasó a Aceptado, avisamos por voz
-          const r = (payload.new || {}) as Ticket;
-          if (r.status === "Aceptado") {
-            const nombre = r.client_name || "Cliente";
-            const caja = r.box || 1;
-            speak(`${nombre}, puede pasar a la caja ${caja}`);
-          }
+        const r = (payload.new || {}) as Ticket;
+        if (r.status === "Aceptado" && r.id !== lastSpokenId.current) {
+          const nombre = r.client_name || "Cliente";
+          const caja = r.box || 1;
+          speak(`${nombre}, puede pasar a la caja ${caja}`);
+          lastSpokenId.current = r.id;
         }
-      )
+      })
       .subscribe();
 
     return () => {
@@ -101,16 +90,13 @@ export default function TVPage() {
         supabase.removeChannel(ch);
       } catch {}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** === UI === */
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
+    <div className="min-h-screen bg-black text-white p-6">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
+          <h1 className="text-3xl font-extrabold tracking-tight">
             Turnos — <span className="text-emerald-400">{clock}</span>
           </h1>
           <button
@@ -121,76 +107,42 @@ export default function TVPage() {
           </button>
         </div>
 
-        {/* Grilla columnas */}
-        <div className="grid md:grid-cols-2 gap-5">
+        <div className="grid md:grid-cols-2 gap-8">
           {/* En cola */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
-            <div className="text-lg font-semibold mb-3">En cola</div>
-
-            {pending.length === 0 && (
-              <div className="text-slate-400 text-sm">
-                Sin turnos en esta hora.
-              </div>
-            )}
-
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+            <div className="text-xl font-semibold mb-3">En cola</div>
+            {pending.length === 0 && <div className="text-slate-400">Sin turnos.</div>}
             <div className="space-y-3">
               {pending.map((t) => (
-                <div
-                  key={t.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 flex items-center justify-between"
-                >
-                  <div className="min-w-0">
-                    <div className="font-semibold truncate text-lg">
-                      {t.client_name || "Cliente"}
-                    </div>
-                    <div className="text-sm text-slate-300 truncate">
-                      {t.action || "—"}{" "}
-                      {t.client_number ? `— N° ${t.client_number}` : ""}
-                    </div>
+                <div key={t.id} className="rounded-xl border border-slate-700 bg-slate-800 p-3">
+                  <div className="font-semibold text-lg">{t.client_name || "Cliente"}</div>
+                  <div className="text-sm text-slate-300">
+                    {t.action || "—"} {t.client_number ? `— N° ${t.client_number}` : ""}
                   </div>
-                  <span className="shrink-0 inline-flex rounded-full border border-amber-700/40 bg-amber-800/30 px-3 py-1 text-xs font-semibold">
-                    En cola
-                  </span>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Aceptados */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
-            <div className="text-lg font-semibold mb-3">Aceptados</div>
-
-            {accepted.length === 0 && (
-              <div className="text-slate-400 text-sm">Aún no hay aceptados.</div>
-            )}
-
+          <div className="rounded-2xl border border-green-500 bg-slate-900/70 p-4">
+            <div className="text-xl font-semibold mb-3 text-green-400">Aceptados</div>
+            {accepted.length === 0 && <div className="text-slate-400">Aún no hay aceptados.</div>}
             <div className="space-y-3">
               {accepted.map((t) => (
-                <div
-                  key={t.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900/70 p-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0">
-                      <div className="font-semibold truncate text-lg">
-                        {t.client_name || "Cliente"} —{" "}
-                        <span className="font-bold">
-                          Caja {t.box || 1}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        Aceptado por {t.accepted_by || "—"} —{" "}
-                        {t.accepted_at
-                          ? new Date(t.accepted_at).toLocaleTimeString(
-                              "es-AR",
-                              { hour: "2-digit", minute: "2-digit", second: "2-digit" }
-                            )
-                          : "—"}
-                      </div>
-                    </div>
-                    <span className="shrink-0 inline-flex rounded-full border border-emerald-700/40 bg-emerald-800/30 px-3 py-1 text-xs font-semibold">
-                      Aceptado
-                    </span>
+                <div key={t.id} className="rounded-xl border-2 border-green-500 bg-black p-3">
+                  <div className="font-extrabold text-2xl text-green-400">
+                    {t.client_name || "Cliente"} — Caja {t.box || 1}
+                  </div>
+                  <div className="text-sm text-slate-400">
+                    Aceptado por {t.accepted_by || "—"} —{" "}
+                    {t.accepted_at
+                      ? new Date(t.accepted_at).toLocaleTimeString("es-AR", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })
+                      : "—"}
                   </div>
                 </div>
               ))}
@@ -198,10 +150,7 @@ export default function TVPage() {
           </div>
         </div>
 
-        {/* Marca inferior */}
-        <div className="mt-8 text-[11px] text-slate-500">
-          Sistema de Gestión — Pantalla de Turnos
-        </div>
+        <div className="mt-8 text-xs text-slate-500">Sistema de Gestión — Pantalla de Turnos</div>
       </div>
     </div>
   );
