@@ -221,7 +221,7 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     role === "admin"
       ? TABS
       : role === "vendedor"
-      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Cola"]
+     ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola"]
       : ["Panel"];
 
 
@@ -668,9 +668,7 @@ function ProductosTab({ state, setState, role }: any) {
 
   async function addProduct() {
     if (!name.trim()) return;
-    const product = {
-  stock: 0,
-  stock_minimo: 0, // <--- NUEVO
+   const product = {
   id: "p" + Math.random().toString(36).slice(2, 8),
   name: name.trim(),
   section,
@@ -678,7 +676,10 @@ function ProductosTab({ state, setState, role }: any) {
   price1: parseNum(price1),
   price2: parseNum(price2),
   cost: parseNum(cost),
+  stock: parseNum(stock),
+  stock_minimo: 0,
 };
+
 
     const st = clone(state);
     st.products.push(product);
@@ -884,13 +885,7 @@ function DeudoresTab({ state, setState }: any) {
       await supabase.from("invoices").insert(invoice);
       await supabase.from("clients").update({ debt: client.debt }).eq("id", client.id);
       await saveCountersSupabase(st.meta);
-      // Actualizar stock en Supabase
-for (const prod of st.products) {
-  await supabase
-    .from("products")
-    .update({ stock: prod.stock })
-    .eq("id", prod.id);
-}
+
 
     }
 
@@ -1244,13 +1239,20 @@ const totalGastosEfectivo = gastosPeriodo.reduce((s, g) => s + parseNum(g.efecti
 const totalGastosTransferencia = gastosPeriodo.reduce((s, g) => s + parseNum(g.transferencia), 0);
 
 const transferenciasPorAlias = (() => {
-  const m: any = {};
-  gastosPeriodo.forEach((g) => {
-    if (parseNum(g.transferencia) > 0) {
-      m[g.alias] = (m[g.alias] || 0) + parseNum(g.transferencia);
+  const m: Record<string, number> = {};
+  gastosPeriodo.forEach((g: any) => {
+    const tr = parseNum(g.transferencia);
+    if (tr > 0) {
+      const a = String(g.alias ?? "Sin alias");
+      m[a] = (m[a] ?? 0) + tr;
     }
   });
-  return Object.entries(m).map(([alias, total]) => ({ alias, total }));
+
+  // tipamos explícitamente el array de salida
+  return Object.entries(m).map(([alias, total]): { alias: string; total: number } => ({
+    alias,
+    total, // ya es number
+  }));
 })();
 
 // Calcular totales de DEVOLUCIONES
@@ -1598,7 +1600,8 @@ function PresupuestosTab({ state, setState, session }: any) {
     total: b.total,
     cost: calcInvoiceCost(b.items),
     payments: { cash: efectivo, transfer: transferencia, alias },
-    status: "No Pagada",
+  status: (efectivo + transferencia) >= b.total ? "Pagada" : "No Pagada",
+
     type: "Factura",
   };
 
@@ -1962,17 +1965,29 @@ if (metodoDevolucion === "intercambio_otro") {
 
   setState(st);
 
-  // Guardar en Supabase
-  if (hasSupabase) {
-    await supabase.from("devoluciones").insert(devolucion);
+ if (hasSupabase) {
+  await supabase.from("devoluciones").insert(devolucion);
 
-    if (metodoDevolucion === "saldo") {
-      await supabase
-        .from("clients")
-        .update({ debt: st.clients.find((c: any) => c.id === clienteSeleccionado)?.debt })
-        .eq("id", clienteSeleccionado);
-    }
+  if (metodoDevolucion === "saldo") {
+    await supabase
+      .from("clients")
+      .update({ debt: st.clients.find((c: any) => c.id === clienteSeleccionado)?.debt })
+      .eq("id", clienteSeleccionado);
   }
+
+  // Persistir stock de productos DEVUELTOS
+  for (const it of productosDevueltos) {
+    const nuevoStock = st.products.find((p:any) => p.id === it.productId)?.stock;
+    await supabase.from("products").update({ stock: nuevoStock }).eq("id", it.productId);
+  }
+
+  // Si hubo intercambio por OTRO producto, persistir también el “nuevo”
+  if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
+    const stockNuevo = st.products.find((p:any) => p.id === productoNuevoId)?.stock;
+    await supabase.from("products").update({ stock: stockNuevo }).eq("id", productoNuevoId);
+  }
+}
+
 
   alert("Devolución registrada con éxito.");
   setProductosDevueltos([]);
