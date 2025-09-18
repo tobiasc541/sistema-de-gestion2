@@ -1582,6 +1582,8 @@ function PresupuestosTab({ state, setState, session }: any) {
 }
 /* Gastos y Devoluciones */
 function GastosDevolucionesTab({ state, setState, session }: any) {
+  const [productoNuevoId, setProductoNuevoId] = useState(""); // Producto elegido para entregar
+const [cantidadNuevo, setCantidadNuevo] = useState("");     // Cantidad a entregar
   const [modo, setModo] = useState("Gasto"); // "Gasto" o "Devolución"
   const [tipoGasto, setTipoGasto] = useState("Proveedor");
   const [detalle, setDetalle] = useState("");
@@ -1713,6 +1715,21 @@ async function guardarDevolucion() {
       cliente.debt = parseNum(cliente.debt) - totalDevolucion;
     }
   }
+// Intercambio por mismo producto
+if (metodoDevolucion === "intercambio_mismo") {
+  alert("Intercambio registrado: mismo producto, sin cambios de deuda.");
+  // Aquí luego sumaremos lógica de stock si hace falta.
+}
+
+// Intercambio por otro producto
+if (metodoDevolucion === "intercambio_otro") {
+  if (!productoNuevoId || parseNum(cantidadNuevo) <= 0) {
+    alert("Debes seleccionar un producto nuevo y la cantidad.");
+    return;
+  }
+
+  alert("Intercambio por otro producto iniciado. Luego implementaremos la lógica.");
+}
 
   setState(st);
 
@@ -1914,16 +1931,19 @@ return (
         {productosDevueltos.length > 0 && (
           <div className="mt-6 border-t border-slate-700 pt-4">
             <h4 className="text-sm font-semibold mb-2">Método de devolución</h4>
-            <Select
-              label="Seleccionar método"
-              value={metodoDevolucion}
-              onChange={setMetodoDevolucion}
-              options={[
-                { value: "efectivo", label: "Efectivo" },
-                { value: "transferencia", label: "Transferencia" },
-                { value: "saldo", label: "Saldo a favor" },
-              ]}
-            />
+           <Select
+  label="Seleccionar método"
+  value={metodoDevolucion}
+  onChange={setMetodoDevolucion}
+  options={[
+    { value: "efectivo", label: "Efectivo" },
+    { value: "transferencia", label: "Transferencia" },
+    { value: "saldo", label: "Saldo a favor" },
+    { value: "intercambio_mismo", label: "Intercambio mismo producto" },
+    { value: "intercambio_otro", label: "Intercambio por otro producto" },
+  ]}
+/>
+
 
             {metodoDevolucion !== "saldo" && (
               <div className="grid grid-cols-2 gap-3 mt-3">
@@ -1943,6 +1963,50 @@ return (
             )}
           </div>
         )}
+{/* Campos adicionales si es intercambio por otro producto */}
+{metodoDevolucion === "intercambio_otro" && (
+  <div className="mt-4 space-y-3">
+    <h4 className="text-sm font-semibold">Producto nuevo a entregar</h4>
+    <Select
+      label="Seleccionar producto nuevo"
+      value={productoNuevoId}
+      onChange={setProductoNuevoId}
+      options={state.products.map((p: any) => ({
+        value: p.id,
+        label: `${p.name} — Stock: ${p.stock || 0}`,
+      }))}
+    />
+    <NumberInput
+      label="Cantidad"
+      value={cantidadNuevo}
+      onChange={setCantidadNuevo}
+      placeholder="0"
+    />
+
+    <h4 className="text-sm font-semibold mt-4">Pago de diferencia (opcional)</h4>
+    <div className="grid grid-cols-2 gap-3">
+      <NumberInput
+        label="Pago en efectivo"
+        value={montoEfectivo}
+        onChange={setMontoEfectivo}
+        placeholder="0"
+      />
+      <NumberInput
+        label="Pago en transferencia"
+        value={montoTransferencia}
+        onChange={setMontoTransferencia}
+        placeholder="0"
+      />
+      <Input
+        className="col-span-2"
+        label="Alias / CVU destino"
+        value={alias}
+        onChange={setAlias}
+        placeholder="ej: mitobicel.banco"
+      />
+    </div>
+  </div>
+)}
 
           {/* Botón para confirmar devolución */}
         {productosDevueltos.length > 0 && (
