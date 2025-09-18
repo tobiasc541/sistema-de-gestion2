@@ -1953,8 +1953,7 @@ return (
       </Card>
     )}
   </div>
-);
-
+)
                         </tr>
                       ))}
                     </tbody>
