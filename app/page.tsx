@@ -1592,6 +1592,8 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
   const [clienteSeleccionado, setClienteSeleccionado] = useState("");
   const [productosDevueltos, setProductosDevueltos] = useState<any[]>([]);
   const [facturasCliente, setFacturasCliente] = useState<any[]>([]);
+  const [metodoDevolucion, setMetodoDevolucion] = useState("efectivo");
+
 
 useEffect(() => {
   if (!clienteSeleccionado) return;
@@ -1953,13 +1955,11 @@ return (
       </Card>
     )}
   </div>
-)
-                        </tr>
-                      ))}
+))}
                     </tbody>
                   </table>
                 </div>
-              ))}
+              ))
             </div>
           ) : (
             clienteSeleccionado && (
@@ -1968,88 +1968,11 @@ return (
               </div>
             )
           )}
-{/* Resumen de devolución */}
-{productosDevueltos.length > 0 && (
-  <div className="mt-6 border-t border-slate-700 pt-4">
-    <h4 className="text-sm font-semibold mb-2">Resumen de devolución</h4>
-    <table className="min-w-full text-sm mb-3">
-      <thead className="text-slate-400">
-        <tr>
-          <th className="text-left py-1">Producto</th>
-          <th className="text-right py-1">Cant.</th>
-          <th className="text-right py-1">Subtotal</th>
-        </tr>
-      </thead>
-      <tbody>
-        {productosDevueltos.map((p, idx) => (
-          <tr key={idx} className="border-t border-slate-800">
-            <td className="py-1">{p.name}</td>
-            <td className="text-right py-1">{p.qtyDevuelta}</td>
-            <td className="text-right py-1">
-              ${money(parseNum(p.qtyDevuelta) * parseNum(p.unitPrice))}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-
-    <div className="flex justify-between font-bold text-lg">
-      <span>Total a devolver:</span>
-      <span>
-        ${money(productosDevueltos.reduce((s, it) => s + parseNum(it.qtyDevuelta) * parseNum(it.unitPrice), 0))}
-      </span>
-    </div>
-  </div>
-)}
-{/* Método de devolución */}
-<div className="mt-6 border-t border-slate-700 pt-4">
-  <h4 className="text-sm font-semibold mb-2">Método de devolución</h4>
-  <Select
-    label="Seleccionar método"
-    value={metodoDevolucion}
-    onChange={setMetodoDevolucion}
-    options={[
-      { value: "efectivo", label: "Efectivo" },
-      { value: "transferencia", label: "Transferencia" },
-      { value: "saldo", label: "Saldo a favor" },
-    ]}
-  />
-
-  {metodoDevolucion !== "saldo" && (
-    <div className="grid grid-cols-2 gap-3 mt-3">
-      <NumberInput
-        label="Monto en efectivo"
-        value={montoEfectivo}
-        onChange={setMontoEfectivo}
-        placeholder="0"
-      />
-      <NumberInput
-        label="Monto en transferencia"
-        value={montoTransferencia}
-        onChange={setMontoTransferencia}
-        placeholder="0"
-      />
-    </div>
-  )}
-</div>
-
-          {/* Botón para confirmar devolución */}
-          {productosDevueltos.length > 0 && (
-            <div className="mt-4 text-right">
-              <Button onClick={guardarDevolucion} tone="emerald">
-                Confirmar devolución
-              </Button>
-            </div>
-          )}
         </Card>
       )}
     </div>
   );
   }
-
-
-
-
 /* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 const nextPaint = () => new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res())));
