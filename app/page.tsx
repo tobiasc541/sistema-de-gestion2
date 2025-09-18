@@ -22,7 +22,14 @@ const clone = (obj: any) => JSON.parse(JSON.stringify(obj));
 /* ===== seed inicial (solo UI mientras carga Supabase) ===== */
 function seedState() {
   return {
-    meta: { invoiceCounter: 1, budgetCounter: 1, lastSavedInvoiceId: null as null | string, cashFloat: 0 },
+    meta: {
+  invoiceCounter: 1,
+  budgetCounter: 1,
+  lastSavedInvoiceId: null as null | string,
+  cashFloat: 0,                 // (queda, pero ya no lo usamos)
+  cashFloatByDate: {} as Record<string, number>,  // <-- NUEVO
+},
+
 
     auth: { adminKey: "46892389" },
     vendors: [] as any[],
@@ -105,9 +112,15 @@ async function saveCountersSupabase(meta: any) {
   if (!hasSupabase) return;
   await supabase.from("meta").upsert({
     key: "counters",
-    value: { invoiceCounter: meta.invoiceCounter, budgetCounter: meta.budgetCounter, cashFloat: meta.cashFloat ?? 0 },
+    value: {
+      invoiceCounter: meta.invoiceCounter,
+      budgetCounter: meta.budgetCounter,
+      cashFloat: meta.cashFloat ?? 0,
+      cashFloatByDate: meta.cashFloatByDate ?? {},   // <-- NUEVO
+    },
   });
 }
+
 
 /* ====== UI atoms ====== */
 function Card({ title, actions, className = "", children }: any) {
@@ -202,6 +215,47 @@ function groupBy(arr: any[], key: string) {
     return acc;
   }, {} as any);
 }
+// === Gasto del mes por cliente ===
+function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
+  const y = refDate.getFullYear();
+  const m = refDate.getMonth();
+  const start = new Date(y, m, 1, 0, 0, 0, 0).getTime();
+  const end   = new Date(y, m + 1, 0, 23, 59, 59, 999).getTime();
+
+  // Ventas del mes (solo Facturas)
+  const factMes = (state.invoices || [])
+    .filter((f: any) =>
+      f.type === "Factura" &&
+      f.client_id === clientId &&
+      (() => { const t = new Date(f.date_iso).getTime(); return t >= start && t <= end; })()
+    )
+    .reduce((s: number, f: any) => s + parseNum(f.total), 0);
+
+  // Devoluciones del mes del cliente
+  const devsMes = (state.devoluciones || [])
+    .filter((d: any) =>
+      d.client_id === clientId &&
+      (() => { const t = new Date(d.date_iso).getTime(); return t >= start && t <= end; })()
+    );
+
+  // Restan al gasto si son devolución en efectivo/transferencia/saldo
+  const devRestables = devsMes
+    .filter((d: any) => ["efectivo", "transferencia", "saldo"].includes(String(d.metodo)))
+    .reduce((s: number, d: any) => s + parseNum(d.total), 0);
+
+  // En intercambio por OTRO producto, sumamos solo la diferencia que abonó
+  const extrasIntercambio = devsMes
+    .filter((d: any) => d.metodo === "intercambio_otro")
+    .reduce(
+      (s: number, d: any) =>
+        s + parseNum(d.extra_pago_efectivo || 0) + parseNum(d.extra_pago_transferencia || 0),
+      0
+    );
+
+  // Intercambio del mismo producto no cambia el gasto
+  return Math.max(0, factMes - devRestables + extrasIntercambio);
+}
+
 
 /* ===== Navbar ===== */
 function Navbar({ current, setCurrent, role, onLogout }: any) {
@@ -451,10 +505,18 @@ const toPay = Math.max(0, total - applied);
               onChange={setVendorId}
               options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))}
             />
-            <div className="col-span-2 text-xs text-slate-300 mt-1">
-              Deuda del cliente:{" "}
-              <span className="font-semibold">{money(state.clients.find((c: any) => c.id === clientId)?.debt || 0)}</span>
-            </div>
+           <div className="col-span-2 text-xs text-slate-300 mt-1">
+  Deuda del cliente:{" "}
+  <span className="font-semibold">
+    {money(state.clients.find((c: any) => c.id === clientId)?.debt || 0)}
+  </span>
+  <span className="mx-2">·</span>
+  Gastado este mes:{" "}
+  <span className="font-semibold">
+    {money(gastoMesCliente(state, clientId))}
+  </span>
+</div>
+
             <Select
               label="Lista de precios"
               value={priceList}
@@ -637,10 +699,12 @@ function ClientesTab({ state, setState }: any) {
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-slate-400">
-              <tr>
-                <th className="py-2 pr-4">N°</th>
-                <th className="py-2 pr-4">Nombre</th>
-                <th className="py-2 pr-4">Deuda</th>
+  <tr>
+    <th className="py-2 pr-4">N°</th>
+    <th className="py-2 pr-4">Nombre</th>
+    <th className="py-2 pr-4">Deuda</th>
+    <th className="py-2 pr-4">Gasto mes</th>
+
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -649,12 +713,14 @@ function ClientesTab({ state, setState }: any) {
                   <td className="py-2 pr-4">{c.number}</td>
                   <td className="py-2 pr-4">{c.name}</td>
                   <td className="py-2 pr-4">{money(c.debt || 0)}</td>
+                  <td className="py-2 pr-4">{money(gastoMesCliente(state, c.id))}</td>
+
                 </tr>
               ))}
 
               {clients.length === 0 && (
                 <tr>
-                  <td className="py-2 pr-4 text-slate-400" colSpan={3}>
+                  <td className="py-2 pr-4 text-slate-400" colSpan={4}>
                     Sin clientes cargados.
                   </td>
                 </tr>
@@ -676,7 +742,7 @@ function ProductosTab({ state, setState, role }: any) {
   );
 
   const [name, setName] = useState("");
-  const [section, setSection] = useState("Almacén");
+  const [section, setSection] = useState("");
   const [list_label, setListLabel] = useState("MITOBICEL");
   const [price1, setPrice1] = useState("");
   const [price2, setPrice2] = useState("");
@@ -691,20 +757,26 @@ function ProductosTab({ state, setState, role }: any) {
   const [newSection, setNewSection] = useState("");
   const [extraSections, setExtraSections] = useState<string[]>([]);
 
-  const baseSections: string[] = ["Almacén", "Bebidas", "Limpieza", "Otros"];
-  const derivedSections: string[] = Array.from(
-    new Set(
-      state.products
-        .map((p: any) => String(p.section ?? "").trim())
-        .filter((s: string) => !!s)
-    )
-  );
-  const sections: string[] = Array.from(new Set<string>([...baseSections, ...derivedSections, ...extraSections]));
+// Sin secciones predefinidas: solo las que existen en tu DB o las que agregues
+const derivedSections: string[] = Array.from(
+  new Set(
+    state.products
+      .map((p: any) => String(p.section ?? "").trim())
+      .filter((s: string) => !!s)
+  )
+);
+const sections: string[] = Array.from(new Set<string>([...derivedSections, ...extraSections]));
+
 
   const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
 
   async function addProduct() {
     if (!name.trim()) return;
+    if (!section.trim()) {
+  alert("Elegí una sección o creá una nueva.");
+  return;
+}
+
    const product = {
   id: "p" + Math.random().toString(36).slice(2, 8),
   name: name.trim(),
@@ -774,7 +846,16 @@ function ProductosTab({ state, setState, role }: any) {
       <Card title="Crear producto">
         <div className="grid md:grid-cols-6 gap-3">
           <Input label="Nombre" value={name} onChange={setName} className="md:col-span-2" />
-          <Select label="Sección" value={section} onChange={setSection} options={sections.map((s: string) => ({ value: s, label: s }))} />
+          <Select
+  label="Sección"
+  value={section}
+  onChange={setSection}
+  options={[
+    { value: "", label: "— Elegí una sección —" },
+    ...sections.map((s: string) => ({ value: s, label: s })),
+  ]}
+/>
+
           <Select label="Lista" value={list_label} onChange={setListLabel} options={lists.map((s) => ({ value: s, label: s }))} />
           <NumberInput label="Precio lista Mitobicel" value={price1} onChange={setPrice1} />
           <NumberInput label="Precio lista Elshopping" value={price2} onChange={setPrice2} />
@@ -1230,6 +1311,20 @@ function ReportesTab({ state, setState }: any) {
   const [dia, setDia] = useState<string>(todayStr);
   const [mes, setMes] = useState<string>(thisMonthStr);
   const [anio, setAnio] = useState<string>(String(today.getFullYear()));
+  // --- helpers para vuelto por día ---
+const diaClave = dia; // YYYY-MM-DD del selector
+const cashFloatByDate = (state?.meta?.cashFloatByDate ?? {}) as Record<string, number>;
+const cashFloatTarget = periodo === "dia" ? parseNum(cashFloatByDate[diaClave] ?? 0) : 0;
+
+// función para guardar el vuelto del día seleccionado
+async function setCashFloatForDay(nuevo: number) {
+  const st = clone(state);
+  st.meta.cashFloatByDate = st.meta.cashFloatByDate || {};
+  st.meta.cashFloatByDate[diaClave] = nuevo;
+  setState(st);
+  if (hasSupabase) await saveCountersSupabase(st.meta);
+}
+
 
   // Rango según período
   function rangoActual() {
@@ -1269,6 +1364,11 @@ function ReportesTab({ state, setState }: any) {
   const totalEfectivo = invoices.reduce((s: number, f: any) => s + parseNum(f?.payments?.cash), 0);
   const totalEfectivoNeto = totalEfectivo - totalVuelto; // flujo real de caja
   const totalTransf = invoices.reduce((s: number, f: any) => s + parseNum(f?.payments?.transfer), 0);
+  // Vuelto restante para el día (solo aplica si periodo === "dia")
+const vueltoRestante = periodo === "dia" ? Math.max(0, cashFloatTarget - totalVuelto) : 0;
+
+
+  
 
   // Ganancia estimada
   const ganancia = invoices.reduce((s: number, f: any) => s + (parseNum(f.total) - parseNum(f.cost)), 0);
@@ -1303,6 +1403,13 @@ function ReportesTab({ state, setState }: any) {
   const devolucionesMontoEfectivo = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.efectivo), 0);
   const devolucionesMontoTransfer = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.transferencia), 0);
   const devolucionesMontoTotal    = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
+  // Flujo final de caja (efectivo) incluyendo el vuelto restante del día
+const flujoCajaEfectivoFinal =
+  totalEfectivoNeto
+  - totalGastosEfectivo
+  - devolucionesMontoEfectivo
+  + vueltoRestante;
+
 
   // Agrupados
   const porVendedor = Object.values(
@@ -1337,29 +1444,37 @@ function ReportesTab({ state, setState }: any) {
     return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
   })();
 
-  // Flujo de caja (efectivo)
-  const flujoCajaEfectivo = totalEfectivoNeto - totalGastosEfectivo - devolucionesMontoEfectivo;
+
 
   async function imprimirReporte() {
     const data = {
       type: "Reporte",
       periodo,
       rango: { start, end },
-      resumen: {
-        ventas: totalVentas,
-        efectivoCobrado: totalEfectivo,
-        vueltoEntregado: totalVuelto,
-        efectivoNeto: totalEfectivoNeto,
-        transferencias: totalTransf,
-        gastosTotal: totalGastos,
-        gastosEfectivo: totalGastosEfectivo,
-        gastosTransfer: totalGastosTransferencia,
-        devolucionesCantidad: devolucionesPeriodo.length,
-        devolucionesEfectivo: devolucionesMontoEfectivo,
-        devolucionesTransfer: devolucionesMontoTransfer,
-        devolucionesTotal: devolucionesMontoTotal,
-        flujoCajaEfectivo,
-      },
+     resumen: {
+  ventas: totalVentas,
+  efectivoCobrado: totalEfectivo,
+  vueltoEntregado: totalVuelto,
+  efectivoNeto: totalEfectivoNeto,
+  transferencias: totalTransf,
+
+  gastosTotal: totalGastos,
+  gastosEfectivo: totalGastosEfectivo,
+  gastosTransfer: totalGastosTransferencia,
+
+  devolucionesCantidad: devolucionesPeriodo.length,
+  devolucionesEfectivo: devolucionesMontoEfectivo,
+  devolucionesTransfer: devolucionesMontoTransfer,
+  devolucionesTotal: devolucionesMontoTotal,
+
+  // NUEVO: info de vuelto por día
+  cashFloatTarget,
+  vueltoRestante,
+
+  // NUEVO: usar el flujo final calculado
+  flujoCajaEfectivo: flujoCajaEfectivoFinal,
+},
+
       ventas: invoices,
       gastos: gastosPeriodo,
       devoluciones: devolucionesPeriodo,
@@ -1397,19 +1512,82 @@ function ReportesTab({ state, setState }: any) {
       <Card title="Acciones" actions={<Button onClick={imprimirReporte}>Imprimir reporte</Button>}>
         <div className="text-sm text-slate-400">Genera un reporte imprimible con el rango seleccionado.</div>
       </Card>
+      {periodo === "dia" && (
+  <Card
+    title="Vuelto en caja (por día)"
+    actions={
+      <Button onClick={async () => {
+        await setCashFloatForDay(cashFloatTarget);
+        alert("Vuelto del día guardado.");
+      }}>
+        Guardar
+      </Button>
+    }
+  >
+    <div className="grid md:grid-cols-3 gap-3">
+      <NumberInput
+        label={`Vuelto configurado para ${diaClave}`}
+        value={String(cashFloatTarget)}
+        onChange={(v: any) => {
+          // se edita en memoria; se persiste al tocar Guardar
+          const st = clone(state);
+          st.meta.cashFloatByDate = st.meta.cashFloatByDate || {};
+          st.meta.cashFloatByDate[diaClave] = parseNum(v);
+          setState(st);
+        }}
+        placeholder="Ej: 10000"
+      />
+      <div className="md:col-span-2 grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Vuelto entregado (en el período)</div>
+          <div className="text-xl font-bold">{money(totalVuelto)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Vuelto restante</div>
+          <div className="text-xl font-bold">{money(vueltoRestante)}</div>
+        </div>
+      </div>
+    </div>
+  </Card>
+)}
+
 
       <div className="grid md:grid-cols-4 gap-3">
-        <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
-        <Card title="Efectivo (neto)">
-          <div className="text-2xl font-bold">{money(totalEfectivoNeto)}</div>
-          <div className="text-xs text-slate-400 mt-1">Efectivo cobrado - Vuelto entregado</div>
-        </Card>
-        <Card title="Transferencias"><div className="text-2xl font-bold">{money(totalTransf)}</div></Card>
-        <Card title="Ganancia estimada">
-          <div className="text-2xl font-bold">{money(ganancia)}</div>
-          <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
-        </Card>
-      </div>
+  <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
+
+  <Card title="Efectivo (cobrado)">
+    <div className="text-2xl font-bold">{money(totalEfectivo)}</div>
+    <div className="text-xs text-slate-400 mt-1">Sin descontar vuelto</div>
+  </Card>
+
+  <Card title="Vuelto entregado">
+    <div className="text-2xl font-bold">{money(totalVuelto)}</div>
+  </Card>
+
+  <Card title="Transferencias">
+    <div className="text-2xl font-bold">{money(totalTransf)}</div>
+  </Card>
+</div>
+
+<div className="grid md:grid-cols-3 gap-3">
+  <Card title="Efectivo (neto)">
+    <div className="text-2xl font-bold">{money(totalEfectivoNeto)}</div>
+    <div className="text-xs text-slate-400 mt-1">Efectivo cobrado - Vuelto entregado</div>
+  </Card>
+
+  <Card title="Ganancia estimada">
+    <div className="text-2xl font-bold">{money(ganancia)}</div>
+    <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
+  </Card>
+
+  <Card title="Flujo final de caja (efectivo)">
+    <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
+    <div className="text-xs text-slate-400 mt-1">
+      Efectivo neto - Gastos (ef.) - Devoluciones (ef.) + Vuelto restante
+    </div>
+  </Card>
+</div>
+
 
       <Card title="Gastos y Devoluciones">
         <div className="space-y-3 text-sm">
@@ -1845,6 +2023,15 @@ useEffect(() => {
    FUNCIÓN guardarDevolucion
 ============================== */
 async function guardarDevolucion() {
+  // Intercambio por otro producto
+if (metodoDevolucion === "intercambio_otro") {
+  if (!productoNuevoId || parseNum(cantidadNuevo) <= 0) {
+    alert("Debes seleccionar un producto nuevo y la cantidad.");
+    return;
+  }
+
+  alert("Intercambio por otro producto iniciado. Luego implementaremos la lógica.");
+}
   if (!clienteSeleccionado) {
     alert("Selecciona un cliente antes de guardar la devolución.");
     return;
@@ -1864,17 +2051,26 @@ async function guardarDevolucion() {
     0
   );
 
-  const devolucion = {
-    id: "d" + Math.random().toString(36).slice(2, 8),
-    client_id: clienteSeleccionado,
-    client_name: clientName,
-    items: productosDevueltos,
-    metodo: metodoDevolucion,
-    efectivo: metodoDevolucion === "efectivo" ? parseNum(montoEfectivo) : 0,
-    transferencia: metodoDevolucion === "transferencia" ? parseNum(montoTransferencia) : 0,
-    total: totalDevolucion,
-    date_iso: todayISO(),
-  };
+const devolucion = {
+  id: "d" + Math.random().toString(36).slice(2, 8),
+  client_id: clienteSeleccionado,
+  client_name: clientName,
+  items: productosDevueltos,
+  metodo: metodoDevolucion,
+  efectivo: metodoDevolucion === "efectivo" ? parseNum(montoEfectivo) : 0,
+  transferencia: metodoDevolucion === "transferencia" ? parseNum(montoTransferencia) : 0,
+  // === NUEVO: diferencia abonada cuando es "intercambio_otro"
+  extra_pago_efectivo: metodoDevolucion === "intercambio_otro" ? parseNum(montoEfectivo) : 0,
+  extra_pago_transferencia: metodoDevolucion === "intercambio_otro" ? parseNum(montoTransferencia) : 0,
+  extra_pago_total:
+    (metodoDevolucion === "intercambio_otro"
+      ? parseNum(montoEfectivo) + parseNum(montoTransferencia)
+      : 0),
+  // total de lo que se devuelve (solo para restar si NO es intercambio)
+  total: totalDevolucion,
+  date_iso: todayISO(),
+};
+
 
   const st = clone(state);
   st.devoluciones.push(devolucion);
@@ -1910,15 +2106,7 @@ if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
 }
 
 
-// Intercambio por otro producto
-if (metodoDevolucion === "intercambio_otro") {
-  if (!productoNuevoId || parseNum(cantidadNuevo) <= 0) {
-    alert("Debes seleccionar un producto nuevo y la cantidad.");
-    return;
-  }
 
-  alert("Intercambio por otro producto iniciado. Luego implementaremos la lógica.");
-}
 
   setState(st);
 
@@ -2282,13 +2470,17 @@ if (inv?.type === "Reporte") {
         {/* RESUMEN */}
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
-            <div style={{ fontWeight: 700 }}>Resumen</div>
-            <div>Ventas totales: {fmt(inv.resumen.ventas)}</div>
-            <div>Efectivo cobrado: {fmt(inv.resumen.efectivoCobrado)}</div>
-            <div>Vuelto entregado: {fmt(inv.resumen.vueltoEntregado)}</div>
-            <div><b>Efectivo neto: {fmt(inv.resumen.efectivoNeto)}</b></div>
-            <div>Transferencias: {fmt(inv.resumen.transferencias)}</div>
-          </div>
+          
+  <div style={{ fontWeight: 700 }}>Resumen</div>
+  <div>Ventas totales: {fmt(inv.resumen.ventas)}</div>
+  <div>Efectivo cobrado: {fmt(inv.resumen.efectivoCobrado)}</div>
+  <div>Vuelto entregado: {fmt(inv.resumen.vueltoEntregado)}</div>
+  <div>Vuelto configurado: {fmt(inv.resumen.cashFloatTarget || 0)}</div>
+  <div>Vuelto restante: {fmt(inv.resumen.vueltoRestante || 0)}</div>
+  <div><b>Efectivo neto: {fmt(inv.resumen.efectivoNeto)}</b></div>
+  <div>Transferencias: {fmt(inv.resumen.transferencias)}</div>
+</div>
+
           <div>
             <div style={{ fontWeight: 700 }}>Gastos y Devoluciones</div>
             <div>Gastos (total): {fmt(inv.resumen.gastosTotal)}</div>
