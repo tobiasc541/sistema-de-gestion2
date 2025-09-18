@@ -1213,6 +1213,7 @@ function VendedoresTab({ state, setState }: any) {
         </div>
       </Card>
     </div>
+
   );
 }
 
@@ -1230,13 +1231,17 @@ function ReportesTab({ state, setState }: any) {
   const [anio, setAnio] = useState<string>(String(today.getFullYear()));
   // === dentro de ReportesTab ===
 
-// Monto total de devoluciones por método (opcional; sirve para el resumen)
-const devolucionesMontoEfectivo = devolucionesPeriodo
-  .reduce((s: number, d: any) => s + (parseNum(d.efectivo) || 0), 0);
-const devolucionesMontoTransfer = devolucionesPeriodo
-  .reduce((s: number, d: any) => s + (parseNum(d.transferencia) || 0), 0);
-const devolucionesMontoTotal = devolucionesPeriodo
-  .reduce((s: number, d: any) => s + (parseNum(d.total) || 0), 0);
+// Asegurate de tener esto ANTES (rango del período):
+const devolucionesPeriodo = (state.devoluciones || []).filter((d: any) => {
+  const t = new Date(d.date_iso).getTime();
+  return t >= start && t <= end;
+});
+
+// Montos totales de devoluciones por método
+const devolucionesMontoEfectivo  = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.efectivo), 0);
+const devolucionesMontoTransfer  = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.transferencia), 0);
+const devolucionesMontoTotal     = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
+
 
 // Flujo de caja (EFECTIVO) = Efectivo neto cobrado (efectivo - vuelto) - Gastos en efectivo - Devoluciones en efectivo
 const flujoCajaEfectivo = totalEfectivoNeto - totalGastosEfectivo - devolucionesMontoEfectivo;
@@ -1268,7 +1273,8 @@ async function imprimirReporte() {
     porVendedor,
     porSeccion,
     transferenciasPorAlias: porAlias, // de ventas
-    transferGastosPorAlias,           // ya lo calculaste arriba como transferenciasPorAlias (de gastos)
+    transferGastosPorAlias: transferenciasPorAlias,
+           // ya lo calculaste arriba como transferenciasPorAlias (de gastos)
   };
 
   // disparar impresión con la misma infra de Factura
@@ -1276,14 +1282,7 @@ async function imprimirReporte() {
   await nextPaint();
   window.print();
 }
-<Card
-  title="Acciones"
-  actions={<Button onClick={imprimirReporte}>Imprimir reporte</Button>}
->
-  <div className="text-sm text-slate-400">
-    Genera un reporte imprimible con el rango seleccionado.
-  </div>
-</Card>
+
 
 
   function rangoActual() {
@@ -1410,8 +1409,21 @@ const totalDevoluciones = devolucionesPeriodo.length;
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card title="Filtros">
+    return (
+  <div className="max-w-6xl mx-auto p-4 space-y-4">
+    <Card title="Filtros">…</Card>
+
+    <Card
+      title="Acciones"
+      actions={<Button onClick={imprimirReporte}>Imprimir reporte</Button>}
+    >
+      <div className="text-sm text-slate-400">
+        Genera un reporte imprimible con el rango seleccionado.
+      </div>
+    </Card>
+
+    {/* luego tus cards de métricas, por vendedor, etc. */}
+
         <div className="grid md:grid-cols-4 gap-3">
           <Select
             label="Período"
@@ -2660,7 +2672,7 @@ const net    = Math.max(0, paid - change);              // lo que aplica
 const balance = Math.max(0, parseNum(inv.total) - net);
 const fullyPaid = balance <= 0.009;
 
-  const fullyPaid = balance <= 0.009;
+ 
   const clientDebtTotal = parseNum(inv?.client_debt_total ?? 0);
 
   return (
