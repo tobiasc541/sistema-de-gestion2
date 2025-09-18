@@ -1349,6 +1349,8 @@ function VendedoresTab({ state, setState }: any) {
 
 /* Reportes */
 /* Reportes */
+/* Reportes */
+/* Reportes */
 function ReportesTab({ state, setState }: any) {
   // ====== Filtros de fecha ======
   const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -1450,7 +1452,6 @@ function ReportesTab({ state, setState }: any) {
     const t = new Date(f.date_iso).getTime();
     return t >= start && t <= end;
   });
-}
 
   // Ventas (solo Facturas)
   const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
@@ -1462,10 +1463,7 @@ function ReportesTab({ state, setState }: any) {
   const totalEfectivoNeto = totalEfectivo - totalVuelto; // flujo real de caja
   const totalTransf = invoices.reduce((s: number, f: any) => s + parseNum(f?.payments?.transfer), 0);
   // Vuelto restante para el día (solo aplica si periodo === "dia")
-const vueltoRestante = periodo === "dia" ? Math.max(0, cashFloatTarget - totalVuelto) : 0;
-
-
-  
+  const vueltoRestante = periodo === "dia" ? Math.max(0, cashFloatTarget - totalVuelto) : 0;
 
   // Ganancia estimada
   const ganancia = invoices.reduce((s: number, f: any) => s + (parseNum(f.total) - parseNum(f.cost)), 0);
@@ -1500,15 +1498,14 @@ const vueltoRestante = periodo === "dia" ? Math.max(0, cashFloatTarget - totalVu
   const devolucionesMontoEfectivo = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.efectivo), 0);
   const devolucionesMontoTransfer = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.transferencia), 0);
   const devolucionesMontoTotal    = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
+
   // Flujo final de caja (efectivo) incluyendo el vuelto restante del día
-const flujoCajaEfectivoFinal =
-  totalEfectivoNeto
-  - totalGastosEfectivo
-  - devolucionesMontoEfectivo
-  - commissionsPeriodo      // 👈 RESTA comisiones del período
-  + vueltoRestante;
-
-
+  const flujoCajaEfectivoFinal =
+    totalEfectivoNeto
+    - totalGastosEfectivo
+    - devolucionesMontoEfectivo
+    - commissionsPeriodo      // 👈 RESTA comisiones del período
+    + vueltoRestante;
 
   // Agrupados
   const porVendedor = Object.values(
@@ -1543,38 +1540,36 @@ const flujoCajaEfectivoFinal =
     return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
   })();
 
-
-
   async function imprimirReporte() {
     const data = {
       type: "Reporte",
       periodo,
       rango: { start, end },
-     resumen: {
-  ventas: totalVentas,
-  efectivoCobrado: totalEfectivo,
-  vueltoEntregado: totalVuelto,
-  efectivoNeto: totalEfectivoNeto,
-  transferencias: totalTransf,
+      resumen: {
+        ventas: totalVentas,
+        efectivoCobrado: totalEfectivo,
+        vueltoEntregado: totalVuelto,
+        efectivoNeto: totalEfectivoNeto,
+        transferencias: totalTransf,
 
-  gastosTotal: totalGastos,
-  gastosEfectivo: totalGastosEfectivo,
-  gastosTransfer: totalGastosTransferencia,
+        gastosTotal: totalGastos,
+        gastosEfectivo: totalGastosEfectivo,
+        gastosTransfer: totalGastosTransferencia,
 
-  devolucionesCantidad: devolucionesPeriodo.length,
-  devolucionesEfectivo: devolucionesMontoEfectivo,
-  devolucionesTransfer: devolucionesMontoTransfer,
-  devolucionesTotal: devolucionesMontoTotal,
+        devolucionesCantidad: devolucionesPeriodo.length,
+        devolucionesEfectivo: devolucionesMontoEfectivo,
+        devolucionesTransfer: devolucionesMontoTransfer,
+        devolucionesTotal: devolucionesMontoTotal,
 
-  // NUEVO: info de vuelto por día
-  cashFloatTarget,
-  vueltoRestante,
+        // NUEVO: info de vuelto por día
+        cashFloatTarget,
+        vueltoRestante,
 
-   flujoCajaEfectivo: flujoCajaEfectivoFinal,
+        flujoCajaEfectivo: flujoCajaEfectivoFinal,
 
-  // 👇 NUEVO
-  comisionesPeriodo: commissionsPeriodo,
-},
+        // 👇 NUEVO
+        comisionesPeriodo: commissionsPeriodo,
+      },
 
       ventas: invoices,
       gastos: gastosPeriodo,
@@ -1613,121 +1608,121 @@ const flujoCajaEfectivoFinal =
       <Card title="Acciones" actions={<Button onClick={imprimirReporte}>Imprimir reporte</Button>}>
         <div className="text-sm text-slate-400">Genera un reporte imprimible con el rango seleccionado.</div>
       </Card>
-      {periodo === "dia" && (
-  <Card
-    title="Vuelto en caja (por día)"
-    actions={
-      <Button onClick={async () => {
-        await setCashFloatForDay(cashFloatTarget);
-        alert("Vuelto del día guardado.");
-      }}>
-        Guardar
-      </Button>
-    }
-  >
-    <div className="grid md:grid-cols-3 gap-3">
-      <NumberInput
-        label={`Vuelto configurado para ${diaClave}`}
-        value={String(cashFloatTarget)}
-        onChange={(v: any) => {
-          // se edita en memoria; se persiste al tocar Guardar
-          const st = clone(state);
-          st.meta.cashFloatByDate = st.meta.cashFloatByDate || {};
-          st.meta.cashFloatByDate[diaClave] = parseNum(v);
-          setState(st);
-        }}
-        placeholder="Ej: 10000"
-      />
-      <div className="md:col-span-2 grid grid-cols-2 gap-3">
-        <div>
-          <div className="text-xs text-slate-400 mb-1">Vuelto entregado (en el período)</div>
-          <div className="text-xl font-bold">{money(totalVuelto)}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-400 mb-1">Vuelto restante</div>
-          <div className="text-xl font-bold">{money(vueltoRestante)}</div>
-        </div>
-      </div>
-    </div>
-  </Card>
-)}
-{periodo === "dia" && (
-  <Card
-    title="Comisiones (por día)"
-    actions={
-      <Button onClick={async () => {
-        await setCommissionForDay(commissionTarget);
-        alert("Comisiones del día guardadas.");
-      }}>
-        Guardar
-      </Button>
-    }
-  >
-    <div className="grid md:grid-cols-3 gap-3">
-      <NumberInput
-        label={`Comisiones configuradas para ${diaClave}`}
-        value={String(commissionTarget)}
-        onChange={(v: any) => {
-          const st = clone(state);
-          st.meta.commissionsByDate = st.meta.commissionsByDate || {};
-          st.meta.commissionsByDate[diaClave] = parseNum(v);
-          setState(st);
-        }}
-        placeholder="Ej: 5000"
-      />
-      <div className="md:col-span-2 grid grid-cols-2 gap-3">
-        <div>
-          <div className="text-xs text-slate-400 mb-1">Comisiones en el período</div>
-          <div className="text-xl font-bold">{money(commissionsPeriodo)}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-400 mb-1">Impacto en flujo de caja</div>
-          <div className="text-xl font-bold">– {money(commissionsPeriodo)}</div>
-        </div>
-      </div>
-    </div>
-  </Card>
-)}
 
+      {periodo === "dia" && (
+        <Card
+          title="Vuelto en caja (por día)"
+          actions={
+            <Button onClick={async () => {
+              await setCashFloatForDay(cashFloatTarget);
+              alert("Vuelto del día guardado.");
+            }}>
+              Guardar
+            </Button>
+          }
+        >
+          <div className="grid md:grid-cols-3 gap-3">
+            <NumberInput
+              label={`Vuelto configurado para ${diaClave}`}
+              value={String(cashFloatTarget)}
+              onChange={(v: any) => {
+                // se edita en memoria; se persiste al tocar Guardar
+                const st = clone(state);
+                st.meta.cashFloatByDate = st.meta.cashFloatByDate || {};
+                st.meta.cashFloatByDate[diaClave] = parseNum(v);
+                setState(st);
+              }}
+              placeholder="Ej: 10000"
+            />
+            <div className="md:col-span-2 grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-xs text-slate-400 mb-1">Vuelto entregado (en el período)</div>
+                <div className="text-xl font-bold">{money(totalVuelto)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-400 mb-1">Vuelto restante</div>
+                <div className="text-xl font-bold">{money(vueltoRestante)}</div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {periodo === "dia" && (
+        <Card
+          title="Comisiones (por día)"
+          actions={
+            <Button onClick={async () => {
+              await setCommissionForDay(commissionTarget);
+              alert("Comisiones del día guardadas.");
+            }}>
+              Guardar
+            </Button>
+          }
+        >
+          <div className="grid md:grid-cols-3 gap-3">
+            <NumberInput
+              label={`Comisiones configuradas para ${diaClave}`}
+              value={String(commissionTarget)}
+              onChange={(v: any) => {
+                const st = clone(state);
+                st.meta.commissionsByDate = st.meta.commissionsByDate || {};
+                st.meta.commissionsByDate[diaClave] = parseNum(v);
+                setState(st);
+              }}
+              placeholder="Ej: 5000"
+            />
+            <div className="md:col-span-2 grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-xs text-slate-400 mb-1">Comisiones en el período</div>
+                <div className="text-xl font-bold">{money(commissionsPeriodo)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-400 mb-1">Impacto en flujo de caja</div>
+                <div className="text-xl font-bold">– {money(commissionsPeriodo)}</div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <div className="grid md:grid-cols-4 gap-3">
-  <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
+        <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
 
-  <Card title="Efectivo (cobrado)">
-    <div className="text-2xl font-bold">{money(totalEfectivo)}</div>
-    <div className="text-xs text-slate-400 mt-1">Sin descontar vuelto</div>
-  </Card>
+        <Card title="Efectivo (cobrado)">
+          <div className="text-2xl font-bold">{money(totalEfectivo)}</div>
+          <div className="text-xs text-slate-400 mt-1">Sin descontar vuelto</div>
+        </Card>
 
-  <Card title="Vuelto entregado">
-    <div className="text-2xl font-bold">{money(totalVuelto)}</div>
-  </Card>
+        <Card title="Vuelto entregado">
+          <div className="text-2xl font-bold">{money(totalVuelto)}</div>
+        </Card>
 
-  <Card title="Transferencias">
-    <div className="text-2xl font-bold">{money(totalTransf)}</div>
-  </Card>
-</div>
+        <Card title="Transferencias">
+          <div className="text-2xl font-bold">{money(totalTransf)}</div>
+        </Card>
+      </div>
 
-<div className="grid md:grid-cols-3 gap-3">
-  <Card title="Efectivo (neto)">
-    <div className="text-2xl font-bold">{money(totalEfectivoNeto)}</div>
-    <div className="text-xs text-slate-400 mt-1">
-  Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante
-</div>
+      <div className="grid md:grid-cols-3 gap-3">
+        <Card title="Efectivo (neto)">
+          <div className="text-2xl font-bold">{money(totalEfectivoNeto)}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante
+          </div>
+        </Card>
 
+        <Card title="Ganancia estimada">
+          <div className="text-2xl font-bold">{money(ganancia)}</div>
+          <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
+        </Card>
 
-  <Card title="Ganancia estimada">
-    <div className="text-2xl font-bold">{money(ganancia)}</div>
-    <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
-  </Card>
-
-  <Card title="Flujo final de caja (efectivo)">
-    <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
-    <div className="text-xs text-slate-400 mt-1">
-      Efectivo neto - Gastos (ef.) - Devoluciones (ef.) + Vuelto restante
-    </div>
-  </Card>
-</div>
-
+        <Card title="Flujo final de caja (efectivo)">
+          <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            Efectivo neto - Gastos (ef.) - Devoluciones (ef.) + Vuelto restante
+          </div>
+        </Card>
+      </div>
 
       <Card title="Gastos y Devoluciones">
         <div className="space-y-3 text-sm">
