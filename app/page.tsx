@@ -22,7 +22,8 @@ const clone = (obj: any) => JSON.parse(JSON.stringify(obj));
 /* ===== seed inicial (solo UI mientras carga Supabase) ===== */
 function seedState() {
   return {
-    meta: { invoiceCounter: 1, budgetCounter: 1, lastSavedInvoiceId: null as null | string },
+    meta: { invoiceCounter: 1, budgetCounter: 1, lastSavedInvoiceId: null as null | string, cashFloat: 0 },
+
     auth: { adminKey: "46892389" },
     vendors: [] as any[],
     clients: [] as any[],
@@ -104,7 +105,7 @@ async function saveCountersSupabase(meta: any) {
   if (!hasSupabase) return;
   await supabase.from("meta").upsert({
     key: "counters",
-    value: { invoiceCounter: meta.invoiceCounter, budgetCounter: meta.budgetCounter },
+    value: { invoiceCounter: meta.invoiceCounter, budgetCounter: meta.budgetCounter, cashFloat: meta.cashFloat ?? 0 },
   });
 }
 
@@ -317,6 +318,7 @@ function ClientePanel({ state, setState, session }: any) {
 /* =====================  TABS  ===================== */
 /* Facturación */
 function FacturacionTab({ state, setState, session }: any) {
+  
   const [clientId, setClientId] = useState(state.clients[0]?.id || "");
   const [vendorId, setVendorId] = useState(session.role === "admin" ? state.vendors[0]?.id : session.id);
   const [priceList, setPriceList] = useState("1");
@@ -324,9 +326,10 @@ function FacturacionTab({ state, setState, session }: any) {
   const [listFilter, setListFilter] = useState("Todas");
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<any[]>([]);
-  const [payCash, setPayCash] = useState("");
-  const [payTransf, setPayTransf] = useState("");
-  const [alias, setAlias] = useState("");
+ const [payCash, setPayCash] = useState("");
+const [payTransf, setPayTransf] = useState("");
+const [payChange, setPayChange] = useState(""); // vuelto (opcional)
+const [alias, setAlias] = useState("");
 
   const client = state.clients.find((c: any) => c.id === clientId);
   const vendor = state.vendors.find((v: any) => v.id === vendorId);
@@ -351,20 +354,25 @@ function FacturacionTab({ state, setState, session }: any) {
   async function saveAndPrint() {
     if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
     if (items.length === 0) return alert("Agregá productos al carrito.");
+    
 
-    const total = calcInvoiceTotal(items);
-    const cash = parseNum(payCash);
-    const transf = parseNum(payTransf);
-    if (cash + transf > total) {
-      if (!confirm("El pago supera el total. ¿Continuar y registrar como pago total?")) return;
-    }
+  const total = calcInvoiceTotal(items);
+const cash = parseNum(payCash);
+const transf = parseNum(payTransf);
+const suggestedChange = Math.max(0, cash - Math.max(0, total - transf));
+const change = payChange.trim() === "" ? suggestedChange : Math.max(0, parseNum(payChange));
+
+// Validación simple: no podemos dar más vuelto que el efectivo entregado
+if (change > cash) return alert("El vuelto no puede ser mayor al efectivo entregado.");
+
 
     const st = clone(state);
     const number = st.meta.invoiceCounter++;
     const id = "inv_" + number;
-    const paid = Math.min(total, cash + transf);
-    const debtDelta = Math.max(0, total - paid);
-    const status = debtDelta > 0 ? "No Pagada" : "Pagada";
+    const applied = Math.max(0, cash + transf - change);
+const debtDelta = Math.max(0, total - applied);
+const status = debtDelta > 0 ? "No Pagada" : "Pagada";
+
 
     const cl = st.clients.find((c: any) => c.id === client.id)!;
     const clientDebtAfter = parseNum(cl.debt) + debtDelta;
@@ -380,7 +388,8 @@ function FacturacionTab({ state, setState, session }: any) {
       items: clone(items),
       total,
       cost: calcInvoiceCost(items),
-      payments: { cash, transfer: transf, alias: alias.trim() },
+      payments: { cash, transfer: transf, change, alias: alias.trim() },
+
       status,
       type: "Factura",
       client_debt_total: clientDebtAfter,
@@ -402,11 +411,27 @@ function FacturacionTab({ state, setState, session }: any) {
     window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
     await nextPaint();
     window.print();
+     // 🔽 AHORA sí, limpiar la UI
+  setPayCash("");
+  setPayTransf("");
+  setPayChange("");
+  setAlias("");
+  setItems([]);
   }
 
-  const total = calcInvoiceTotal(items);
-  const paid = parseNum(payCash) + parseNum(payTransf);
-  const toPay = Math.max(0, total - paid);
+const total = calcInvoiceTotal(items);
+const cash = parseNum(payCash);
+const transf = parseNum(payTransf);
+
+// Vuelto sugerido automáticamente: solo sale del EFECTIVO
+const suggestedChange = Math.max(0, cash - Math.max(0, total - transf));
+// Si el usuario no escribió nada, usamos el sugerido
+const change = payChange.trim() === "" ? suggestedChange : Math.max(0, parseNum(payChange));
+
+const paid = cash + transf;                               // lo que ENTREGÓ el cliente
+const applied = Math.max(0, cash + transf - change);      // lo que realmente se aplica a la factura
+const toPay = Math.max(0, total - applied);
+
   const grouped = groupBy(filteredProducts, "section");
 
   return (
@@ -443,14 +468,26 @@ function FacturacionTab({ state, setState, session }: any) {
         </Card>
 
         <Card title="Pagos">
-          <div className="grid grid-cols-2 gap-3">
-            <NumberInput label="Efectivo" value={payCash} onChange={setPayCash} placeholder="0" />
-            <NumberInput label="Transferencia" value={payTransf} onChange={setPayTransf} placeholder="0" />
-            <Input className="col-span-2" label="Alias / CVU destino" value={alias} onChange={setAlias} placeholder="ej: mitobicel.algo.banco" />
-            <div className="col-span-2 text-xs text-slate-300">
-              Pagado: <span className="font-semibold">{money(paid)}</span> — Falta: <span className="font-semibold">{money(toPay)}</span>
-            </div>
-          </div>
+         <div className="grid grid-cols-2 gap-3">
+  <NumberInput label="Efectivo" value={payCash} onChange={setPayCash} placeholder="0" />
+  <NumberInput label="Transferencia" value={payTransf} onChange={setPayTransf} placeholder="0" />
+
+  {/* NUEVO: Vuelto (si no escribís, se usa el sugerido) */}
+  <NumberInput
+    label={`Vuelto (efectivo) ${payChange.trim() === "" ? `(sugerido: ${money(suggestedChange)})` : ""}`}
+    value={payChange}
+    onChange={setPayChange}
+    placeholder="0"
+  />
+
+  <Input className="col-span-1" label="Alias / CVU destino" value={alias} onChange={setAlias} placeholder="ej: mitobicel.algo.banco" />
+
+  <div className="col-span-2 text-xs text-slate-300">
+    Pagado: <span className="font-semibold">{money(paid)}</span> — Falta: <span className="font-semibold">{money(toPay)}</span> — Vuelto:{" "}
+    <span className="font-semibold">{money(change)}</span>
+  </div>
+</div>
+
         </Card>
 
         <Card title="Totales">
@@ -1191,6 +1228,63 @@ function ReportesTab({ state, setState }: any) {
   const [dia, setDia] = useState<string>(todayStr);
   const [mes, setMes] = useState<string>(thisMonthStr);
   const [anio, setAnio] = useState<string>(String(today.getFullYear()));
+  // === dentro de ReportesTab ===
+
+// Monto total de devoluciones por método (opcional; sirve para el resumen)
+const devolucionesMontoEfectivo = devolucionesPeriodo
+  .reduce((s: number, d: any) => s + (parseNum(d.efectivo) || 0), 0);
+const devolucionesMontoTransfer = devolucionesPeriodo
+  .reduce((s: number, d: any) => s + (parseNum(d.transferencia) || 0), 0);
+const devolucionesMontoTotal = devolucionesPeriodo
+  .reduce((s: number, d: any) => s + (parseNum(d.total) || 0), 0);
+
+// Flujo de caja (EFECTIVO) = Efectivo neto cobrado (efectivo - vuelto) - Gastos en efectivo - Devoluciones en efectivo
+const flujoCajaEfectivo = totalEfectivoNeto - totalGastosEfectivo - devolucionesMontoEfectivo;
+
+async function imprimirReporte() {
+  const data = {
+    type: "Reporte",
+    periodo,                // "dia" | "mes" | "anio"
+    rango: { start, end },  // timestamps para el encabezado
+    resumen: {
+      ventas: totalVentas,
+      efectivoCobrado: totalEfectivo,
+      vueltoEntregado: totalVuelto,
+      efectivoNeto: totalEfectivoNeto,
+      transferencias: totalTransf,
+      gastosTotal: totalGastos,
+      gastosEfectivo: totalGastosEfectivo,
+      gastosTransfer: totalGastosTransferencia,
+      devolucionesCantidad: devolucionesPeriodo.length,
+      devolucionesEfectivo: devolucionesMontoEfectivo,
+      devolucionesTransfer: devolucionesMontoTransfer,
+      devolucionesTotal: devolucionesMontoTotal,
+      flujoCajaEfectivo,
+    },
+    // listados para detallar en el PDF
+    ventas: invoices,                 // facturas del período (type === "Factura")
+    gastos: gastosPeriodo,            // gastos del período
+    devoluciones: devolucionesPeriodo,
+    porVendedor,
+    porSeccion,
+    transferenciasPorAlias: porAlias, // de ventas
+    transferGastosPorAlias,           // ya lo calculaste arriba como transferenciasPorAlias (de gastos)
+  };
+
+  // disparar impresión con la misma infra de Factura
+  window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
+  await nextPaint();
+  window.print();
+}
+<Card
+  title="Acciones"
+  actions={<Button onClick={imprimirReporte}>Imprimir reporte</Button>}
+>
+  <div className="text-sm text-slate-400">
+    Genera un reporte imprimible con el rango seleccionado.
+  </div>
+</Card>
+
 
   function rangoActual() {
     let start = new Date(0);
@@ -1225,8 +1319,12 @@ function ReportesTab({ state, setState }: any) {
   const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
 
   const totalVentas = invoices.reduce((s: number, f: any) => s + f.total, 0);
-  const totalEfectivo = invoices.reduce((s: number, f: any) => s + (f.payments?.cash || 0), 0);
-  const totalTransf = invoices.reduce((s: number, f: any) => s + (f.payments?.transfer || 0), 0);
+  const totalVuelto = invoices.reduce((s: number, f: any) => s + (parseNum(f.payments?.change) || 0), 0);
+const totalEfectivo = invoices.reduce((s: number, f: any) => s + (parseNum(f.payments?.cash) || 0), 0);
+const totalEfectivoNeto = totalEfectivo - totalVuelto; // flujo real de caja
+
+  const totalTransf = invoices.reduce((s, f) => s + parseNum(f.payments?.transfer || 0), 0);
+
   const ganancia = invoices.reduce((s: number, f: any) => s + (f.total - (f.cost || 0)), 0);
   // Calcular totales de GASTOS
 const gastosPeriodo = state.gastos.filter((g: any) => {
@@ -1335,9 +1433,11 @@ const totalDevoluciones = devolucionesPeriodo.length;
         <Card title="Ventas totales">
           <div className="text-2xl font-bold">{money(totalVentas)}</div>
         </Card>
-        <Card title="Efectivo">
-          <div className="text-2xl font-bold">{money(totalEfectivo)}</div>
-        </Card>
+       <Card title="Efectivo (neto)">
+  <div className="text-2xl font-bold">{money(totalEfectivoNeto)}</div>
+  <div className="text-xs text-slate-400 mt-1">Efectivo cobrado - Vuelto entregado</div>
+</Card>
+
         <Card title="Transferencias">
           <div className="text-2xl font-bold">{money(totalTransf)}</div>
         </Card>
@@ -1366,6 +1466,7 @@ const totalDevoluciones = devolucionesPeriodo.length;
     <h4 className="mt-4 font-semibold">Devoluciones registradas</h4>
     <div>Total de devoluciones en el período: <b>{totalDevoluciones}</b></div>
   </div>
+  <div className="mt-2">Vuelto entregado en el período: <b>{money(totalVuelto)}</b></div>
 </Card>
 
       <Card title="Por vendedor">
@@ -1406,6 +1507,38 @@ const totalDevoluciones = devolucionesPeriodo.length;
           </div>
         )}
       </Card>
+      {/** Solo admin: seteo del vuelto inicial en caja */}
+<Card title="Vuelto asignado en caja (solo admin)">
+  <div className="grid md:grid-cols-3 gap-3 items-end">
+    <div className="col-span-2">
+      <NumberInput
+        label="Monto disponible como cambio en caja"
+        value={state.meta.cashFloat ?? 0}
+        onChange={(v: any) => {
+          const st = clone(state);
+          st.meta.cashFloat = Math.max(0, parseNum(v));
+          setState(st);
+        }}
+      />
+    </div>
+    <div className="pt-6">
+      <Button
+        onClick={async () => {
+          const st = clone(state);
+          setState(st);
+          if (hasSupabase) await saveCountersSupabase(st.meta);
+          alert("Vuelto en caja actualizado.");
+        }}
+      >
+        Guardar
+      </Button>
+    </div>
+  </div>
+  <div className="text-xs text-slate-400 mt-2">
+    Nota: este valor no limita la facturación; es un memo administrativo. El “Vuelto entregado” se descuenta del efectivo neto del período.
+  </div>
+</Card>
+
 
     <Card title="Listado de facturas">
   <div className="overflow-x-auto">
@@ -2295,6 +2428,188 @@ function PrintArea() {
   }, []);
 
   if (!inv && !ticket) return null;
+  // ==== PLANTILLA: REPORTE ====
+if (inv?.type === "Reporte") {
+  const fmt = (n: number) => money(parseNum(n));
+  const rangoStr = (() => {
+    const s = new Date(inv?.rango?.start || Date.now());
+    const e = new Date(inv?.rango?.end || Date.now());
+    const toDate = (d: Date) => d.toLocaleString("es-AR");
+    return `${toDate(s)}  —  ${toDate(e)}`;
+  })();
+
+  return (
+    <div className="only-print print-area p-14">
+      <div className="max-w-[780px] mx-auto text-black">
+        <div className="flex items-start justify-between">
+          <div>
+            <div style={{ fontWeight: 800, letterSpacing: 1 }}>REPORTE</div>
+            <div style={{ marginTop: 2 }}>MITOBICEL</div>
+          </div>
+          <div className="text-right">
+            <div><b>Período:</b> {String(inv?.periodo || "").toUpperCase()}</div>
+            <div><b>Rango:</b> {rangoStr}</div>
+            <div><b>Emitido:</b> {new Date().toLocaleString("es-AR")}</div>
+          </div>
+        </div>
+
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+        {/* RESUMEN */}
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <div style={{ fontWeight: 700 }}>Resumen</div>
+            <div>Ventas totales: {fmt(inv.resumen.ventas)}</div>
+            <div>Efectivo cobrado: {fmt(inv.resumen.efectivoCobrado)}</div>
+            <div>Vuelto entregado: {fmt(inv.resumen.vueltoEntregado)}</div>
+            <div><b>Efectivo neto: {fmt(inv.resumen.efectivoNeto)}</b></div>
+            <div>Transferencias: {fmt(inv.resumen.transferencias)}</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700 }}>Gastos y Devoluciones</div>
+            <div>Gastos (total): {fmt(inv.resumen.gastosTotal)}</div>
+            <div>— en efectivo: {fmt(inv.resumen.gastosEfectivo)}</div>
+            <div>— por transferencia: {fmt(inv.resumen.gastosTransfer)}</div>
+            <div>Devoluciones: {inv.resumen.devolucionesCantidad}</div>
+            <div>— en efectivo: {fmt(inv.resumen.devolucionesEfectivo)}</div>
+            <div>— por transferencia: {fmt(inv.resumen.devolucionesTransfer)}</div>
+            <div>— monto total: {fmt(inv.resumen.devolucionesTotal)}</div>
+          </div>
+        </div>
+
+        {/* SECCIÓN: VENTAS (detalle similar a factura) */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Ventas del período</div>
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th style={{ width: "8%" }}>#</th>
+              <th>Cliente</th>
+              <th>Vendedor</th>
+              <th style={{ width: "14%" }}>Total</th>
+              <th style={{ width: "14%" }}>Efectivo</th>
+              <th style={{ width: "14%" }}>Transf.</th>
+              <th style={{ width: "12%" }}>Vuelto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(inv.ventas || []).map((f: any, i: number) => {
+              const c = parseNum(f?.payments?.cash || 0);
+              const t = parseNum(f?.payments?.transfer || 0);
+              const vu = parseNum(f?.payments?.change || 0);
+              return (
+                <tr key={f.id}>
+                  <td style={{ textAlign: "right" }}>{String(f.number || i + 1).padStart(4, "0")}</td>
+                  <td>{f.client_name}</td>
+                  <td>{f.vendor_name}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(f.total)}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(c)}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(t)}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(vu)}</td>
+                </tr>
+              );
+            })}
+            {(!inv.ventas || inv.ventas.length === 0) && (
+              <tr><td colSpan={7}>Sin ventas en el período.</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        {/* SECCIÓN: GASTOS */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Gastos</div>
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th style={{ width: "14%" }}>Fecha</th>
+              <th>Detalle</th>
+              <th style={{ width: "14%" }}>Efectivo</th>
+              <th style={{ width: "14%" }}>Transf.</th>
+              <th style={{ width: "24%" }}>Alias</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(inv.gastos || []).map((g: any, i: number) => (
+              <tr key={g.id || i}>
+                <td>{new Date(g.date_iso).toLocaleString("es-AR")}</td>
+                <td>{g.tipo} — {g.detalle}</td>
+                <td style={{ textAlign: "right" }}>{fmt(g.efectivo)}</td>
+                <td style={{ textAlign: "right" }}>{fmt(g.transferencia)}</td>
+                <td>{g.alias || "—"}</td>
+              </tr>
+            ))}
+            {(!inv.gastos || inv.gastos.length === 0) && (
+              <tr><td colSpan={5}>Sin gastos.</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        {/* SECCIÓN: DEVOLUCIONES */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Devoluciones</div>
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th style={{ width: "14%" }}>Fecha</th>
+              <th>Cliente</th>
+              <th style={{ width: "14%" }}>Método</th>
+              <th style={{ width: "14%" }}>Efectivo</th>
+              <th style={{ width: "14%" }}>Transf.</th>
+              <th style={{ width: "14%" }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(inv.devoluciones || []).map((d: any, i: number) => (
+              <tr key={d.id || i}>
+                <td>{new Date(d.date_iso).toLocaleString("es-AR")}</td>
+                <td>{d.client_name}</td>
+                <td style={{ textTransform: "capitalize" }}>{d.metodo}</td>
+                <td style={{ textAlign: "right" }}>{fmt(d.efectivo)}</td>
+                <td style={{ textAlign: "right" }}>{fmt(d.transferencia)}</td>
+                <td style={{ textAlign: "right" }}>{fmt(d.total)}</td>
+              </tr>
+            ))}
+            {(!inv.devoluciones || inv.devoluciones.length === 0) && (
+              <tr><td colSpan={6}>Sin devoluciones.</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        {/* SECCIÓN: Transferencias por alias (ventas) */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Transferencias por alias (ventas)</div>
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th>Alias</th>
+              <th style={{ width: "18%" }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(inv.transferenciasPorAlias || []).map((a: any, i: number) => (
+              <tr key={a.alias || i}>
+                <td>{a.alias}</td>
+                <td style={{ textAlign: "right" }}>{fmt(a.total)}</td>
+              </tr>
+            ))}
+            {(!inv.transferenciasPorAlias || inv.transferenciasPorAlias.length === 0) && (
+              <tr><td colSpan={2}>Sin transferencias en ventas.</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        {/* FINAL: FLUJO DE CAJA (EFECTIVO) */}
+        <div style={{ borderTop: "1px solid #000", margin: "14px 0 8px" }} />
+        <div className="text-center" style={{ fontWeight: 900, fontSize: 24, letterSpacing: 1 }}>
+          FLUJO DE CAJA (EFECTIVO): {fmt(inv.resumen.flujoCajaEfectivo)}
+        </div>
+
+        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+      </div>
+    </div>
+  );
+}
+
 
   // ==== PLANTILLA: TICKET ====
   if (ticket) {
@@ -2339,8 +2654,12 @@ function PrintArea() {
   // ==== PLANTILLA: FACTURA ====
   const paidCash = parseNum(inv?.payments?.cash || 0);
   const paidTransf = parseNum(inv?.payments?.transfer || 0);
-  const paid = paidCash + paidTransf;
-  const balance = Math.max(0, parseNum(inv.total) - paid);
+ const change = parseNum(inv?.payments?.change || 0);
+const paid   = paidCash + paidTransf;                   // lo que entregó
+const net    = Math.max(0, paid - change);              // lo que aplica
+const balance = Math.max(0, parseNum(inv.total) - net);
+const fullyPaid = balance <= 0.009;
+
   const fullyPaid = balance <= 0.009;
   const clientDebtTotal = parseNum(inv?.client_debt_total ?? 0);
 
@@ -2412,12 +2731,14 @@ function PrintArea() {
             <div>
               <b>Método de pago:</b>
             </div>
-            <div>CONTADO: {money(paidCash)}</div>
-            <div>TRANSFERENCIA: {money(paidTransf)}</div>
-            {inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
-            <div style={{ marginTop: 6 }}>
-              <b>Cantidad pagada:</b> {money(paid)}
-            </div>
+           <div>CONTADO: {money(paidCash)}</div>
+<div>TRANSFERENCIA: {money(paidTransf)}</div>
+{inv?.payments?.change ? <div>VUELTO: {money(parseNum(inv.payments.change))}</div> : null}
+{inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
+<div style={{ marginTop: 6 }}>
+  <b>Cantidad pagada:</b> {money(paid)}
+</div>
+
             <div>
               <b>Cantidad adeudada:</b> {money(balance)}</div>
             <div style={{ marginTop: 6 }}>
