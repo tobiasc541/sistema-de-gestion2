@@ -676,9 +676,21 @@ function ProductosTab({ state, setState, role }: any) {
     const okQ = !q || p.name.toLowerCase().includes(q.toLowerCase());
     return okS && okL && okQ;
   });
+  
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
+      {productosBajoStock.length > 0 && (
+  <Card title="⚠️ Productos con bajo stock">
+    <ul className="list-disc pl-5 text-sm text-red-400">
+      {productosBajoStock.map((p: any) => (
+        <li key={p.id}>
+          {p.name} – Stock actual: {p.stock}, Mínimo: {p.stock_minimo}
+        </li>
+      ))}
+    </ul>
+  </Card>
+)}
       <Card title="Crear sección">
         <div className="grid md:grid-cols-3 gap-3">
           <Input label="Nombre de la sección" value={newSection} onChange={setNewSection} placeholder="Ej: Perfumería, Librería…" />
@@ -693,9 +705,9 @@ function ProductosTab({ state, setState, role }: any) {
           <Input label="Nombre" value={name} onChange={setName} className="md:col-span-2" />
           <Select label="Sección" value={section} onChange={setSection} options={sections.map((s: string) => ({ value: s, label: s }))} />
           <Select label="Lista" value={list_label} onChange={setListLabel} options={lists.map((s) => ({ value: s, label: s }))} />
-          <NumberInput label="Precio lista 1" value={price1} onChange={setPrice1} />
-          <NumberInput label="Precio lista 2" value={price2} onChange={setPrice2} />
-          <NumberInput label="Stock inicial" value={stock} onChange={setStock} />
+          <NumberInput label="Precio lista Mitobicel" value={price1} onChange={setPrice1} />
+          <NumberInput label="Precio lista Elshopping" value={price2} onChange={setPrice2} />
+          <NumberInput label="Stock" value={stock} onChange={setStock} />
           {role === "admin" && <NumberInput label="Costo (solo admin)" value={cost} onChange={setCost} />}
           <div className="md:col-span-6">
             <Button onClick={addProduct}>Agregar</Button>
@@ -719,7 +731,46 @@ function ProductosTab({ state, setState, role }: any) {
                 <th className="py-2 pr-4">Lista 1</th>
                 <th className="py-2 pr-4">Lista 2</th>
                 {role === "admin" && <th className="py-2 pr-4">Costo</th>}
-                <th className="py-2 pr-4">Stock</th>
+              <td className="py-2 pr-4">
+  <NumberInput
+    value={p.stock}
+    onChange={async (v: any) => {
+      const newStock = parseNum(v);
+      const st = clone(state);
+
+      // Actualizar en memoria
+      const prod = st.products.find((x) => x.id === p.id);
+      if (prod) prod.stock = newStock;
+      setState(st);
+
+      // Actualizar en Supabase
+      if (hasSupabase) {
+        await supabase.from("products").update({ stock: newStock }).eq("id", p.id);
+      }
+    }}
+  />
+</td>
+
+<td className="py-2 pr-4">
+  <NumberInput
+    value={p.stock_minimo}
+    onChange={async (v: any) => {
+      const newMin = parseNum(v);
+      const st = clone(state);
+
+      // Actualizar en memoria
+      const prod = st.products.find((x) => x.id === p.id);
+      if (prod) prod.stock_minimo = newMin;
+      setState(st);
+
+      // Actualizar en Supabase
+      if (hasSupabase) {
+        await supabase.from("products").update({ stock_minimo: newMin }).eq("id", p.id);
+      }
+    }}
+  />
+</td>
+
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -1145,6 +1196,33 @@ function ReportesTab({ state, setState }: any) {
   const totalEfectivo = invoices.reduce((s: number, f: any) => s + (f.payments?.cash || 0), 0);
   const totalTransf = invoices.reduce((s: number, f: any) => s + (f.payments?.transfer || 0), 0);
   const ganancia = invoices.reduce((s: number, f: any) => s + (f.total - (f.cost || 0)), 0);
+  // Calcular totales de GASTOS
+const gastosPeriodo = state.gastos.filter((g: any) => {
+  const t = new Date(g.date_iso).getTime();
+  return t >= start && t <= end;
+});
+
+const totalGastos = gastosPeriodo.reduce((s, g) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
+const totalGastosEfectivo = gastosPeriodo.reduce((s, g) => s + parseNum(g.efectivo), 0);
+const totalGastosTransferencia = gastosPeriodo.reduce((s, g) => s + parseNum(g.transferencia), 0);
+
+const transferenciasPorAlias = (() => {
+  const m: any = {};
+  gastosPeriodo.forEach((g) => {
+    if (parseNum(g.transferencia) > 0) {
+      m[g.alias] = (m[g.alias] || 0) + parseNum(g.transferencia);
+    }
+  });
+  return Object.entries(m).map(([alias, total]) => ({ alias, total }));
+})();
+
+// Calcular totales de DEVOLUCIONES
+const devolucionesPeriodo = state.devoluciones.filter((d: any) => {
+  const t = new Date(d.date_iso).getTime();
+  return t >= start && t <= end;
+});
+const totalDevoluciones = devolucionesPeriodo.length;
+
 
   const porVendedor = Object.values(
     invoices.reduce((acc: any, f: any) => {
@@ -1156,6 +1234,10 @@ function ReportesTab({ state, setState }: any) {
   )
     .map((x: any) => x)
     .sort((a: any, b: any) => b.total - a.total);
+  const productosBajoStock = state.products.filter(
+  (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo)
+);
+
 
   const porSeccion = (() => {
     const m: any = {};
@@ -1225,6 +1307,27 @@ function ReportesTab({ state, setState }: any) {
           <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
         </Card>
       </div>
+<Card title="Gastos y Devoluciones">
+  <div className="space-y-3 text-sm">
+    <div>Total de gastos: <b>{money(totalGastos)}</b></div>
+    <div>- En efectivo: {money(totalGastosEfectivo)}</div>
+    <div>- En transferencia: {money(totalGastosTransferencia)}</div>
+
+    <h4 className="mt-2 font-semibold">Transferencias por alias</h4>
+    {transferenciasPorAlias.length === 0 ? (
+      <div className="text-slate-400">Sin transferencias registradas.</div>
+    ) : (
+      <ul className="list-disc pl-5">
+        {transferenciasPorAlias.map((t) => (
+          <li key={t.alias}>{t.alias}: {money(t.total)}</li>
+        ))}
+      </ul>
+    )}
+
+    <h4 className="mt-4 font-semibold">Devoluciones registradas</h4>
+    <div>Total de devoluciones en el período: <b>{totalDevoluciones}</b></div>
+  </div>
+</Card>
 
       <Card title="Por vendedor">
         <div className="grid md:grid-cols-3 gap-3">
@@ -1329,6 +1432,63 @@ function ReportesTab({ state, setState }: any) {
   </table>
 </div>
 </Card>
+      <Card title="Listado de devoluciones">
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="text-left text-slate-400">
+        <tr>
+          <th className="py-2 pr-4">ID</th>
+          <th className="py-2 pr-4">Fecha</th>
+          <th className="py-2 pr-4">Cliente</th>
+          <th className="py-2 pr-4">Total</th>
+          <th className="py-2 pr-4">Acciones</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-800">
+        {devolucionesPeriodo.map((d: any) => (
+          <tr key={d.id}>
+            <td className="py-2 pr-4">{d.id}</td>
+            <td className="py-2 pr-4">{new Date(d.date_iso).toLocaleString("es-AR")}</td>
+            <td className="py-2 pr-4">{d.client_name}</td>
+            <td className="py-2 pr-4">{money(d.total)}</td>
+            <td className="py-2 pr-4 flex gap-3">
+              
+              {/* Botón para ver PDF */}
+              <button
+                title="Ver PDF"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("print-invoice", { detail: d } as any));
+                  setTimeout(() => window.print(), 0);
+                }}
+                className="text-blue-400 hover:text-blue-300 text-lg"
+              >
+                📄
+              </button>
+
+              {/* Botón para eliminar devolución */}
+              <button
+                title="Eliminar"
+                onClick={() => {
+                  if (confirm("¿Eliminar esta devolución?")) {
+                    supabase.from("devoluciones").delete().eq("id", d.id);
+                    const st = clone(state);
+                    st.devoluciones = st.devoluciones.filter((x: any) => x.id !== d.id);
+                    setState(st);
+                  }
+                }}
+                className="text-red-500 hover:text-red-400 text-lg"
+              >
+                🗑️
+              </button>
+
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</Card>
+
           </div>
   );
 }
