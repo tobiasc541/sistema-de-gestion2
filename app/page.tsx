@@ -1944,7 +1944,7 @@ return (
           </div>
         )}
 
-        {/* Botón para confirmar devolución */}
+          {/* Botón para confirmar devolución */}
         {productosDevueltos.length > 0 && (
           <div className="mt-4 text-right">
             <Button onClick={guardarDevolucion} tone="emerald">
@@ -1955,24 +1955,11 @@ return (
       </Card>
     )}
   </div>
-))}
-                    </tbody>
-                  </table>
-                </div>
-              ))
-            </div>
-          ) : (
-            clienteSeleccionado && (
-              <div className="text-xs text-slate-400 mt-4">
-                Este cliente no tiene compras registradas.
-              </div>
-            )
-          )}
-        </Card>
-      )}
-    </div>
   );
-  }
+}
+
+
+
 /* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 const nextPaint = () => new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res())));
