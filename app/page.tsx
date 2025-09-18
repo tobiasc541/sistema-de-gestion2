@@ -52,63 +52,47 @@ async function loadFromSupabase(fallback: any) {
   const out = clone(fallback);
   
 
-  // meta
-  const { data: meta } = await supabase.from("meta").select("*").eq("key", "counters").maybeSingle();
-  if (meta?.value) out.meta = { ...out.meta, ...meta.value };
+ // meta
+const { data: meta, error: metaErr } = await supabase
+  .from("meta").select("*").eq("key","counters").maybeSingle();
+if (metaErr) { console.error("SELECT meta:", metaErr); alert("No pude leer 'meta' de Supabase."); }
+if (meta?.value) out.meta = { ...out.meta, ...meta.value };
 
-  // vendors
-  const { data: vendors } = await supabase.from("vendors").select("*");
-  if (vendors) out.vendors = vendors;
-  // cash_floats  ⟶  mapear a meta.cashFloatByDate para que la UI siga igual
-const { data: cf } = await supabase
-  .from("cash_floats")
-  .select("day, amount");
-
-if (cf) {
-  const map: Record<string, number> = {};
-  for (const r of cf) {
-    const key = String(r.day); // 'YYYY-MM-DD'
-    map[key] = Number(r.amount || 0);
-  }
-  out.meta.cashFloatByDate = map;
-}
-  // commissions -> meta.commissionsByDate
-const { data: comms } = await supabase
-  .from("commissions")
-  .select("day, amount");
-
-if (comms) {
-  const map: Record<string, number> = {};
-  for (const r of comms) {
-    map[String(r.day)] = Number(r.amount || 0);
-  }
-  out.meta.commissionsByDate = map;
-}
-
-
-
+// vendors
+const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
+if (vendErr) { console.error("SELECT vendors:", vendErr); alert("No pude leer 'vendors' de Supabase."); }
+if (vendors) out.vendors = vendors;
   // clients
-  const { data: clients } = await supabase.from("clients").select("*");
-  if (clients) out.clients = clients;
-
-  // products
-  const { data: products } = await supabase.from("products").select("*");
-  if (products) out.products = products;
-
-  // invoices
-  const { data: invoices } = await supabase.from("invoices").select("*").order("number");
-  if (invoices) out.invoices = invoices;
-    // devoluciones
-  const { data: devoluciones } = await supabase.from("devoluciones").select("*").order("date_iso", { ascending: false });
-  if (devoluciones) out.devoluciones = devoluciones;
+const { data: clients, error: cliErr } = await supabase.from("clients").select("*");
+if (cliErr) { console.error("SELECT clients:", cliErr); alert("No pude leer 'clients' de Supabase."); }
+if (clients) out.clients = clients;
 
 
-  // budgets
-  const { data: budgets } = await supabase.from("budgets").select("*").order("number");
-  if (budgets) out.budgets = budgets;
+// products
+const { data: products, error: prodErr } = await supabase.from("products").select("*");
+if (prodErr) { console.error("SELECT products:", prodErr); alert("No pude leer 'products' de Supabase."); }
+if (products) out.products = products;
+
+// invoices
+const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").order("number");
+if (invErr) { console.error("SELECT invoices:", invErr); alert("No pude leer 'invoices' de Supabase."); }
+if (invoices) out.invoices = invoices;
+
+// devoluciones
+const { data: devoluciones, error: devErr } = await supabase
+  .from("devoluciones").select("*").order("date_iso",{ascending:false});
+if (devErr) { console.error("SELECT devoluciones:", devErr); alert("No pude leer 'devoluciones' de Supabase."); }
+if (devoluciones) out.devoluciones = devoluciones;
+
+// budgets
+const { data: budgets, error: budErr } = await supabase.from("budgets").select("*").order("number");
+if (budErr) { console.error("SELECT budgets:", budErr); alert("No pude leer 'budgets' de Supabase."); }
+if (budgets) out.budgets = budgets;
+
 
  // Si está vacío, NO sembrar datos de ejemplo (nada de demo).
-if (!vendors?.length && !clients?.length && !products?.length) {
+if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
+
   // Solo aseguro counters en meta para que la app no falle.
   await supabase.from("meta").upsert({
     key: "counters",
@@ -1440,6 +1424,66 @@ function ReportesTab({ state, setState }: any) {
     return { start: start.getTime(), end: end.getTime() };
   }
   const { start, end } = rangoActual();
+  // ===== NUEVO: estados para listados traídos por rango =====
+const [docsEnRango, setDocsEnRango] = useState<any[]>([]);
+const [devolucionesPeriodo, setDevolucionesPeriodo] = useState<any[]>([]);
+const [cargandoListados, setCargandoListados] = useState(false);
+
+// ===== NUEVO: mismos límites pero en ISO para consultar a Supabase =====
+function rangoActualISO() {
+  const { start, end } = rangoActual();
+  return { isoStart: new Date(start).toISOString(), isoEnd: new Date(end).toISOString() };
+}
+
+// ===== NUEVO: traer facturas y devoluciones por rango, con fallback local =====
+useEffect(() => {
+  const { isoStart, isoEnd } = rangoActualISO();
+
+  async function fetchListados() {
+    setCargandoListados(true);
+
+    if (hasSupabase) {
+      // FACTURAS
+      const { data: inv, error: e1 } = await supabase
+        .from("invoices")
+        .select("*")
+        .gte("date_iso", isoStart)
+        .lte("date_iso", isoEnd)
+        .order("date_iso", { ascending: false });
+      if (e1) { console.error("SELECT invoices (rango):", e1); alert("No pude leer facturas del período."); }
+
+      // DEVOLUCIONES
+      const { data: dev, error: e2 } = await supabase
+        .from("devoluciones")
+        .select("*")
+        .gte("date_iso", isoStart)
+        .lte("date_iso", isoEnd)
+        .order("date_iso", { ascending: false });
+      if (e2) { console.error("SELECT devoluciones (rango):", e2); alert("No pude leer devoluciones del período."); }
+
+      setDocsEnRango(inv || []);
+      setDevolucionesPeriodo(dev || []);
+    } else {
+      // Fallback local si no hay Supabase
+      const docs = (state.invoices || []).filter((f:any) => {
+        const t = new Date(f.date_iso).getTime();
+        return t >= start && t <= end;
+      });
+      const devs = (state.devoluciones || []).filter((d:any) => {
+        const t = new Date(d.date_iso).getTime();
+        return t >= start && t <= end;
+      });
+      setDocsEnRango(docs);
+      setDevolucionesPeriodo(devs);
+    }
+
+    setCargandoListados(false);
+  }
+
+  fetchListados();
+  // refresca cuando cambia el período o cuando guardaste una venta
+}, [periodo, dia, mes, anio, state.meta?.lastSavedInvoiceId]);
+
 
   // ✅ Ahora sí: comisiones del período usando start/end
   const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]) => {
@@ -1448,10 +1492,7 @@ function ReportesTab({ state, setState }: any) {
   }, 0);
 
   // Documentos dentro del rango
-  const docsEnRango = state.invoices.filter((f: any) => {
-    const t = new Date(f.date_iso).getTime();
-    return t >= start && t <= end;
-  });
+
 
   // Ventas (solo Facturas)
   const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
@@ -1490,11 +1531,7 @@ function ReportesTab({ state, setState }: any) {
     return Object.entries(m).map(([alias, total]) => ({ alias, total }));
   })();
 
-  // DEVOLUCIONES del período (una sola definición!)
-  const devolucionesPeriodo = (state.devoluciones || []).filter((d: any) => {
-    const t = new Date(d.date_iso).getTime();
-    return t >= start && t <= end;
-  });
+
   const devolucionesMontoEfectivo = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.efectivo), 0);
   const devolucionesMontoTransfer = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.transferencia), 0);
   const devolucionesMontoTotal    = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
@@ -2635,7 +2672,12 @@ return (
 
 /* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
-const nextPaint = () => new Promise<void>((res) => requestAnimationFrame(() => requestAnimationFrame(() => res())));
+function nextPaint() {
+  return new Promise<void>((res) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => res()))
+  );
+}
+
 
 /* ===== Área de impresión ===== */
 function PrintArea() {
