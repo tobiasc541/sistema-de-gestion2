@@ -607,6 +607,11 @@ function ClientesTab({ state, setState }: any) {
 
 /* Productos */
 function ProductosTab({ state, setState, role }: any) {
+    // Filtrar productos que están bajo el stock mínimo
+  const productosBajoStock = state.products.filter(
+    (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
+  );
+
   const [name, setName] = useState("");
   const [section, setSection] = useState("Almacén");
   const [list_label, setListLabel] = useState("MITOBICEL");
@@ -638,15 +643,17 @@ function ProductosTab({ state, setState, role }: any) {
   async function addProduct() {
     if (!name.trim()) return;
     const product = {
-      stock: 0, // <--- NUEVO
-      id: "p" + Math.random().toString(36).slice(2, 8),
-      name: name.trim(),
-      section,
-      list_label,
-      price1: parseNum(price1),
-      price2: parseNum(price2),
-      cost: parseNum(cost),
-    };
+  stock: 0,
+  stock_minimo: 0, // <--- NUEVO
+  id: "p" + Math.random().toString(36).slice(2, 8),
+  name: name.trim(),
+  section,
+  list_label,
+  price1: parseNum(price1),
+  price2: parseNum(price2),
+  cost: parseNum(cost),
+};
+
     const st = clone(state);
     st.products.push(product);
     setState(st);
