@@ -798,28 +798,33 @@ function ProductosTab({ state, setState, role }: any) {
         />
       </td>
 
-     {/* Stock mínimo editable */}
-<td className="py-2 pr-4">
-  <NumberInput
-    value={p.stock_minimo}
-    onChange={async (v: any) => {
-      const newMin = parseNum(v);
-      const st = clone(state);
+        {/* Stock mínimo editable */}
+      <td className="py-2 pr-4">
+        <NumberInput
+          value={p.stock_minimo}
+          onChange={async (v: any) => {
+            const newMin = parseNum(v);
+            const st = clone(state);
 
-      const prod = st.products.find((x) => x.id === p.id);
-      if (prod) prod.stock_minimo = newMin;
-      setState(st);
+            const prod = st.products.find((x: any) => x.id === p.id);
+            if (prod) prod.stock_minimo = newMin;
+            setState(st);
 
-      if (hasSupabase) {
-        await supabase
-          .from("products")
-          .update({ stock_minimo: newMin })
-          .eq("id", p.id);
-      }
-    }}
-  />
-</td>
-</tr>  {/* ✅ Agrega esto para cerrar correctamente la fila */}
+            if (hasSupabase) {
+              await supabase.from("products").update({ stock_minimo: newMin }).eq("id", p.id);
+            }
+          }}
+        />
+      </td>
+    </tr>
+  ))}
+</tbody>
+</table>
+</div>
+</Card>
+</div>
+  );
+}
 
 
 
