@@ -1891,6 +1891,7 @@ function ReportesTab({ state, setState }: any) {
     </table>
   </div>
 </Card>
+      </div>
 
 
      
