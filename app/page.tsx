@@ -756,34 +756,49 @@ function ProductosTab({ state, setState, role }: any) {
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="text-left text-slate-400">
-              <tr>
-                <th className="py-2 pr-4">Nombre</th>
-                <th className="py-2 pr-4">Sección</th>
-                <th className="py-2 pr-4">Lista</th>
-                <th className="py-2 pr-4">Lista 1</th>
-                <th className="py-2 pr-4">Lista 2</th>
-                {role === "admin" && <th className="py-2 pr-4">Costo</th>}
-              <td className="py-2 pr-4">
-  <NumberInput
-    value={p.stock}
-    onChange={async (v: any) => {
-      const newStock = parseNum(v);
-      const st = clone(state);
+           <thead className="text-left text-slate-400">
+  <tr>
+    <th className="py-2 pr-4">Nombre</th>
+    <th className="py-2 pr-4">Sección</th>
+    <th className="py-2 pr-4">Lista</th>
+    <th className="py-2 pr-4">Lista 1</th>
+    <th className="py-2 pr-4">Lista 2</th>
+    {role === "admin" && <th className="py-2 pr-4">Costo</th>}
+    <th className="py-2 pr-4">Stock</th>
+    <th className="py-2 pr-4">Stock mínimo</th>
+  </tr>
+</thead>
 
-      // Actualizar en memoria
-      const prod = st.products.find((x) => x.id === p.id);
-      if (prod) prod.stock = newStock;
-      setState(st);
+<tbody className="divide-y divide-slate-800">
+  {filtered.map((p: any) => (
+    <tr key={p.id}>
+      <td className="py-2 pr-4">{p.name}</td>
+      <td className="py-2 pr-4">{p.section}</td>
+      <td className="py-2 pr-4">{p.list_label}</td>
+      <td className="py-2 pr-4">{money(p.price1)}</td>
+      <td className="py-2 pr-4">{money(p.price2)}</td>
+      {role === "admin" && <td className="py-2 pr-4">{money(p.cost)}</td>}
 
-      // Actualizar en Supabase
-      if (hasSupabase) {
-        await supabase.from("products").update({ stock: newStock }).eq("id", p.id);
-      }
-    }}
-  />
-</td>
+      {/* Stock actual editable */}
+      <td className="py-2 pr-4">
+        <NumberInput
+          value={p.stock}
+          onChange={async (v: any) => {
+            const newStock = parseNum(v);
+            const st = clone(state);
 
+            const prod = st.products.find((x) => x.id === p.id);
+            if (prod) prod.stock = newStock;
+            setState(st);
+
+            if (hasSupabase) {
+              await supabase.from("products").update({ stock: newStock }).eq("id", p.id);
+            }
+          }}
+        />
+      </td>
+
+     {/* Stock mínimo editable */}
 <td className="py-2 pr-4">
   <NumberInput
     value={p.stock_minimo}
@@ -791,60 +806,24 @@ function ProductosTab({ state, setState, role }: any) {
       const newMin = parseNum(v);
       const st = clone(state);
 
-      // Actualizar en memoria
       const prod = st.products.find((x) => x.id === p.id);
       if (prod) prod.stock_minimo = newMin;
       setState(st);
 
-      // Actualizar en Supabase
       if (hasSupabase) {
-        await supabase.from("products").update({ stock_minimo: newMin }).eq("id", p.id);
+        await supabase
+          .from("products")
+          .update({ stock_minimo: newMin })
+          .eq("id", p.id);
       }
     }}
   />
 </td>
-
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {filtered.map((p: any) => (
-                <tr key={p.id}>
-                  <td className="py-2 pr-4">{p.name}</td>
-                  <td className="py-2 pr-4">{p.section}</td>
-                  <td className="py-2 pr-4">{p.list_label}</td>
-                  <td className="py-2 pr-4">{money(p.price1)}</td>
-                  <td className="py-2 pr-4">{money(p.price2)}</td>
-                  {role === "admin" && <td className="py-2 pr-4">{money(p.cost)}</td>}
-                <td className="py-2 pr-4">
-  <NumberInput
-    value={p.stock}
-    onChange={async (v: any) => {
-      const newStock = parseNum(v);
-      const st = clone(state);
-
-      // Actualizar en memoria
-      const prod = st.products.find((x) => x.id === p.id);
-      if (prod) prod.stock = newStock;
-      setState(st);
-
-      // Actualizar en Supabase
-      if (hasSupabase) {
-        await supabase.from("products").update({ stock: newStock }).eq("id", p.id);
-      }
-    }}
-  />
-</td>
+         </div>
 
 
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-    </div>
-  );
-}
+
+
 
 /* Deudores */
 function DeudoresTab({ state, setState }: any) {
