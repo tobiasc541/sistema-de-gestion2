@@ -558,16 +558,32 @@ function FacturacionTab({ state, setState, session }: any) {
 function ClientesTab({ state, setState }: any) {
   const [name, setName] = useState("");
   const [number, setNumber] = useState(ensureUniqueNumber(state.clients));
+
   async function addClient() {
     if (!name.trim()) return;
-    const newClient = { id: "c" + Math.random().toString(36).slice(2, 8), number: parseInt(String(number), 10), name: name.trim(), debt: 0 };
+    const newClient = {
+      id: "c" + Math.random().toString(36).slice(2, 8),
+      number: parseInt(String(number), 10),
+      name: name.trim(),
+      debt: 0,
+    };
+
     const st = clone(state);
     st.clients.push(newClient);
     setState(st);
     setName("");
     setNumber(ensureUniqueNumber(st.clients));
-    if (hasSupabase) await supabase.from("clients").insert(newClient);
+
+    if (hasSupabase) {
+      await supabase.from("clients").insert(newClient);
+    }
   }
+
+  // Ordeno opcionalmente por número para que quede prolijo
+  const clients = Array.isArray(state.clients)
+    ? [...state.clients].sort((a: any, b: any) => (a.number || 0) - (b.number || 0))
+    : [];
+
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
       <Card title="Agregar cliente">
@@ -579,6 +595,7 @@ function ClientesTab({ state, setState }: any) {
           </div>
         </div>
       </Card>
+
       <Card title="Listado">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -590,64 +607,29 @@ function ClientesTab({ state, setState }: any) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-  {filtered.map((p: any) => (
-    <tr key={p.id}>
-      <td className="py-2 pr-4">{p.name}</td>
-      <td className="py-2 pr-4">{p.section}</td>
-      <td className="py-2 pr-4">{p.list_label}</td>
-      <td className="py-2 pr-4">{money(p.price1)}</td>
-      <td className="py-2 pr-4">{money(p.price2)}</td>
-      {role === "admin" && <td className="py-2 pr-4">{money(p.cost)}</td>}
+              {clients.map((c: any) => (
+                <tr key={c.id}>
+                  <td className="py-2 pr-4">{c.number}</td>
+                  <td className="py-2 pr-4">{c.name}</td>
+                  <td className="py-2 pr-4">{money(c.debt || 0)}</td>
+                </tr>
+              ))}
 
-      {/* Stock actual editable */}
-      <td className="py-2 pr-4">
-        <NumberInput
-          value={p.stock}
-          onChange={async (v: any) => {
-            const newStock = parseNum(v);
-            const st = clone(state);
-
-            // Actualizar en memoria
-            const prod = st.products.find((x) => x.id === p.id);
-            if (prod) prod.stock = newStock;
-            setState(st);
-
-            // Actualizar en Supabase
-            if (hasSupabase) {
-              await supabase.from("products").update({ stock: newStock }).eq("id", p.id);
-            }
-          }}
-        />
-      </td>
-
-      {/* Stock mínimo editable */}
-      <td className="py-2 pr-4">
-        <NumberInput
-          value={p.stock_minimo}
-          onChange={async (v: any) => {
-            const newMin = parseNum(v);
-            const st = clone(state);
-
-            const prod = st.products.find((x) => x.id === p.id);
-            if (prod) prod.stock_minimo = newMin;
-            setState(st);
-
-            if (hasSupabase) {
-              await supabase.from("products").update({ stock_minimo: newMin }).eq("id", p.id);
-            }
-          }}
-        />
-      </td>
-    </tr>
-  ))}
-</tbody>
-
+              {clients.length === 0 && (
+                <tr>
+                  <td className="py-2 pr-4 text-slate-400" colSpan={3}>
+                    Sin clientes cargados.
+                  </td>
+                </tr>
+              )}
+            </tbody>
           </table>
         </div>
       </Card>
     </div>
   );
 }
+
 
 /* Productos */
 function ProductosTab({ state, setState, role }: any) {
