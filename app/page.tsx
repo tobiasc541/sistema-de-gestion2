@@ -1666,166 +1666,295 @@ useEffect(() => {
     setAlias("");
   }
 
-  async function guardarDevolucion() {
-    if (!clienteSeleccionado) {
-      alert("Selecciona un cliente antes de guardar la devolución.");
-      return;
-    }
-
-    if (productosDevueltos.length === 0) {
-      alert("Debes seleccionar al menos un producto para devolver.");
-      return;
-    }
-
-    const clientName =
-      state.clients.find((c: any) => c.id === clienteSeleccionado)?.name || "Cliente desconocido";
-
-    const devolucion = {
-      id: "d" + Math.random().toString(36).slice(2, 8),
-      client_id: clienteSeleccionado,
-      client_name: clientName,
-      items: productosDevueltos, // productos seleccionados
-      metodo: "efectivo", // luego puedes cambiar esto para elegir "efectivo", "transferencia" o "saldo"
-      efectivo: parseNum(montoEfectivo),
-      transferencia: parseNum(montoTransferencia),
-      date_iso: todayISO(),
-    };
-
-    // Actualizar estado local
-    const st = clone(state);
-    st.devoluciones.push(devolucion);
-    setState(st);
-
-    // Guardar en Supabase
-    if (hasSupabase) {
-      await supabase.from("devoluciones").insert(devolucion);
-    }
-
-    alert("Devolución registrada con éxito.");
-    setProductosDevueltos([]); // limpiar productos seleccionados
-    setClienteSeleccionado("");
-    setMontoEfectivo("");
-    setMontoTransferencia("");
+ /* ==============================
+   FUNCIÓN guardarDevolucion
+============================== */
+async function guardarDevolucion() {
+  if (!clienteSeleccionado) {
+    alert("Selecciona un cliente antes de guardar la devolución.");
+    return;
   }
 
-  // ==============================
-  // UI: Renderizado
-  // ==============================
-  return (
-    <div className="max-w-5xl mx-auto p-4 space-y-4">
-      <Card title="Gastos y Devoluciones">
+  if (productosDevueltos.length === 0) {
+    alert("Debes seleccionar al menos un producto para devolver.");
+    return;
+  }
+
+  const clientName =
+    state.clients.find((c: any) => c.id === clienteSeleccionado)?.name || "Cliente desconocido";
+
+  // Total calculado según cantidades devueltas
+  const totalDevolucion = productosDevueltos.reduce(
+    (s, it) => s + parseNum(it.qtyDevuelta) * parseNum(it.unitPrice),
+    0
+  );
+
+  const devolucion = {
+    id: "d" + Math.random().toString(36).slice(2, 8),
+    client_id: clienteSeleccionado,
+    client_name: clientName,
+    items: productosDevueltos,
+    metodo: metodoDevolucion,
+    efectivo: metodoDevolucion === "efectivo" ? parseNum(montoEfectivo) : 0,
+    transferencia: metodoDevolucion === "transferencia" ? parseNum(montoTransferencia) : 0,
+    total: totalDevolucion,
+    date_iso: todayISO(),
+  };
+
+  const st = clone(state);
+  st.devoluciones.push(devolucion);
+
+  // Si el método es saldo a favor, actualizar deuda del cliente
+  if (metodoDevolucion === "saldo") {
+    const cliente = st.clients.find((c: any) => c.id === clienteSeleccionado);
+    if (cliente) {
+      cliente.debt = parseNum(cliente.debt) - totalDevolucion;
+    }
+  }
+
+  setState(st);
+
+  // Guardar en Supabase
+  if (hasSupabase) {
+    await supabase.from("devoluciones").insert(devolucion);
+
+    if (metodoDevolucion === "saldo") {
+      await supabase
+        .from("clients")
+        .update({ debt: st.clients.find((c: any) => c.id === clienteSeleccionado)?.debt })
+        .eq("id", clienteSeleccionado);
+    }
+  }
+
+  alert("Devolución registrada con éxito.");
+  setProductosDevueltos([]);
+  setClienteSeleccionado("");
+  setMontoEfectivo("");
+  setMontoTransferencia("");
+  setMetodoDevolucion("efectivo");
+}
+
+/* ==============================
+   UI — Renderizado
+============================== */
+return (
+  <div className="max-w-5xl mx-auto p-4 space-y-4">
+    <Card title="Gastos y Devoluciones">
+      <div className="grid md:grid-cols-2 gap-3">
+        <Select
+          label="Modo"
+          value={modo}
+          onChange={setModo}
+          options={[
+            { value: "Gasto", label: "Registrar Gasto" },
+            { value: "Devolución", label: "Registrar Devolución" },
+          ]}
+        />
+      </div>
+    </Card>
+
+    {modo === "Gasto" && (
+      <Card title="Registrar Gasto">
         <div className="grid md:grid-cols-2 gap-3">
           <Select
-            label="Modo"
-            value={modo}
-            onChange={setModo}
+            label="Tipo de gasto"
+            value={tipoGasto}
+            onChange={setTipoGasto}
             options={[
-              { value: "Gasto", label: "Registrar Gasto" },
-              { value: "Devolución", label: "Registrar Devolución" },
+              { value: "Proveedor", label: "Proveedor" },
+              { value: "Otro", label: "Otro" },
             ]}
           />
+          <Input
+            label="Detalle"
+            value={detalle}
+            onChange={setDetalle}
+            placeholder="Ej: Coca-Cola, Luz, Transporte..."
+          />
+          <NumberInput
+            label="Monto en efectivo"
+            value={montoEfectivo}
+            onChange={setMontoEfectivo}
+            placeholder="0"
+          />
+          <NumberInput
+            label="Monto en transferencia"
+            value={montoTransferencia}
+            onChange={setMontoTransferencia}
+            placeholder="0"
+          />
+          <Input
+            label="Alias / CVU (opcional)"
+            value={alias}
+            onChange={setAlias}
+            placeholder="alias.cuenta.banco"
+          />
+          <div className="pt-6">
+            <Button onClick={guardarGasto}>Guardar gasto</Button>
+          </div>
         </div>
       </Card>
+    )}
 
-      {modo === "Gasto" && (
-        <Card title="Registrar Gasto">
-          <div className="grid md:grid-cols-2 gap-3">
-            <Select
-              label="Tipo de gasto"
-              value={tipoGasto}
-              onChange={setTipoGasto}
-              options={[
-                { value: "Proveedor", label: "Proveedor" },
-                { value: "Otro", label: "Otro" },
-              ]}
-            />
-            <Input
-              label="Detalle"
-              value={detalle}
-              onChange={setDetalle}
-              placeholder="Ej: Coca-Cola, Luz, Transporte..."
-            />
-            <NumberInput
-              label="Monto en efectivo"
-              value={montoEfectivo}
-              onChange={setMontoEfectivo}
-              placeholder="0"
-            />
-            <NumberInput
-              label="Monto en transferencia"
-              value={montoTransferencia}
-              onChange={setMontoTransferencia}
-              placeholder="0"
-            />
-            <Input
-              label="Alias / CVU (opcional)"
-              value={alias}
-              onChange={setAlias}
-              placeholder="alias.cuenta.banco"
-            />
-            <div className="pt-6">
-              <Button onClick={guardarGasto}>Guardar gasto</Button>
+    {modo === "Devolución" && (
+      <Card title="Registrar Devolución">
+        {/* Selección de cliente */}
+        <div className="grid md:grid-cols-2 gap-3">
+          <Select
+            label="Cliente"
+            value={clienteSeleccionado}
+            onChange={setClienteSeleccionado}
+            options={state.clients.map((c: any) => ({
+              value: c.id,
+              label: `${c.number} - ${c.name}`,
+            }))}
+          />
+        </div>
+
+        {/* Listado de productos de facturas */}
+        {facturasCliente.length > 0 ? (
+          <div className="mt-4">
+            <h4 className="text-sm font-semibold mb-2">Productos comprados</h4>
+            {facturasCliente.map((factura) => (
+              <div
+                key={factura.id}
+                className="mb-4 border border-slate-800 rounded-lg p-3"
+              >
+                <div className="text-xs text-slate-400 mb-2">
+                  Factura #{factura.number} —{" "}
+                  {new Date(factura.date_iso).toLocaleDateString("es-AR")}
+                </div>
+                <table className="min-w-full text-sm">
+                  <thead className="text-slate-400">
+                    <tr>
+                      <th className="text-left py-1">Producto</th>
+                      <th className="text-right py-1">Cant.</th>
+                      <th className="text-right py-1">Precio</th>
+                      <th className="text-right py-1">Devolver</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {factura.items.map((item: any, idx: number) => (
+                      <tr key={idx} className="border-t border-slate-800">
+                        <td className="py-1">{item.name}</td>
+                        <td className="text-right py-1">{item.qty}</td>
+                        <td className="text-right py-1">${item.unitPrice}</td>
+                        <td className="text-right py-1">
+                          <input
+                            type="number"
+                            min={1}
+                            max={item.qty}
+                            placeholder="0"
+                            className="w-16 text-center border border-slate-700 rounded bg-slate-900"
+                            onChange={(e) => {
+                              const cantidad = parseNum(e.target.value);
+                              if (cantidad > 0 && cantidad <= item.qty) {
+                                setProductosDevueltos((prev) => {
+                                  const existe = prev.find(
+                                    (p) =>
+                                      p.productId === item.productId &&
+                                      p.facturaId === factura.id
+                                  );
+                                  if (existe) {
+                                    return prev.map((p) =>
+                                      p.productId === item.productId &&
+                                      p.facturaId === factura.id
+                                        ? { ...p, qtyDevuelta: cantidad }
+                                        : p
+                                    );
+                                  }
+                                  return [
+                                    ...prev,
+                                    {
+                                      ...item,
+                                      facturaId: factura.id,
+                                      qtyDevuelta: cantidad,
+                                    },
+                                  ];
+                                });
+                              }
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        ) : (
+          clienteSeleccionado && (
+            <div className="text-xs text-slate-400 mt-4">
+              Este cliente no tiene compras registradas.
+            </div>
+          )
+        )}
+
+        {/* Resumen total */}
+        {productosDevueltos.length > 0 && (
+          <div className="mt-6 border-t border-slate-700 pt-4">
+            <h4 className="text-sm font-semibold mb-2">Resumen</h4>
+            <div className="text-sm">
+              Total devolución:{" "}
+              <span className="font-bold">
+                $
+                {productosDevueltos.reduce(
+                  (s, it) => s + parseNum(it.qtyDevuelta) * parseNum(it.unitPrice),
+                  0
+                )}
+              </span>
             </div>
           </div>
-        </Card>
-      )}
+        )}
 
-      {modo === "Devolución" && (
-        <Card title="Registrar Devolución">
-          <div className="grid md:grid-cols-2 gap-3">
+        {/* Selección del método de devolución */}
+        {productosDevueltos.length > 0 && (
+          <div className="mt-6 border-t border-slate-700 pt-4">
+            <h4 className="text-sm font-semibold mb-2">Método de devolución</h4>
             <Select
-              label="Cliente"
-              value={clienteSeleccionado}
-              onChange={setClienteSeleccionado}
-              options={state.clients.map((c: any) => ({
-                value: c.id,
-                label: `${c.number} - ${c.name}`,
-              }))}
+              label="Seleccionar método"
+              value={metodoDevolucion}
+              onChange={setMetodoDevolucion}
+              options={[
+                { value: "efectivo", label: "Efectivo" },
+                { value: "transferencia", label: "Transferencia" },
+                { value: "saldo", label: "Saldo a favor" },
+              ]}
             />
-          </div>
 
-          {/* Mostrar productos del cliente seleccionado */}
-          {facturasCliente.length > 0 ? (
-            <div className="mt-4">
-              <h4 className="text-sm font-semibold mb-2">Productos comprados</h4>
-              {facturasCliente.map((factura) => (
-                <div
-                  key={factura.id}
-                  className="mb-4 border border-slate-800 rounded-lg p-3"
-                >
-                  <div className="text-xs text-slate-400 mb-2">
-                    Factura #{factura.number} —{" "}
-                    {new Date(factura.date_iso).toLocaleDateString("es-AR")}
-                  </div>
-                  <table className="min-w-full text-sm">
-                    <thead className="text-slate-400">
-                      <tr>
-                        <th className="text-left py-1">Producto</th>
-                        <th className="text-right py-1">Cant.</th>
-                        <th className="text-right py-1">Precio</th>
-                        <th className="text-right py-1">Devolver</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {factura.items.map((item: any, idx: number) => (
-                        <tr key={idx} className="border-t border-slate-800">
-                          <td className="py-1">{item.name}</td>
-                          <td className="text-right py-1">{item.qty}</td>
-                          <td className="text-right py-1">${item.unitPrice}</td>
-                          <td className="text-right py-1">
-                            <button
-                              onClick={() => {
-                                // Agregar producto a la lista de devolución
-                                setProductosDevueltos((prev) => [
-                                  ...prev,
-                                  { ...item, facturaId: factura.id },
-                                ]);
-                              }}
-                              className="text-xs text-emerald-400 hover:text-emerald-300"
-                            >
-                              ➕ Seleccionar
-                            </button>
-                          </td>
+            {metodoDevolucion !== "saldo" && (
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <NumberInput
+                  label="Monto en efectivo"
+                  value={montoEfectivo}
+                  onChange={setMontoEfectivo}
+                  placeholder="0"
+                />
+                <NumberInput
+                  label="Monto en transferencia"
+                  value={montoTransferencia}
+                  onChange={setMontoTransferencia}
+                  placeholder="0"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Botón para confirmar devolución */}
+        {productosDevueltos.length > 0 && (
+          <div className="mt-4 text-right">
+            <Button onClick={guardarDevolucion} tone="emerald">
+              Confirmar devolución
+            </Button>
+          </div>
+        )}
+      </Card>
+    )}
+  </div>
+);
+
                         </tr>
                       ))}
                     </tbody>
@@ -1840,6 +1969,70 @@ useEffect(() => {
               </div>
             )
           )}
+{/* Resumen de devolución */}
+{productosDevueltos.length > 0 && (
+  <div className="mt-6 border-t border-slate-700 pt-4">
+    <h4 className="text-sm font-semibold mb-2">Resumen de devolución</h4>
+    <table className="min-w-full text-sm mb-3">
+      <thead className="text-slate-400">
+        <tr>
+          <th className="text-left py-1">Producto</th>
+          <th className="text-right py-1">Cant.</th>
+          <th className="text-right py-1">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>
+        {productosDevueltos.map((p, idx) => (
+          <tr key={idx} className="border-t border-slate-800">
+            <td className="py-1">{p.name}</td>
+            <td className="text-right py-1">{p.qtyDevuelta}</td>
+            <td className="text-right py-1">
+              ${money(parseNum(p.qtyDevuelta) * parseNum(p.unitPrice))}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+
+    <div className="flex justify-between font-bold text-lg">
+      <span>Total a devolver:</span>
+      <span>
+        ${money(productosDevueltos.reduce((s, it) => s + parseNum(it.qtyDevuelta) * parseNum(it.unitPrice), 0))}
+      </span>
+    </div>
+  </div>
+)}
+{/* Método de devolución */}
+<div className="mt-6 border-t border-slate-700 pt-4">
+  <h4 className="text-sm font-semibold mb-2">Método de devolución</h4>
+  <Select
+    label="Seleccionar método"
+    value={metodoDevolucion}
+    onChange={setMetodoDevolucion}
+    options={[
+      { value: "efectivo", label: "Efectivo" },
+      { value: "transferencia", label: "Transferencia" },
+      { value: "saldo", label: "Saldo a favor" },
+    ]}
+  />
+
+  {metodoDevolucion !== "saldo" && (
+    <div className="grid grid-cols-2 gap-3 mt-3">
+      <NumberInput
+        label="Monto en efectivo"
+        value={montoEfectivo}
+        onChange={setMontoEfectivo}
+        placeholder="0"
+      />
+      <NumberInput
+        label="Monto en transferencia"
+        value={montoTransferencia}
+        onChange={setMontoTransferencia}
+        placeholder="0"
+      />
+    </div>
+  )}
+</div>
 
           {/* Botón para confirmar devolución */}
           {productosDevueltos.length > 0 && (
