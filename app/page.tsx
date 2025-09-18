@@ -1859,8 +1859,8 @@ function ReportesTab({ state, setState }: any) {
       <tbody className="divide-y divide-slate-800">
         {devolucionesPeriodo
           .slice()
-          .sort((a:any,b:any)=> new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
-          .map((d:any)=> (
+          .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+          .map((d: any) => (
             <tr key={d.id}>
               <td className="py-2 pr-3">{new Date(d.date_iso).toLocaleString("es-AR")}</td>
               <td className="py-2 pr-3">{d.client_name}</td>
@@ -1869,14 +1869,14 @@ function ReportesTab({ state, setState }: any) {
               <td className="py-2 pr-3">{money(parseNum(d.transferencia))}</td>
               <td className="py-2 pr-3">{money(parseNum(d.total))}</td>
               <td className="py-2 pr-3">
-                {(d.items || []).map((it:any, i:number) => (
+                {(d.items || []).map((it: any, i: number) => (
                   <div key={i} className="text-xs">
                     {it.name} — dev.: {parseNum(it.qtyDevuelta)} × {money(parseNum(it.unitPrice))}
                   </div>
                 ))}
                 {d.metodo === "intercambio_otro" && (
                   <div className="text-xs text-slate-400 mt-1">
-                    Dif. abonada: ef. {money(parseNum(d.extra_pago_efectivo||0))} · tr. {money(parseNum(d.extra_pago_transferencia||0))}
+                    Dif. abonada: ef. {money(parseNum(d.extra_pago_efectivo || 0))} · tr. {money(parseNum(d.extra_pago_transferencia || 0))}
                   </div>
                 )}
               </td>
@@ -1884,14 +1884,19 @@ function ReportesTab({ state, setState }: any) {
           ))}
         {devolucionesPeriodo.length === 0 && (
           <tr>
-            <td className="py-3 text-slate-400" colSpan={7}>Sin devoluciones en el período.</td>
+            <td className="py-3 text-slate-400" colSpan={7}>
+              Sin devoluciones en el período.
+            </td>
           </tr>
         )}
       </tbody>
     </table>
   </div>
 </Card>
-      </div>
+
+</div>
+);
+}
 
 
      
