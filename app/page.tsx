@@ -819,7 +819,8 @@ function ProductosTab({ state, setState, role }: any) {
     }}
   />
 </td>
-         </div>
+</tr>  {/* ✅ Agrega esto para cerrar correctamente la fila */}
+
 
 
 
