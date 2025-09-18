@@ -613,6 +613,7 @@ function ProductosTab({ state, setState, role }: any) {
   const [price1, setPrice1] = useState("");
   const [price2, setPrice2] = useState("");
   const [cost, setCost] = useState("");
+  const [stock, setStock] = useState("");
 
   const [secFilter, setSecFilter] = useState("Todas");
   const [listFilter, setListFilter] = useState("Todas");
@@ -637,6 +638,7 @@ function ProductosTab({ state, setState, role }: any) {
   async function addProduct() {
     if (!name.trim()) return;
     const product = {
+      stock: 0, // <--- NUEVO
       id: "p" + Math.random().toString(36).slice(2, 8),
       name: name.trim(),
       section,
@@ -693,6 +695,7 @@ function ProductosTab({ state, setState, role }: any) {
           <Select label="Lista" value={list_label} onChange={setListLabel} options={lists.map((s) => ({ value: s, label: s }))} />
           <NumberInput label="Precio lista 1" value={price1} onChange={setPrice1} />
           <NumberInput label="Precio lista 2" value={price2} onChange={setPrice2} />
+          <NumberInput label="Stock inicial" value={stock} onChange={setStock} />
           {role === "admin" && <NumberInput label="Costo (solo admin)" value={cost} onChange={setCost} />}
           <div className="md:col-span-6">
             <Button onClick={addProduct}>Agregar</Button>
@@ -716,6 +719,7 @@ function ProductosTab({ state, setState, role }: any) {
                 <th className="py-2 pr-4">Lista 1</th>
                 <th className="py-2 pr-4">Lista 2</th>
                 {role === "admin" && <th className="py-2 pr-4">Costo</th>}
+                <th className="py-2 pr-4">Stock</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -727,6 +731,8 @@ function ProductosTab({ state, setState, role }: any) {
                   <td className="py-2 pr-4">{money(p.price1)}</td>
                   <td className="py-2 pr-4">{money(p.price2)}</td>
                   {role === "admin" && <td className="py-2 pr-4">{money(p.cost)}</td>}
+                  <td className="py-2 pr-4">{p.stock || 0}</td>
+
                 </tr>
               ))}
             </tbody>
@@ -790,6 +796,14 @@ function DeudoresTab({ state, setState }: any) {
       await supabase.from("invoices").insert(invoice);
       await supabase.from("clients").update({ debt: client.debt }).eq("id", client.id);
       await saveCountersSupabase(st.meta);
+      // Actualizar stock en Supabase
+for (const prod of st.products) {
+  await supabase
+    .from("products")
+    .update({ stock: prod.stock })
+    .eq("id", prod.id);
+}
+
     }
 
     window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
@@ -1720,6 +1734,24 @@ if (metodoDevolucion === "intercambio_mismo") {
   alert("Intercambio registrado: mismo producto, sin cambios de deuda.");
   // Aquí luego sumaremos lógica de stock si hace falta.
 }
+  // === Ajuste de stock para intercambio de productos ===
+
+// 1) Sumar stock del producto devuelto
+productosDevueltos.forEach((prod) => {
+  const productoEnStock = st.products.find((p) => p.id === prod.productId);
+  if (productoEnStock) {
+    productoEnStock.stock = parseNum(productoEnStock.stock) + parseNum(prod.qtyDevuelta);
+  }
+});
+
+// 2) Restar stock si es intercambio por otro producto
+if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
+  const productoNuevo = st.products.find((p) => p.id === productoNuevoId);
+  if (productoNuevo) {
+    productoNuevo.stock = parseNum(productoNuevo.stock) - parseNum(cantidadNuevo);
+  }
+}
+
 
 // Intercambio por otro producto
 if (metodoDevolucion === "intercambio_otro") {
