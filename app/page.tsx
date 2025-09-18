@@ -590,14 +590,58 @@ function ClientesTab({ state, setState }: any) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {state.clients.map((c: any) => (
-                <tr key={c.id}>
-                  <td className="py-2 pr-4">{c.number}</td>
-                  <td className="py-2 pr-4">{c.name}</td>
-                  <td className="py-2 pr-4">{money(c.debt)}</td>
-                </tr>
-              ))}
-            </tbody>
+  {filtered.map((p: any) => (
+    <tr key={p.id}>
+      <td className="py-2 pr-4">{p.name}</td>
+      <td className="py-2 pr-4">{p.section}</td>
+      <td className="py-2 pr-4">{p.list_label}</td>
+      <td className="py-2 pr-4">{money(p.price1)}</td>
+      <td className="py-2 pr-4">{money(p.price2)}</td>
+      {role === "admin" && <td className="py-2 pr-4">{money(p.cost)}</td>}
+
+      {/* Stock actual editable */}
+      <td className="py-2 pr-4">
+        <NumberInput
+          value={p.stock}
+          onChange={async (v: any) => {
+            const newStock = parseNum(v);
+            const st = clone(state);
+
+            // Actualizar en memoria
+            const prod = st.products.find((x) => x.id === p.id);
+            if (prod) prod.stock = newStock;
+            setState(st);
+
+            // Actualizar en Supabase
+            if (hasSupabase) {
+              await supabase.from("products").update({ stock: newStock }).eq("id", p.id);
+            }
+          }}
+        />
+      </td>
+
+      {/* Stock mínimo editable */}
+      <td className="py-2 pr-4">
+        <NumberInput
+          value={p.stock_minimo}
+          onChange={async (v: any) => {
+            const newMin = parseNum(v);
+            const st = clone(state);
+
+            const prod = st.products.find((x) => x.id === p.id);
+            if (prod) prod.stock_minimo = newMin;
+            setState(st);
+
+            if (hasSupabase) {
+              await supabase.from("products").update({ stock_minimo: newMin }).eq("id", p.id);
+            }
+          }}
+        />
+      </td>
+    </tr>
+  ))}
+</tbody>
+
           </table>
         </div>
       </Card>
@@ -789,7 +833,26 @@ function ProductosTab({ state, setState, role }: any) {
                   <td className="py-2 pr-4">{money(p.price1)}</td>
                   <td className="py-2 pr-4">{money(p.price2)}</td>
                   {role === "admin" && <td className="py-2 pr-4">{money(p.cost)}</td>}
-                  <td className="py-2 pr-4">{p.stock || 0}</td>
+                <td className="py-2 pr-4">
+  <NumberInput
+    value={p.stock}
+    onChange={async (v: any) => {
+      const newStock = parseNum(v);
+      const st = clone(state);
+
+      // Actualizar en memoria
+      const prod = st.products.find((x) => x.id === p.id);
+      if (prod) prod.stock = newStock;
+      setState(st);
+
+      // Actualizar en Supabase
+      if (hasSupabase) {
+        await supabase.from("products").update({ stock: newStock }).eq("id", p.id);
+      }
+    }}
+  />
+</td>
+
 
                 </tr>
               ))}
