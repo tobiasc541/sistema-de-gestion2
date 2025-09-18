@@ -22,13 +22,15 @@ const clone = (obj: any) => JSON.parse(JSON.stringify(obj));
 /* ===== seed inicial (solo UI mientras carga Supabase) ===== */
 function seedState() {
   return {
-    meta: {
+   meta: {
   invoiceCounter: 1,
   budgetCounter: 1,
   lastSavedInvoiceId: null as null | string,
-  cashFloat: 0,                 // (queda, pero ya no lo usamos)
-  cashFloatByDate: {} as Record<string, number>,  // <-- NUEVO
+  cashFloat: 0,
+  cashFloatByDate: {} as Record<string, number>,
+  commissionsByDate: {} as Record<string, number>,   // 👈 NUEVO
 },
+
 
 
     auth: { adminKey: "46892389" },
@@ -48,6 +50,7 @@ function seedState() {
 async function loadFromSupabase(fallback: any) {
   if (!hasSupabase) return fallback;
   const out = clone(fallback);
+  
 
   // meta
   const { data: meta } = await supabase.from("meta").select("*").eq("key", "counters").maybeSingle();
@@ -56,6 +59,33 @@ async function loadFromSupabase(fallback: any) {
   // vendors
   const { data: vendors } = await supabase.from("vendors").select("*");
   if (vendors) out.vendors = vendors;
+  // cash_floats  ⟶  mapear a meta.cashFloatByDate para que la UI siga igual
+const { data: cf } = await supabase
+  .from("cash_floats")
+  .select("day, amount");
+
+if (cf) {
+  const map: Record<string, number> = {};
+  for (const r of cf) {
+    const key = String(r.day); // 'YYYY-MM-DD'
+    map[key] = Number(r.amount || 0);
+  }
+  out.meta.cashFloatByDate = map;
+}
+  // commissions -> meta.commissionsByDate
+const { data: comms } = await supabase
+  .from("commissions")
+  .select("day, amount");
+
+if (comms) {
+  const map: Record<string, number> = {};
+  for (const r of comms) {
+    map[String(r.day)] = Number(r.amount || 0);
+  }
+  out.meta.commissionsByDate = map;
+}
+
+
 
   // clients
   const { data: clients } = await supabase.from("clients").select("*");
@@ -77,36 +107,25 @@ async function loadFromSupabase(fallback: any) {
   const { data: budgets } = await supabase.from("budgets").select("*").order("number");
   if (budgets) out.budgets = budgets;
 
-  // Si está vacío, sembrar datos de ejemplo
-  if (!vendors?.length && !clients?.length && !products?.length) {
-    const demo = {
-      vendors: [
-        { id: "v1", name: "Tobi", key: "1234" },
-        { id: "v2", name: "Ale", key: "2222" },
-      ],
-      clients: [
-        { id: "c1", number: 1001, name: "Cliente MITOBICEL", debt: 0 },
-        { id: "c2", number: 1002, name: "Verdulería San Martín", debt: 25000 },
-        { id: "c3", number: 1003, name: "Carnicería El Toro", debt: 0 },
-      ],
-      products: [
-        { id: "p1", name: "Bolsas Camiseta 40x50 Reforzadas", section: "Almacén", list_label: "MITOBICEL", price1: 10600, price2: 10200, cost: 8500 },
-        { id: "p2", name: "Bolsas Consorcio 80x110 x10u", section: "Almacén", list_label: "ELSHOPPINGDLC", price1: 13500, price2: 12800, cost: 11100 },
-        { id: "p3", name: "Coca-Cola 1.5L", section: "Bebidas", list_label: "MITOBICEL", price1: 2500, price2: 2300, cost: 1800 },
-        { id: "p4", name: "Smirnoff 750ml", section: "Bebidas", list_label: "ELSHOPPINGDLC", price1: 9500, price2: 9100, cost: 7700 },
-        { id: "p5", name: "Lavandina 5L", section: "Limpieza", list_label: "MITOBICEL", price1: 6000, price2: 5700, cost: 4800 },
-        { id: "p6", name: "BOLSAS CAMISETAS", section: "Limpieza", list_label: "ELSHOPPINGDLC", price1: 1500, price2: 2000, cost: 900 },
-      ],
-    };
-    await supabase.from("vendors").insert(demo.vendors);
-    await supabase.from("clients").insert(demo.clients);
-    await supabase.from("products").insert(demo.products);
-    await supabase.from("meta").upsert({ key: "counters", value: { invoiceCounter: 1, budgetCounter: 1 } });
-    return await loadFromSupabase(out);
-  }
+ // Si está vacío, NO sembrar datos de ejemplo (nada de demo).
+if (!vendors?.length && !clients?.length && !products?.length) {
+  // Solo aseguro counters en meta para que la app no falle.
+  await supabase.from("meta").upsert({
+    key: "counters",
+    value: {
+      invoiceCounter: 1,
+      budgetCounter: 1,
+      cashFloat: out.meta?.cashFloat ?? 0,
+      cashFloatByDate: out.meta?.cashFloatByDate ?? {},
+       commissionsByDate: out.meta?.commissionsByDate ?? {},  // 👈
+    },
+  });
 
   return out;
 }
+    return out;               // <-- agrega este return si faltaba
+}   
+
 
 async function saveCountersSupabase(meta: any) {
   if (!hasSupabase) return;
@@ -116,10 +135,12 @@ async function saveCountersSupabase(meta: any) {
       invoiceCounter: meta.invoiceCounter,
       budgetCounter: meta.budgetCounter,
       cashFloat: meta.cashFloat ?? 0,
-      cashFloatByDate: meta.cashFloatByDate ?? {},   // <-- NUEVO
+      cashFloatByDate: meta.cashFloatByDate ?? {},
+       commissionsByDate: meta.commissionsByDate ?? {},   // 👈
     },
   });
 }
+
 
 
 /* ====== UI atoms ====== */
@@ -410,57 +431,64 @@ const [alias, setAlias] = useState("");
     if (items.length === 0) return alert("Agregá productos al carrito.");
     
 
-  const total = calcInvoiceTotal(items);
-const cash = parseNum(payCash);
+ const total = calcInvoiceTotal(items);
+const cash  = parseNum(payCash);
 const transf = parseNum(payTransf);
 const suggestedChange = Math.max(0, cash - Math.max(0, total - transf));
 const change = payChange.trim() === "" ? suggestedChange : Math.max(0, parseNum(payChange));
-
-// Validación simple: no podemos dar más vuelto que el efectivo entregado
 if (change > cash) return alert("El vuelto no puede ser mayor al efectivo entregado.");
 
+const st = clone(state);
+const number = st.meta.invoiceCounter++;
+const id = "inv_" + number;
 
-    const st = clone(state);
-    const number = st.meta.invoiceCounter++;
-    const id = "inv_" + number;
-    const applied = Math.max(0, cash + transf - change);
-const debtDelta = Math.max(0, total - applied);
+// 1) Consumir saldo a favor del cliente ANTES de calcular deuda
+const cl = st.clients.find((c:any) => c.id === client.id)!;
+const saldoActual = parseNum(cl.saldo_favor || 0);
+const saldoAplicado = Math.min(total, saldoActual);
+const totalTrasSaldo = total - saldoAplicado;
+
+// 2) Lo efectivamente aplicado por pagos (efectivo+transf - vuelto)
+const applied = Math.max(0, cash + transf - change);
+
+// 3) Deuda que queda luego de aplicar saldo y pagos
+const debtDelta = Math.max(0, totalTrasSaldo - applied);
 const status = debtDelta > 0 ? "No Pagada" : "Pagada";
 
+// 4) Actualizar cliente: bajar saldo_favor, subir deuda si corresponde
+cl.saldo_favor = saldoActual - saldoAplicado;
+cl.debt = parseNum(cl.debt) + debtDelta;
 
-    const cl = st.clients.find((c: any) => c.id === client.id)!;
-    const clientDebtAfter = parseNum(cl.debt) + debtDelta;
+const invoice = {
+  id,
+  number,
+  date_iso: todayISO(),
+  client_id: client.id,
+  client_name: client.name,
+  vendor_id: vendor.id,
+  vendor_name: vendor.name,
+  items: clone(items),
+  total,                              // total original
+  total_after_credit: totalTrasSaldo, // NUEVO (opcional, para saber el impacto)
+  cost: calcInvoiceCost(items),
+  payments: { cash, transfer: transf, change, alias: alias.trim(), saldo_aplicado: saldoAplicado }, // NUEVO campo informativo
+  status,
+  type: "Factura",
+  client_debt_total: cl.debt,
+};
 
-    const invoice = {
-      id,
-      number,
-      date_iso: todayISO(),
-      client_id: client.id,
-      client_name: client.name,
-      vendor_id: vendor.id,
-      vendor_name: vendor.name,
-      items: clone(items),
-      total,
-      cost: calcInvoiceCost(items),
-      payments: { cash, transfer: transf, change, alias: alias.trim() },
+st.invoices.push(invoice);
+st.meta.lastSavedInvoiceId = id;
+setState(st);
 
-      status,
-      type: "Factura",
-      client_debt_total: clientDebtAfter,
-    };
+if (hasSupabase) {
+  await supabase.from("invoices").insert(invoice);
+  await supabase.from("clients").update({ debt: cl.debt, saldo_favor: cl.saldo_favor }).eq("id", client.id);
+  await saveCountersSupabase(st.meta);
+}
 
-    st.invoices.push(invoice);
-    st.meta.lastSavedInvoiceId = id;
 
-    cl.debt = clientDebtAfter;
 
-    setState(st);
-
-    if (hasSupabase) {
-      await supabase.from("invoices").insert(invoice);
-      await supabase.from("clients").update({ debt: cl.debt }).eq("id", client.id);
-      await saveCountersSupabase(st.meta);
-    }
 
     window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
     await nextPaint();
@@ -505,17 +533,18 @@ const toPay = Math.max(0, total - applied);
               onChange={setVendorId}
               options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))}
             />
-           <div className="col-span-2 text-xs text-slate-300 mt-1">
-  Deuda del cliente:{" "}
-  <span className="font-semibold">
-    {money(state.clients.find((c: any) => c.id === clientId)?.debt || 0)}
+      <div className="col-span-2 text-xs text-slate-300 mt-1">
+  Deuda del cliente: <span className="font-semibold">
+    {money(state.clients.find((c:any)=>c.id===clientId)?.debt || 0)}
   </span>
   <span className="mx-2">·</span>
-  Gastado este mes:{" "}
-  <span className="font-semibold">
-    {money(gastoMesCliente(state, clientId))}
+  Saldo a favor: <span className="font-semibold">
+    {money(state.clients.find((c:any)=>c.id===clientId)?.saldo_favor || 0)}
   </span>
+  <span className="mx-2">·</span>
+  Gastado este mes: <span className="font-semibold">{money(gastoMesCliente(state, clientId))}</span>
 </div>
+
 
             <Select
               label="Lista de precios"
@@ -529,28 +558,44 @@ const toPay = Math.max(0, total - applied);
           </div>
         </Card>
 
-        <Card title="Pagos">
-         <div className="grid grid-cols-2 gap-3">
-  <NumberInput label="Efectivo" value={payCash} onChange={setPayCash} placeholder="0" />
-  <NumberInput label="Transferencia" value={payTransf} onChange={setPayTransf} placeholder="0" />
+       <Card title="Pagos">
+  <div className="grid grid-cols-2 gap-3 items-end">
+    <NumberInput label="Efectivo" value={payCash} onChange={setPayCash} placeholder="0" />
+    <NumberInput label="Transferencia" value={payTransf} onChange={setPayTransf} placeholder="0" />
 
-  {/* NUEVO: Vuelto (si no escribís, se usa el sugerido) */}
-  <NumberInput
-    label={`Vuelto (efectivo) ${payChange.trim() === "" ? `(sugerido: ${money(suggestedChange)})` : ""}`}
-    value={payChange}
-    onChange={setPayChange}
-    placeholder="0"
-  />
+    {/* Vuelto + ayuda (sugerido) */}
+    <div className="space-y-1">
+      <NumberInput
+        label="Vuelto (efectivo)"
+        value={payChange}
+        onChange={setPayChange}
+        placeholder="0"
+      />
+      {payChange.trim() === "" && (
+        <div className="text-[11px] text-slate-400">
+          Sugerido: {money(suggestedChange)}
+        </div>
+      )}
+    </div>
 
-  <Input className="col-span-1" label="Alias / CVU destino" value={alias} onChange={setAlias} placeholder="ej: mitobicel.algo.banco" />
+    {/* Alias/CVU alineado con Vuelto */}
+    <div className="self-end">
+      <Input
+        label="Alias / CVU destino"
+        value={alias}
+        onChange={setAlias}
+        placeholder="ej: mitobicel.algo.banco"
+      />
+    </div>
 
-  <div className="col-span-2 text-xs text-slate-300">
-    Pagado: <span className="font-semibold">{money(paid)}</span> — Falta: <span className="font-semibold">{money(toPay)}</span> — Vuelto:{" "}
-    <span className="font-semibold">{money(change)}</span>
+    <div className="col-span-2 text-xs text-slate-300">
+      Pagado: <span className="font-semibold">{money(paid)}</span> — Falta:{" "}
+      <span className="font-semibold">{money(toPay)}</span> — Vuelto:{" "}
+      <span className="font-semibold">{money(change)}</span>
+    </div>
   </div>
-</div>
+</Card>
 
-        </Card>
 
         <Card title="Totales">
           <div className="space-y-2">
@@ -660,12 +705,14 @@ function ClientesTab({ state, setState }: any) {
 
   async function addClient() {
     if (!name.trim()) return;
-    const newClient = {
-      id: "c" + Math.random().toString(36).slice(2, 8),
-      number: parseInt(String(number), 10),
-      name: name.trim(),
-      debt: 0,
-    };
+  const newClient = {
+  id: "c" + Math.random().toString(36).slice(2, 8),
+  number: parseInt(String(number), 10),
+  name: name.trim(),
+  debt: 0,
+  saldo_favor: 0, // <--- NUEVO (saldo a favor)
+};
+
 
     const st = clone(state);
     st.clients.push(newClient);
@@ -695,43 +742,45 @@ function ClientesTab({ state, setState }: any) {
         </div>
       </Card>
 
-      <Card title="Listado">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-slate-400">
-  <tr>
-    <th className="py-2 pr-4">N°</th>
-    <th className="py-2 pr-4">Nombre</th>
-    <th className="py-2 pr-4">Deuda</th>
-    <th className="py-2 pr-4">Gasto mes</th>
+     <Card title="Listado">
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="text-left text-slate-400">
+        <tr>
+          <th className="py-2 pr-4">N°</th>
+          <th className="py-2 pr-4">Nombre</th>
+          <th className="py-2 pr-4">Deuda</th>
+          <th className="py-2 pr-4">Saldo a favor</th>
+          <th className="py-2 pr-4">Gasto mes</th>
+        </tr>
+      </thead>
 
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {clients.map((c: any) => (
-                <tr key={c.id}>
-                  <td className="py-2 pr-4">{c.number}</td>
-                  <td className="py-2 pr-4">{c.name}</td>
-                  <td className="py-2 pr-4">{money(c.debt || 0)}</td>
-                  <td className="py-2 pr-4">{money(gastoMesCliente(state, c.id))}</td>
+      <tbody className="divide-y divide-slate-800">
+        {clients.map((c: any) => (
+          <tr key={c.id}>
+            <td className="py-2 pr-4">{c.number}</td>
+            <td className="py-2 pr-4">{c.name}</td>
+            <td className="py-2 pr-4">{money(c.debt || 0)}</td>
+            <td className="py-2 pr-4">{money(c.saldo_favor || 0)}</td> {/* aquí va */}
+            <td className="py-2 pr-4">{money(gastoMesCliente(state, c.id))}</td>
+          </tr>
+        ))}
 
-                </tr>
-              ))}
-
-              {clients.length === 0 && (
-                <tr>
-                  <td className="py-2 pr-4 text-slate-400" colSpan={4}>
-                    Sin clientes cargados.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {clients.length === 0 && (
+          <tr>
+            <td className="py-2 pr-4 text-slate-400" colSpan={5}>
+              Sin clientes cargados.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
       </Card>
     </div>
   );
 }
+
 
 
 /* Productos */
@@ -1311,20 +1360,61 @@ function ReportesTab({ state, setState }: any) {
   const [dia, setDia] = useState<string>(todayStr);
   const [mes, setMes] = useState<string>(thisMonthStr);
   const [anio, setAnio] = useState<string>(String(today.getFullYear()));
+
   // --- helpers para vuelto por día ---
-const diaClave = dia; // YYYY-MM-DD del selector
-const cashFloatByDate = (state?.meta?.cashFloatByDate ?? {}) as Record<string, number>;
-const cashFloatTarget = periodo === "dia" ? parseNum(cashFloatByDate[diaClave] ?? 0) : 0;
+  const diaClave = dia; // YYYY-MM-DD del selector
+  const cashFloatByDate = (state?.meta?.cashFloatByDate ?? {}) as Record<string, number>;
+  const cashFloatTarget = periodo === "dia" ? parseNum(cashFloatByDate[diaClave] ?? 0) : 0;
 
-// función para guardar el vuelto del día seleccionado
-async function setCashFloatForDay(nuevo: number) {
-  const st = clone(state);
-  st.meta.cashFloatByDate = st.meta.cashFloatByDate || {};
-  st.meta.cashFloatByDate[diaClave] = nuevo;
-  setState(st);
-  if (hasSupabase) await saveCountersSupabase(st.meta);
-}
+  async function setCashFloatForDay(nuevo: number) {
+    const st = clone(state);
+    st.meta.cashFloatByDate = st.meta.cashFloatByDate || {};
+    st.meta.cashFloatByDate[diaClave] = nuevo;
+    setState(st);
 
+    if (hasSupabase) {
+      // dentro de ReportesTab
+      await supabase
+        .from("cash_floats")
+        .upsert(
+          { day: diaClave, amount: nuevo, updated_by: "app" }, // <- actualizado
+          { onConflict: "day" }
+        );
+    } else {
+      // fallback local (por si no hay supabase)
+      await saveCountersSupabase?.(st.meta);
+    }
+  }
+
+  // --- helpers para comisiones por día ---
+  const commissionsByDate = (state?.meta?.commissionsByDate ?? {}) as Record<string, number>;
+  const commissionTarget =
+    periodo === "dia" ? parseNum(commissionsByDate[diaClave] ?? 0) : 0;
+
+  // Sumar comisiones en el período (sirve para mes/año)
+  // ⚠️ Se calcula más abajo porque usa {start, end}
+  // const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]) => {
+  //   const t = new Date(`${k}T00:00:00`).getTime();
+  //   return t >= start && t <= end ? sum + parseNum(v) : sum;
+  // }, 0);
+
+  async function setCommissionForDay(nuevo: number) {
+    const st = clone(state);
+    st.meta.commissionsByDate = st.meta.commissionsByDate || {};
+    st.meta.commissionsByDate[diaClave] = nuevo;
+    setState(st);
+
+    if (hasSupabase) {
+      await supabase
+        .from("commissions")
+        .upsert(
+          { day: diaClave, amount: nuevo, updated_by: "app" }, // <- session no existe acá
+          { onConflict: "day" } // clave única por día
+        );
+    } else {
+      await saveCountersSupabase?.(st.meta);
+    }
+  }
 
   // Rango según período
   function rangoActual() {
@@ -1349,11 +1439,18 @@ async function setCashFloatForDay(nuevo: number) {
   }
   const { start, end } = rangoActual();
 
+  // ✅ Ahora sí: comisiones del período usando start/end
+  const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]) => {
+    const t = new Date(`${k}T00:00:00`).getTime();
+    return t >= start && t <= end ? sum + parseNum(v) : sum;
+  }, 0);
+
   // Documentos dentro del rango
   const docsEnRango = state.invoices.filter((f: any) => {
     const t = new Date(f.date_iso).getTime();
     return t >= start && t <= end;
   });
+}
 
   // Ventas (solo Facturas)
   const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
@@ -1408,7 +1505,9 @@ const flujoCajaEfectivoFinal =
   totalEfectivoNeto
   - totalGastosEfectivo
   - devolucionesMontoEfectivo
+  - commissionsPeriodo      // 👈 RESTA comisiones del período
   + vueltoRestante;
+
 
 
   // Agrupados
@@ -1471,8 +1570,10 @@ const flujoCajaEfectivoFinal =
   cashFloatTarget,
   vueltoRestante,
 
-  // NUEVO: usar el flujo final calculado
-  flujoCajaEfectivo: flujoCajaEfectivoFinal,
+   flujoCajaEfectivo: flujoCajaEfectivoFinal,
+
+  // 👇 NUEVO
+  comisionesPeriodo: commissionsPeriodo,
 },
 
       ventas: invoices,
@@ -1550,6 +1651,43 @@ const flujoCajaEfectivoFinal =
     </div>
   </Card>
 )}
+{periodo === "dia" && (
+  <Card
+    title="Comisiones (por día)"
+    actions={
+      <Button onClick={async () => {
+        await setCommissionForDay(commissionTarget);
+        alert("Comisiones del día guardadas.");
+      }}>
+        Guardar
+      </Button>
+    }
+  >
+    <div className="grid md:grid-cols-3 gap-3">
+      <NumberInput
+        label={`Comisiones configuradas para ${diaClave}`}
+        value={String(commissionTarget)}
+        onChange={(v: any) => {
+          const st = clone(state);
+          st.meta.commissionsByDate = st.meta.commissionsByDate || {};
+          st.meta.commissionsByDate[diaClave] = parseNum(v);
+          setState(st);
+        }}
+        placeholder="Ej: 5000"
+      />
+      <div className="md:col-span-2 grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Comisiones en el período</div>
+          <div className="text-xl font-bold">{money(commissionsPeriodo)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Impacto en flujo de caja</div>
+          <div className="text-xl font-bold">– {money(commissionsPeriodo)}</div>
+        </div>
+      </div>
+    </div>
+  </Card>
+)}
 
 
       <div className="grid md:grid-cols-4 gap-3">
@@ -1572,8 +1710,10 @@ const flujoCajaEfectivoFinal =
 <div className="grid md:grid-cols-3 gap-3">
   <Card title="Efectivo (neto)">
     <div className="text-2xl font-bold">{money(totalEfectivoNeto)}</div>
-    <div className="text-xs text-slate-400 mt-1">Efectivo cobrado - Vuelto entregado</div>
-  </Card>
+    <div className="text-xs text-slate-400 mt-1">
+  Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante
+</div>
+
 
   <Card title="Ganancia estimada">
     <div className="text-2xl font-bold">{money(ganancia)}</div>
@@ -2072,66 +2212,52 @@ const devolucion = {
 };
 
 
-  const st = clone(state);
-  st.devoluciones.push(devolucion);
+const st = clone(state);
+st.devoluciones.push(devolucion);
 
-  // Si el método es saldo a favor, actualizar deuda del cliente
-  if (metodoDevolucion === "saldo") {
-    const cliente = st.clients.find((c: any) => c.id === clienteSeleccionado);
-    if (cliente) {
-      cliente.debt = parseNum(cliente.debt) - totalDevolucion;
-    }
-  }
-// Intercambio por mismo producto
-if (metodoDevolucion === "intercambio_mismo") {
-  alert("Intercambio registrado: mismo producto, sin cambios de deuda.");
-  // Aquí luego sumaremos lógica de stock si hace falta.
+// 1) Ajuste de saldo a favor (si corresponde)
+if (metodoDevolucion === "saldo") {
+  const cli = st.clients.find((c:any)=>c.id === clienteSeleccionado);
+  if (cli) cli.saldo_favor = parseNum(cli.saldo_favor) + parseNum(totalDevolucion);
 }
-  // === Ajuste de stock para intercambio de productos ===
 
-// 1) Sumar stock del producto devuelto
-productosDevueltos.forEach((prod) => {
-  const productoEnStock = st.products.find((p) => p.id === prod.productId);
-  if (productoEnStock) {
-    productoEnStock.stock = parseNum(productoEnStock.stock) + parseNum(prod.qtyDevuelta);
-  }
+// 2) Stock: entra lo devuelto
+productosDevueltos.forEach((it) => {
+  const prod = st.products.find((p:any) => p.id === it.productId);
+  if (prod) prod.stock = parseNum(prod.stock) + parseNum(it.qtyDevuelta);
 });
 
-// 2) Restar stock si es intercambio por otro producto
+// 3) Stock: sale lo entregado en intercambio_otro
 if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
-  const productoNuevo = st.products.find((p) => p.id === productoNuevoId);
-  if (productoNuevo) {
-    productoNuevo.stock = parseNum(productoNuevo.stock) - parseNum(cantidadNuevo);
-  }
+  const nuevo = st.products.find((p:any) => p.id === productoNuevoId);
+  if (nuevo) nuevo.stock = parseNum(nuevo.stock) - parseNum(cantidadNuevo);
 }
 
+setState(st);
 
-
-
-  setState(st);
-
- if (hasSupabase) {
+// ==== Persistencia ====
+if (hasSupabase) {
   await supabase.from("devoluciones").insert(devolucion);
 
+  // actualizar saldo_favor si se acreditó
   if (metodoDevolucion === "saldo") {
-    await supabase
-      .from("clients")
-      .update({ debt: st.clients.find((c: any) => c.id === clienteSeleccionado)?.debt })
+    const cli = st.clients.find((c:any)=>c.id===clienteSeleccionado);
+    await supabase.from("clients")
+      .update({ saldo_favor: cli?.saldo_favor ?? 0 })
       .eq("id", clienteSeleccionado);
   }
 
-  // Persistir stock de productos DEVUELTOS
+  // persistir stocks tocados
   for (const it of productosDevueltos) {
     const nuevoStock = st.products.find((p:any) => p.id === it.productId)?.stock;
     await supabase.from("products").update({ stock: nuevoStock }).eq("id", it.productId);
   }
-
-  // Si hubo intercambio por OTRO producto, persistir también el “nuevo”
   if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
     const stockNuevo = st.products.find((p:any) => p.id === productoNuevoId)?.stock;
     await supabase.from("products").update({ stock: stockNuevo }).eq("id", productoNuevoId);
   }
 }
+
 
 
   alert("Devolución registrada con éxito.");
@@ -2467,31 +2593,34 @@ if (inv?.type === "Reporte") {
 
         <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
 
-        {/* RESUMEN */}
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div>
-          
-  <div style={{ fontWeight: 700 }}>Resumen</div>
-  <div>Ventas totales: {fmt(inv.resumen.ventas)}</div>
-  <div>Efectivo cobrado: {fmt(inv.resumen.efectivoCobrado)}</div>
-  <div>Vuelto entregado: {fmt(inv.resumen.vueltoEntregado)}</div>
-  <div>Vuelto configurado: {fmt(inv.resumen.cashFloatTarget || 0)}</div>
-  <div>Vuelto restante: {fmt(inv.resumen.vueltoRestante || 0)}</div>
-  <div><b>Efectivo neto: {fmt(inv.resumen.efectivoNeto)}</b></div>
-  <div>Transferencias: {fmt(inv.resumen.transferencias)}</div>
+{/* RESUMEN */}
+<div className="grid grid-cols-2 gap-3 text-sm">
+  <div>
+    <div style={{ fontWeight: 700 }}>Resumen</div>
+    <div>Ventas totales: {fmt(inv.resumen.ventas)}</div>
+    <div>Efectivo cobrado: {fmt(inv.resumen.efectivoCobrado)}</div>
+    <div>Vuelto entregado: {fmt(inv.resumen.vueltoEntregado)}</div>
+    <div>Vuelto configurado: {fmt(inv.resumen.cashFloatTarget || 0)}</div>
+    <div>Vuelto restante: {fmt(inv.resumen.vueltoRestante || 0)}</div>
+    <div><b>Efectivo neto: {fmt(inv.resumen.efectivoNeto)}</b></div>
+    <div>Transferencias: {fmt(inv.resumen.transferencias)}</div>
+  </div>
+
+  <div>
+    <div style={{ fontWeight: 700 }}>Gastos y Devoluciones</div>
+    <div>Gastos (total): {fmt(inv.resumen.gastosTotal)}</div>
+    <div>— en efectivo: {fmt(inv.resumen.gastosEfectivo)}</div>
+    <div>— por transferencia: {fmt(inv.resumen.gastosTransfer)}</div>
+    <div>Devoluciones: {inv.resumen.devolucionesCantidad}</div>
+    <div>— en efectivo: {fmt(inv.resumen.devolucionesEfectivo)}</div>
+    <div>— por transferencia: {fmt(inv.resumen.devolucionesTransfer)}</div>
+    <div>— monto total: {fmt(inv.resumen.devolucionesTotal)}</div>
+
+    {/* 👇 AÑADIR AQUÍ */}
+    <div>Comisiones (período): {fmt(inv.resumen.comisionesPeriodo)}</div>
+  </div>
 </div>
 
-          <div>
-            <div style={{ fontWeight: 700 }}>Gastos y Devoluciones</div>
-            <div>Gastos (total): {fmt(inv.resumen.gastosTotal)}</div>
-            <div>— en efectivo: {fmt(inv.resumen.gastosEfectivo)}</div>
-            <div>— por transferencia: {fmt(inv.resumen.gastosTransfer)}</div>
-            <div>Devoluciones: {inv.resumen.devolucionesCantidad}</div>
-            <div>— en efectivo: {fmt(inv.resumen.devolucionesEfectivo)}</div>
-            <div>— por transferencia: {fmt(inv.resumen.devolucionesTransfer)}</div>
-            <div>— monto total: {fmt(inv.resumen.devolucionesTotal)}</div>
-          </div>
-        </div>
 
         {/* SECCIÓN: VENTAS (detalle similar a factura) */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
@@ -2679,112 +2808,150 @@ const fullyPaid = balance <= 0.009;
  
   const clientDebtTotal = parseNum(inv?.client_debt_total ?? 0);
 
-  return (
-    <div className="only-print print-area p-14">
-      <div className="max-w-[780px] mx-auto text-black">
-        <div className="flex items-start justify-between">
-          <div>
-                        <div style={{ fontWeight: 800, letterSpacing: 1 }}>{inv?.type === "Presupuesto" ? "PRESUPUESTO" : "FACTURA"}</div>
-
-            <div style={{ marginTop: 2 }}>MITOBICEL</div>
+ return (
+  <div className="only-print print-area p-14">
+    <div className="max-w-[780px] mx-auto text-black">
+      <div className="flex items-start justify-between">
+        <div>
+          <div style={{ fontWeight: 800, letterSpacing: 1 }}>
+            {inv?.type === "Presupuesto" ? "PRESUPUESTO" : "FACTURA"}
           </div>
+          <div style={{ marginTop: 2 }}>MITOBICEL</div>
         </div>
-
-        <div style={{ borderTop: "1px solid #000", margin: "10px 0 6px" }} />
-
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div>
-            <div style={{ fontWeight: 700 }}>Cliente</div>
-            <div>{inv.client_name}</div>
-          </div>
-          <div className="text-right">
-            <div>
-              <b>Factura Nº:</b> {pad(inv.number)}
-            </div>
-            <div>
-              <b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}
-            </div>
-            <div>
-              <b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}
-            </div>
-          </div>
-        </div>
-
-        <table className="print-table text-sm" style={{ marginTop: 10 }}>
-          <thead>
-            <tr>
-              <th style={{ width: "6%" }}>#</th>
-              <th>Descripción de artículo</th>
-              <th style={{ width: "12%" }}>Cantidad</th>
-              <th style={{ width: "18%" }}>Precio</th>
-              <th style={{ width: "18%" }}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inv.items.map((it: any, i: number) => (
-              <tr key={i}>
-                <td style={{ textAlign: "right" }}>{i + 1}</td>
-                <td>{it.name}</td>
-                <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
-                <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
-                <td style={{ textAlign: "right" }}>{money(parseNum(it.qty) * parseNum(it.unitPrice))}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>
-                Total
-              </td>
-              <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
-            </tr>
-          </tfoot>
-        </table>
-
-        <div className="grid grid-cols-2 gap-2 text-sm" style={{ marginTop: 8 }}>
-          <div />
-          <div>
-            <div>
-              <b>Método de pago:</b>
-            </div>
-           <div>CONTADO: {money(paidCash)}</div>
-<div>TRANSFERENCIA: {money(paidTransf)}</div>
-{inv?.payments?.change ? <div>VUELTO: {money(parseNum(inv.payments.change))}</div> : null}
-{inv?.payments?.alias && <div>Alias/CVU destino: {inv.payments.alias}</div>}
-<div style={{ marginTop: 6 }}>
-  <b>Cantidad pagada:</b> {money(paid)}
-</div>
-
-            <div>
-              <b>Cantidad adeudada:</b> {money(balance)}</div>
-            <div style={{ marginTop: 6 }}>
-              <b>Total adeudado como cliente:</b> {money(clientDebtTotal)}
-            </div>
-          </div>
-        </div>
-
-        {fullyPaid && (
-          <div
-            style={{
-              position: "fixed",
-              top: "55%",
-              left: "50%",
-              transform: "translate(-50%, -50%) rotate(-20deg)",
-              fontSize: 64,
-              fontWeight: 900,
-              letterSpacing: 4,
-              opacity: 0.08,
-            }}
-          >
-            PAGADO
-          </div>
-        )}
-
-        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
       </div>
+
+      <div style={{ borderTop: "1px solid #000", margin: "10px 0 6px" }} />
+
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div>
+          <div style={{ fontWeight: 700 }}>Cliente</div>
+          <div>{inv.client_name}</div>
+        </div>
+        <div className="text-right">
+          <div>
+            <b>Factura Nº:</b> {pad(inv.number)}
+          </div>
+          <div>
+            <b>Fecha:</b> {new Date(inv.date_iso).toLocaleDateString("es-AR")}
+          </div>
+          <div>
+            <b>Estado del pago:</b> {fullyPaid ? "Pagado" : "Pendiente"}
+          </div>
+        </div>
+      </div>
+
+      <table className="print-table text-sm" style={{ marginTop: 10 }}>
+        <thead>
+          <tr>
+            <th style={{ width: "6%" }}>#</th>
+            <th>Descripción de artículo</th>
+            <th style={{ width: "12%" }}>Cantidad</th>
+            <th style={{ width: "18%" }}>Precio</th>
+            <th style={{ width: "18%" }}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {inv.items.map((it: any, i: number) => (
+            <tr key={i}>
+              <td style={{ textAlign: "right" }}>{i + 1}</td>
+              <td>{it.name}</td>
+              <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
+              <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
+              <td style={{ textAlign: "right" }}>
+                {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+
+        {/* ===== tfoot corregido (un solo tfoot, sin anidar) ===== */}
+        <tfoot>
+          <tr>
+            <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>
+              Total
+            </td>
+            <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
+          </tr>
+
+          {/* debajo de la fila Total */}
+          {typeof inv?.payments?.saldo_aplicado === "number" &&
+            inv.payments.saldo_aplicado > 0 && (
+              <>
+                <tr>
+                  <td colSpan={4} style={{ textAlign: "right" }}>
+                    Saldo a favor aplicado
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    {money(parseNum(inv.payments.saldo_aplicado))}
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>
+                    Total luego de saldo
+                  </td>
+                  <td style={{ textAlign: "right", fontWeight: 700 }}>
+                    {money(
+                      parseNum(
+                        inv.total_after_credit ??
+                          (inv.total - inv.payments.saldo_aplicado)
+                      )
+                    )}
+                  </td>
+                </tr>
+              </>
+            )}
+        </tfoot>
+      </table>
+
+      <div className="grid grid-cols-2 gap-2 text-sm" style={{ marginTop: 8 }}>
+        <div />
+        <div>
+          <div>
+            <b>Método de pago:</b>
+          </div>
+          <div>CONTADO: {money(paidCash)}</div>
+          <div>TRANSFERENCIA: {money(paidTransf)}</div>
+          {inv?.payments?.change ? (
+            <div>VUELTO: {money(parseNum(inv.payments.change))}</div>
+          ) : null}
+          {inv?.payments?.alias && (
+            <div>Alias/CVU destino: {inv.payments.alias}</div>
+          )}
+          <div style={{ marginTop: 6 }}>
+            <b>Cantidad pagada:</b> {money(paid)}
+          </div>
+
+          <div>
+            <b>Cantidad adeudada:</b> {money(balance)}
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <b>Total adeudado como cliente:</b> {money(clientDebtTotal)}
+          </div>
+        </div>
+      </div>
+
+      {fullyPaid && (
+        <div
+          style={{
+            position: "fixed",
+            top: "55%",
+            left: "50%",
+            transform: "translate(-50%, -50%) rotate(-20deg)",
+            fontSize: 64,
+            fontWeight: 900,
+            letterSpacing: 4,
+            opacity: 0.08,
+          }}
+        >
+          PAGADO
+        </div>
+      )}
+
+      <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
     </div>
-  );
-}
+  </div>
+);
+  } 
 
 /* ===== Login ===== */
 function Login({ onLogin, vendors, adminKey, clients }: any) {
