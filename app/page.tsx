@@ -1789,16 +1789,109 @@ function ReportesTab({ state, setState }: any) {
         )}
       </Card>
 
-      <Card title="Listado de facturas">
-        {/* … lo que ya tenías (sin cambios) … */}
-      </Card>
+     <Card title="Listado de facturas">
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="text-left text-slate-400">
+        <tr>
+          <th className="py-2 pr-3">#</th>
+          <th className="py-2 pr-3">Fecha</th>
+          <th className="py-2 pr-3">Cliente</th>
+          <th className="py-2 pr-3">Vendedor</th>
+          <th className="py-2 pr-3">Total</th>
+          <th className="py-2 pr-3">Efectivo</th>
+          <th className="py-2 pr-3">Transf.</th>
+          <th className="py-2 pr-3">Vuelto</th>
+          <th className="py-2 pr-3">Alias/CVU</th>
+          <th className="py-2 pr-3">Tipo</th>
+          <th className="py-2 pr-3">Estado</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-800">
+        {docsEnRango
+          .slice()
+          .sort((a:any,b:any)=> new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+          .map((f:any)=> {
+            const cash = parseNum(f?.payments?.cash);
+            const tr   = parseNum(f?.payments?.transfer);
+            const ch   = parseNum(f?.payments?.change);
+            const alias = (f?.payments?.alias || "").trim() || "—";
+            return (
+              <tr key={f.id}>
+                <td className="py-2 pr-3">{pad(f.number || 0)}</td>
+                <td className="py-2 pr-3">{new Date(f.date_iso).toLocaleString("es-AR")}</td>
+                <td className="py-2 pr-3">{f.client_name}</td>
+                <td className="py-2 pr-3">{f.vendor_name}</td>
+                <td className="py-2 pr-3">{money(parseNum(f.total))}</td>
+                <td className="py-2 pr-3">{money(cash)}</td>
+                <td className="py-2 pr-3">{money(tr)}</td>
+                <td className="py-2 pr-3">{money(ch)}</td>
+                <td className="py-2 pr-3 truncate max-w-[180px]">{alias}</td>
+                <td className="py-2 pr-3">{f.type || "—"}</td>
+                <td className="py-2 pr-3">{f.status || "—"}</td>
+              </tr>
+            );
+          })}
+        {docsEnRango.length === 0 && (
+          <tr>
+            <td className="py-3 text-slate-400" colSpan={11}>Sin documentos en el período.</td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</Card>
 
-      <Card title="Listado de devoluciones">
-        {/* … lo que ya tenías (sin cambios) … */}
-      </Card>
-    </div>
-  );
-}
+<Card title="Listado de devoluciones">
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="text-left text-slate-400">
+        <tr>
+          <th className="py-2 pr-3">Fecha</th>
+          <th className="py-2 pr-3">Cliente</th>
+          <th className="py-2 pr-3">Método</th>
+          <th className="py-2 pr-3">Efectivo</th>
+          <th className="py-2 pr-3">Transf.</th>
+          <th className="py-2 pr-3">Total</th>
+          <th className="py-2 pr-3">Detalle</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-800">
+        {devolucionesPeriodo
+          .slice()
+          .sort((a:any,b:any)=> new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+          .map((d:any)=> (
+            <tr key={d.id}>
+              <td className="py-2 pr-3">{new Date(d.date_iso).toLocaleString("es-AR")}</td>
+              <td className="py-2 pr-3">{d.client_name}</td>
+              <td className="py-2 pr-3 capitalize">{d.metodo}</td>
+              <td className="py-2 pr-3">{money(parseNum(d.efectivo))}</td>
+              <td className="py-2 pr-3">{money(parseNum(d.transferencia))}</td>
+              <td className="py-2 pr-3">{money(parseNum(d.total))}</td>
+              <td className="py-2 pr-3">
+                {(d.items || []).map((it:any, i:number) => (
+                  <div key={i} className="text-xs">
+                    {it.name} — dev.: {parseNum(it.qtyDevuelta)} × {money(parseNum(it.unitPrice))}
+                  </div>
+                ))}
+                {d.metodo === "intercambio_otro" && (
+                  <div className="text-xs text-slate-400 mt-1">
+                    Dif. abonada: ef. {money(parseNum(d.extra_pago_efectivo||0))} · tr. {money(parseNum(d.extra_pago_transferencia||0))}
+                  </div>
+                )}
+              </td>
+            </tr>
+          ))}
+        {devolucionesPeriodo.length === 0 && (
+          <tr>
+            <td className="py-3 text-slate-400" colSpan={7}>Sin devoluciones en el período.</td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</Card>
+
 
      
 
