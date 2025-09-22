@@ -2034,7 +2034,7 @@ function PresupuestosTab({ state, setState, session }: any) {
         <div className="grid md:grid-cols-4 gap-3">
           <Select label="Cliente" value={clientId} onChange={setClientId} options={state.clients.map((c: any) => ({ value: c.id, label: `${c.number} — ${c.name}` }))} />
           <Select label="Vendedor" value={vendorId} onChange={setVendorId} options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))} />
-          <Select label="Lista de precios" value={priceList} onChange={setPriceList} options={[{ value: "1", label: "Lista 1" }, { value: "2", label: "Lista 2" }]} />
+          <Select label="Lista de precios" value={priceList} onChange={setPriceList} options={[{ value: "1", label: "Mitobicel" }, { value: "2", label: "ElshoppingDlc" }]} />
           <Input label="Buscar producto" value={query} onChange={setQuery} placeholder="Nombre..." />
         </div>
         <div className="grid md:grid-cols-2 gap-4 mt-3">
