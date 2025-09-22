@@ -535,8 +535,8 @@ const toPay = Math.max(0, total - applied);
               value={priceList}
               onChange={setPriceList}
               options={[
-                { value: "1", label: "Lista 1" },
-                { value: "2", label: "Lista 2" },
+                { value: "1", label: "Mitobicel" },
+                { value: "2", label: "ElshoppingDlc" },
               ]}
             />
           </div>
