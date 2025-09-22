@@ -1848,23 +1848,31 @@ useEffect(() => {
       <tbody className="divide-y divide-slate-800">
         {docsEnRango
           .slice()
-          .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+          .sort(
+            (a: any, b: any) =>
+              new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime()
+          )
           .map((f: any) => {
             const cash = parseNum(f?.payments?.cash);
             const tr = parseNum(f?.payments?.transfer);
             const ch = parseNum(f?.payments?.change);
             const alias = (f?.payments?.alias || "").trim() || "—";
 
-            // Función para ver PDF usando tu método original
+            // Función para ver PDF directamente desde la factura
             const viewInvoicePDF = (invoice: any) => {
-              // reemplaza esta línea con la función que abría tu PDF antes
-              alert(`Ver PDF factura #${invoice.number}`);
+              // Aquí reemplazá generateInvoicePDF con la función que tu sistema ya tenía para crear el PDF
+              const pdfData = generateInvoicePDF(invoice); // <-- tu función real
+              const blob = new Blob([pdfData], { type: "application/pdf" });
+              const url = URL.createObjectURL(blob);
+              window.open(url, "_blank");
             };
 
             return (
               <tr key={f.id}>
                 <td className="py-2 pr-3">{pad(f.number || 0)}</td>
-                <td className="py-2 pr-3">{new Date(f.date_iso).toLocaleString("es-AR")}</td>
+                <td className="py-2 pr-3">
+                  {new Date(f.date_iso).toLocaleString("es-AR")}
+                </td>
                 <td className="py-2 pr-3">{f.client_name}</td>
                 <td className="py-2 pr-3">{f.vendor_name}</td>
                 <td className="py-2 pr-3">{money(parseNum(f.total))}</td>
@@ -1892,7 +1900,9 @@ useEffect(() => {
                         await supabase.from("invoices").delete().eq("id", f.id);
                         setState((prev: any) => ({
                           ...prev,
-                          invoices: prev.invoices.filter((inv: any) => inv.id !== f.id),
+                          invoices: prev.invoices.filter(
+                            (inv: any) => inv.id !== f.id
+                          ),
                         }));
                       }}
                       className="text-red-500 hover:text-red-700"
