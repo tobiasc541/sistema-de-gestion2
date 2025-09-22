@@ -1896,16 +1896,26 @@ useEffect(() => {
                     📄
                   </button>
 
-                  {/* Botón eliminar solo admin */}
-                  {state.user?.role === "admin" && (
-                    <button
-                      onClick={() => deleteInvoice(f)}
-                      className="text-red-500 hover:text-red-700"
-                      title="Eliminar"
-                    >
-                      🗑️
-                    </button>
-                  )}
+       {/* Botón eliminar solo admin */}
+{session.role === "admin" && (
+  <button
+    onClick={async () => {
+      if (!confirm(`¿Eliminar factura #${f.number}?`)) return;
+      const st = clone(state);
+      st.invoices = st.invoices.filter((x: any) => x.id !== f.id);
+      setState(st);
+      if (hasSupabase) {
+        await supabase.from("invoices").delete().eq("id", f.id);
+      }
+      alert(`Factura #${f.number} eliminada.`);
+    }}
+    className="text-red-500 hover:text-red-700"
+    title="Eliminar"
+  >
+    🗑️
+  </button>
+)}
+
                 </td>
               </tr>
             );
