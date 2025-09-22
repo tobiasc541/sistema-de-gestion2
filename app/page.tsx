@@ -1896,8 +1896,7 @@ useEffect(() => {
                     📄
                   </button>
 
-       {/* Botón eliminar solo admin */}
-{session.role === "admin" && (
+     {state.user?.role === "admin" && (
   <button
     onClick={async () => {
       if (!confirm(`¿Eliminar factura #${f.number}?`)) return;
@@ -1915,6 +1914,7 @@ useEffect(() => {
     🗑️
   </button>
 )}
+
 
                 </td>
               </tr>
