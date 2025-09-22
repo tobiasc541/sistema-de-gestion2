@@ -1848,31 +1848,35 @@ useEffect(() => {
       <tbody className="divide-y divide-slate-800">
         {docsEnRango
           .slice()
-          .sort(
-            (a: any, b: any) =>
-              new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime()
-          )
+          .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
           .map((f: any) => {
             const cash = parseNum(f?.payments?.cash);
             const tr = parseNum(f?.payments?.transfer);
             const ch = parseNum(f?.payments?.change);
             const alias = (f?.payments?.alias || "").trim() || "—";
 
-            // Función para ver PDF directamente desde la factura
+            // Función para ver PDF usando la misma lógica de presupuestos
             const viewInvoicePDF = (invoice: any) => {
-              // Aquí reemplazá generateInvoicePDF con la función que tu sistema ya tenía para crear el PDF
-              const pdfData = generateInvoicePDF(invoice); // <-- tu función real
-              const blob = new Blob([pdfData], { type: "application/pdf" });
-              const url = URL.createObjectURL(blob);
-              window.open(url, "_blank");
+              window.dispatchEvent(new CustomEvent("print-invoice", { detail: { ...invoice, type: "Factura" } } as any));
+              setTimeout(() => window.print(), 0);
+            };
+
+            // Función para eliminar factura (solo admin)
+            const deleteInvoice = async (invoice: any) => {
+              if (!confirm(`¿Seguro que deseas eliminar la factura Nº ${pad(invoice.number)}?`)) return;
+              const st = clone(state);
+              st.invoices = st.invoices.filter((x: any) => x.id !== invoice.id);
+              setState(st);
+              if (hasSupabase) {
+                await supabase.from("invoices").delete().eq("id", invoice.id);
+              }
+              alert(`Factura Nº ${pad(invoice.number)} eliminada.`);
             };
 
             return (
               <tr key={f.id}>
                 <td className="py-2 pr-3">{pad(f.number || 0)}</td>
-                <td className="py-2 pr-3">
-                  {new Date(f.date_iso).toLocaleString("es-AR")}
-                </td>
+                <td className="py-2 pr-3">{new Date(f.date_iso).toLocaleString("es-AR")}</td>
                 <td className="py-2 pr-3">{f.client_name}</td>
                 <td className="py-2 pr-3">{f.vendor_name}</td>
                 <td className="py-2 pr-3">{money(parseNum(f.total))}</td>
@@ -1895,16 +1899,7 @@ useEffect(() => {
                   {/* Botón eliminar solo admin */}
                   {state.user?.role === "admin" && (
                     <button
-                      onClick={async () => {
-                        if (!confirm(`¿Eliminar factura #${f.number}?`)) return;
-                        await supabase.from("invoices").delete().eq("id", f.id);
-                        setState((prev: any) => ({
-                          ...prev,
-                          invoices: prev.invoices.filter(
-                            (inv: any) => inv.id !== f.id
-                          ),
-                        }));
-                      }}
+                      onClick={() => deleteInvoice(f)}
                       className="text-red-500 hover:text-red-700"
                       title="Eliminar"
                     >
