@@ -1826,7 +1826,7 @@ useEffect(() => {
         )}
       </Card>
 
-     <Card title="Listado de facturas">
+   <Card title="Listado de facturas">
   <div className="overflow-x-auto">
     <table className="min-w-full text-sm">
       <thead className="text-left text-slate-400">
@@ -1842,6 +1842,7 @@ useEffect(() => {
           <th className="py-2 pr-3">Alias/CVU</th>
           <th className="py-2 pr-3">Tipo</th>
           <th className="py-2 pr-3">Estado</th>
+          <th className="py-2 pr-3">Acciones</th> {/* Nueva columna */}
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-800">
@@ -1866,18 +1867,47 @@ useEffect(() => {
                 <td className="py-2 pr-3 truncate max-w-[180px]">{alias}</td>
                 <td className="py-2 pr-3">{f.type || "—"}</td>
                 <td className="py-2 pr-3">{f.status || "—"}</td>
+                <td className="py-2 pr-3 space-x-2">
+                  {/* Botón ver PDF */}
+                  <button
+                    onClick={() => downloadInvoicePDF(f)}
+                    className="text-blue-500 hover:text-blue-700"
+                    title="Ver PDF"
+                  >
+                    📄
+                  </button>
+
+                  {/* Botón eliminar solo admin */}
+                  {user.role === "admin" && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`¿Eliminar factura #${f.number}?`)) return;
+                        await supabase.from("invoices").delete().eq("id", f.id);
+                        setState((prev: any) => ({
+                          ...prev,
+                          invoices: prev.invoices.filter((inv: any) => inv.id !== f.id),
+                        }));
+                      }}
+                      className="text-red-500 hover:text-red-700"
+                      title="Eliminar"
+                    >
+                      🗑️
+                    </button>
+                  )}
+                </td>
               </tr>
             );
           })}
         {docsEnRango.length === 0 && (
           <tr>
-            <td className="py-3 text-slate-400" colSpan={11}>Sin documentos en el período.</td>
+            <td className="py-3 text-slate-400" colSpan={12}>Sin documentos en el período.</td>
           </tr>
         )}
       </tbody>
     </table>
   </div>
 </Card>
+
 
 <Card title="Listado de devoluciones">
   <div className="overflow-x-auto">
