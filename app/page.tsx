@@ -1826,7 +1826,7 @@ useEffect(() => {
         )}
       </Card>
 
-   <Card title="Listado de facturas">
+  <Card title="Listado de facturas">
   <div className="overflow-x-auto">
     <table className="min-w-full text-sm">
       <thead className="text-left text-slate-400">
@@ -1842,18 +1842,26 @@ useEffect(() => {
           <th className="py-2 pr-3">Alias/CVU</th>
           <th className="py-2 pr-3">Tipo</th>
           <th className="py-2 pr-3">Estado</th>
-          <th className="py-2 pr-3">Acciones</th> {/* Nueva columna */}
+          <th className="py-2 pr-3">Acciones</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-800">
         {docsEnRango
           .slice()
-          .sort((a:any,b:any)=> new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
-          .map((f:any)=> {
+          .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+          .map((f: any) => {
             const cash = parseNum(f?.payments?.cash);
-            const tr   = parseNum(f?.payments?.transfer);
-            const ch   = parseNum(f?.payments?.change);
+            const tr = parseNum(f?.payments?.transfer);
+            const ch = parseNum(f?.payments?.change);
             const alias = (f?.payments?.alias || "").trim() || "—";
+
+            // Función para ver PDF
+            const downloadInvoicePDF = (invoice: any) => {
+              // Si tenés la URL del PDF:
+              // window.open(invoice.pdf_url, "_blank");
+              alert(`Ver PDF factura #${invoice.number}`);
+            };
+
             return (
               <tr key={f.id}>
                 <td className="py-2 pr-3">{pad(f.number || 0)}</td>
@@ -1900,13 +1908,16 @@ useEffect(() => {
           })}
         {docsEnRango.length === 0 && (
           <tr>
-            <td className="py-3 text-slate-400" colSpan={12}>Sin documentos en el período.</td>
+            <td className="py-3 text-slate-400" colSpan={12}>
+              Sin documentos en el período.
+            </td>
           </tr>
         )}
       </tbody>
     </table>
   </div>
 </Card>
+
 
 
 <Card title="Listado de devoluciones">
