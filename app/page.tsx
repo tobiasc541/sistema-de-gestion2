@@ -621,7 +621,7 @@ const toPay = Math.max(0, total - applied);
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">{p.name}</div>
                         <div className="text-xs text-slate-400">
-                          Lista1: {money(p.price1)} · Lista2: {money(p.price2)} <span className="text-[10px] text-slate-500 ml-1">{p.list_label}</span>
+                          Mitobicel: {money(p.price1)} · ElshoppingDlc: {money(p.price2)} <span className="text-[10px] text-slate-500 ml-1">{p.list_label}</span>
                         </div>
                       </div>
                       <Button onClick={() => addItem(p)} tone="slate" className="shrink-0">
