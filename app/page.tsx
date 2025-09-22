@@ -1826,7 +1826,7 @@ useEffect(() => {
         )}
       </Card>
 
-  <Card title="Listado de facturas">
+ <Card title="Listado de facturas">
   <div className="overflow-x-auto">
     <table className="min-w-full text-sm">
       <thead className="text-left text-slate-400">
@@ -1848,7 +1848,10 @@ useEffect(() => {
       <tbody className="divide-y divide-slate-800">
         {docsEnRango
           .slice()
-          .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+          .sort(
+            (a: any, b: any) =>
+              new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime()
+          )
           .map((f: any) => {
             const cash = parseNum(f?.payments?.cash);
             const tr = parseNum(f?.payments?.transfer);
@@ -1865,7 +1868,9 @@ useEffect(() => {
             return (
               <tr key={f.id}>
                 <td className="py-2 pr-3">{pad(f.number || 0)}</td>
-                <td className="py-2 pr-3">{new Date(f.date_iso).toLocaleString("es-AR")}</td>
+                <td className="py-2 pr-3">
+                  {new Date(f.date_iso).toLocaleString("es-AR")}
+                </td>
                 <td className="py-2 pr-3">{f.client_name}</td>
                 <td className="py-2 pr-3">{f.vendor_name}</td>
                 <td className="py-2 pr-3">{money(parseNum(f.total))}</td>
@@ -1886,14 +1891,19 @@ useEffect(() => {
                   </button>
 
                   {/* Botón eliminar solo admin */}
-                  {user.role === "admin" && (
+                  {state.user?.role === "admin" && (
                     <button
                       onClick={async () => {
                         if (!confirm(`¿Eliminar factura #${f.number}?`)) return;
-                        await supabase.from("invoices").delete().eq("id", f.id);
+                        await supabase
+                          .from("invoices")
+                          .delete()
+                          .eq("id", f.id);
                         setState((prev: any) => ({
                           ...prev,
-                          invoices: prev.invoices.filter((inv: any) => inv.id !== f.id),
+                          invoices: prev.invoices.filter(
+                            (inv: any) => inv.id !== f.id
+                          ),
                         }));
                       }}
                       className="text-red-500 hover:text-red-700"
