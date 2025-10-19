@@ -52,30 +52,32 @@ async function loadFromSupabase(fallback: any) {
   const out = clone(fallback);
   
 
- // meta
+// meta
 const { data: meta, error: metaErr } = await supabase
   .from("meta").select("*").eq("key","counters").maybeSingle();
 if (metaErr) { console.error("SELECT meta:", metaErr); alert("No pude leer 'meta' de Supabase."); }
 if (meta?.value) out.meta = { ...out.meta, ...meta.value };
 
-// vendors
-const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
-if (vendErr) { console.error("SELECT vendors:", vendErr); alert("No pude leer 'vendors' de Supabase."); }
-if (vendors) out.vendors = vendors;
-  const { data: commissionsData, error: commErr } = await supabase
+// 👇👇👇 AGREGAR AQUÍ - Cargar comisiones
+const { data: commissionsData, error: commErr } = await supabase
   .from("commissions")
   .select("*");
 
 if (commErr) {
   console.error("SELECT commissions:", commErr);
 } else if (commissionsData) {
-  // Convertir array de comisiones a objeto {fecha: monto}
   const commissionsByDate: Record<string, number> = {};
   commissionsData.forEach((row: any) => {
     commissionsByDate[row.day] = parseNum(row.amount);
   });
   out.meta.commissionsByDate = commissionsByDate;
 }
+// 👆👆👆 HASTA AQUÍ
+
+// vendors (esto ya existe, DEJARLO COMO ESTÁ)
+const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
+if (vendErr) { console.error("SELECT vendors:", vendErr); alert("No pude leer 'vendors' de Supabase."); }
+if (vendors) out.vendors = vendors;
   // clients
 const { data: clients, error: cliErr } = await supabase.from("clients").select("*");
 if (cliErr) { console.error("SELECT clients:", cliErr); alert("No pude leer 'clients' de Supabase."); }
