@@ -2476,62 +2476,97 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
       date_iso: todayISO(),
     };
 
-    const st = clone(state);
-    st.devoluciones.push(devolucion);
+   const st = clone(state);
+  st.devoluciones.push(devolucion);
 
-    // 1) Ajuste de saldo a favor (si corresponde)
-    if (metodoDevolucion === "saldo") {
-      const cli = st.clients.find((c: any) => c.id === clienteSeleccionado);
-      if (cli) cli.saldo_favor = parseNum(cli.saldo_favor) + parseNum(totalDevolucion);
-    }
-
-    // 2) Stock: entra lo devuelto
-    productosDevueltos.forEach((it) => {
-      const prod = st.products.find((p: any) => p.id === it.productId);
-      if (prod) prod.stock = parseNum(prod.stock) + parseNum(it.qtyDevuelta);
-    });
-
-    // 3) Stock: sale lo entregado en intercambio_otro
-    if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
-      const nuevo = st.products.find((p: any) => p.id === productoNuevoId);
-      if (nuevo) nuevo.stock = parseNum(nuevo.stock) - parseNum(cantidadNuevo);
-    }
-
-    setState(st);
-
-    // ==== Persistencia ====
-    if (hasSupabase) {
-      await supabase.from("devoluciones").insert(devolucion);
-
-      // actualizar saldo_favor si se acreditó
-      if (metodoDevolucion === "saldo") {
-        const cli = st.clients.find((c: any) => c.id === clienteSeleccionado);
-        await supabase.from("clients")
-          .update({ saldo_favor: cli?.saldo_favor ?? 0 })
-          .eq("id", clienteSeleccionado);
-      }
-
-      // persistir stocks tocados
-      for (const it of productosDevueltos) {
-        const nuevoStock = st.products.find((p: any) => p.id === it.productId)?.stock;
-        await supabase.from("products").update({ stock: nuevoStock }).eq("id", it.productId);
-      }
-      if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
-        const stockNuevo = st.products.find((p: any) => p.id === productoNuevoId)?.stock;
-        await supabase.from("products").update({ stock: stockNuevo }).eq("id", productoNuevoId);
-      }
-    }
-
-    alert("Devolución registrada con éxito.");
-    setProductosDevueltos([]);
-    setClienteSeleccionado("");
-    setMontoEfectivo("");
-    setMontoTransferencia("");
-    setMetodoDevolucion("efectivo");
-    setProductoNuevoId("");
-    setCantidadNuevo("");
+  // 1) Ajuste de saldo a favor (si corresponde)
+  if (metodoDevolucion === "saldo") {
+    const cli = st.clients.find((c: any) => c.id === clienteSeleccionado);
+    if (cli) cli.saldo_favor = parseNum(cli.saldo_favor) + parseNum(totalDevolucion);
   }
 
+  // 2) Stock: entra lo devuelto
+  productosDevueltos.forEach((it) => {
+    const prod = st.products.find((p: any) => p.id === it.productId);
+    if (prod) prod.stock = parseNum(prod.stock) + parseNum(it.qtyDevuelta);
+  });
+
+  // 3) Stock: sale lo entregado en intercambio_otro
+  if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
+    const nuevo = st.products.find((p: any) => p.id === productoNuevoId);
+    if (nuevo) nuevo.stock = parseNum(nuevo.stock) - parseNum(cantidadNuevo);
+  }
+
+  // === NUEVO: ACTUALIZAR LAS FACTURAS ORIGINALES ===
+  productosDevueltos.forEach((productoDevuelto) => {
+    const factura = st.invoices.find((f: any) => f.id === productoDevuelto.facturaId);
+    if (factura) {
+      const itemFactura = factura.items.find((item: any) => item.productId === productoDevuelto.productId);
+      if (itemFactura) {
+        // Restar la cantidad devuelta de la factura original
+        itemFactura.qty = Math.max(0, parseNum(itemFactura.qty) - parseNum(productoDevuelto.qtyDevuelta));
+        
+        // Recalcular el total de la factura
+        factura.total = calcInvoiceTotal(factura.items);
+        factura.cost = calcInvoiceCost(factura.items);
+        
+        // Si la cantidad queda en 0, eliminar el item de la factura
+        if (itemFactura.qty <= 0) {
+          factura.items = factura.items.filter((item: any) => item.productId !== productoDevuelto.productId);
+        }
+      }
+    }
+  });
+
+  setState(st);
+
+  // ==== Persistencia ====
+  if (hasSupabase) {
+    await supabase.from("devoluciones").insert(devolucion);
+
+    // actualizar saldo_favor si se acreditó
+    if (metodoDevolucion === "saldo") {
+      const cli = st.clients.find((c: any) => c.id === clienteSeleccionado);
+      await supabase.from("clients")
+        .update({ saldo_favor: cli?.saldo_favor ?? 0 })
+        .eq("id", clienteSeleccionado);
+    }
+
+    // persistir stocks tocados
+    for (const it of productosDevueltos) {
+      const nuevoStock = st.products.find((p: any) => p.id === it.productId)?.stock;
+      await supabase.from("products").update({ stock: nuevoStock }).eq("id", it.productId);
+    }
+    
+    if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
+      const stockNuevo = st.products.find((p: any) => p.id === productoNuevoId)?.stock;
+      await supabase.from("products").update({ stock: stockNuevo }).eq("id", productoNuevoId);
+    }
+
+    // === NUEVO: Actualizar facturas en Supabase ===
+    for (const productoDevuelto of productosDevueltos) {
+      const factura = st.invoices.find((f: any) => f.id === productoDevuelto.facturaId);
+      if (factura) {
+        await supabase.from("invoices")
+          .update({ 
+            items: factura.items,
+            total: factura.total,
+            cost: factura.cost
+          })
+          .eq("id", factura.id);
+      }
+    }
+  }
+
+  alert("Devolución registrada con éxito.");
+  setProductosDevueltos([]);
+  setClienteSeleccionado("");
+  setMontoEfectivo("");
+  setMontoTransferencia("");
+  setMetodoDevolucion("efectivo");
+  setProductoNuevoId("");
+  setCantidadNuevo("");
+}
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
       <Card 
