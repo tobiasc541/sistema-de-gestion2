@@ -3362,6 +3362,23 @@ useEffect(() => {
         }
       )
       .subscribe();
+     // 👇👇👇 AGREGAR ESTA SUSCRIPCIÓN PARA FACTURAS
+      const invoicesSubscription = supabase
+        .channel('invoices-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'invoices'
+          },
+          async () => {
+            // Recargar las facturas cuando haya cambios
+            const refreshedState = await loadFromSupabase(seedState());
+            setState(refreshedState);
+          }
+        )
+        .subscribe();
 
     return () => {
       supabase.removeChannel(budgetSubscription);
