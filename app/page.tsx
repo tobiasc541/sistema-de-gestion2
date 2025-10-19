@@ -1351,7 +1351,7 @@ function VendedoresTab({ state, setState }: any) {
 /* Reportes */
 /* Reportes */
 /* Reportes */
-function ReportesTab({ state, setState }: any) {
+function ReportesTab({ state, setState, session }: any) {
   // ====== Filtros de fecha ======
   const pad2 = (n: number) => String(n).padStart(2, "0");
   const today = new Date();
@@ -1904,7 +1904,7 @@ useEffect(() => {
                 <td className="py-2 pr-3">{f.status || "—"}</td>
                 <td className="py-2 pr-3 space-x-2">
                   {/* Botón ver PDF */}
-                  <td className="py-2 pr-3 space-x-2">
+              <td className="py-2 pr-3 space-x-2">
   {/* Botón ver PDF */}
   <button
     onClick={() => viewInvoicePDF(f)}
@@ -1914,8 +1914,8 @@ useEffect(() => {
     📄
   </button>
 
-  {/* 👇 AGREGAR ESTO - Botón eliminar (solo admin) */}
-  {state.user?.role === "admin" && (
+  {/* Botón eliminar (solo admin) */}
+  {session?.role === "admin" && (
     <button
       onClick={async () => {
         if (!confirm(`¿Seguro que deseas eliminar la factura Nº ${pad(f.number)}?`)) return;
@@ -1938,26 +1938,7 @@ useEffect(() => {
   )}
 </td>
 
-     {state.user?.role === "admin" && (
-  <button
-    onClick={async () => {
-      if (!confirm(`¿Eliminar factura #${f.number}?`)) return;
-      const st = clone(state);
-      st.invoices = st.invoices.filter((x: any) => x.id !== f.id);
-      setState(st);
-      if (hasSupabase) {
-        await supabase.from("invoices").delete().eq("id", f.id);
-      }
-      alert(`Factura #${f.number} eliminada.`);
-    }}
-    className="text-red-500 hover:text-red-700"
-    title="Eliminar"
-  >
-    🗑️
-  </button>
-)}
-
-
+    
                 </td>
               </tr>
             );
@@ -3367,9 +3348,9 @@ export default function Page() {
             {session.role === "admin" && tab === "Vendedores" && (
               <VendedoresTab state={state} setState={setState} />
             )}
-            {session.role === "admin" && tab === "Reportes" && (
-              <ReportesTab state={state} setState={setState} />
-            )}
+           {session.role === "admin" && tab === "Reportes" && (
+  <ReportesTab state={state} setState={setState} session={session} />
+)}
                        {session.role !== "cliente" && tab === "Presupuestos" && (
               <PresupuestosTab state={state} setState={setState} session={session} />
             )}
