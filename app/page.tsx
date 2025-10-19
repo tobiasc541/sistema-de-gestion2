@@ -2557,6 +2557,10 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
       }
     }
   }
+      // === NUEVO: IMPRIMIR COMPROBANTE DE DEVOLUCIÓN ===
+  window.dispatchEvent(new CustomEvent("print-devolucion", { detail: devolucion } as any));
+  await nextPaint();
+  window.print();
 
   alert("Devolución registrada con éxito.");
   setProductosDevueltos([]);
@@ -2876,25 +2880,34 @@ function PrintArea() {
   const [inv, setInv] = useState<any | null>(null);
   const [ticket, setTicket] = useState<any | null>(null);
 
-  useEffect(() => {
-    const hInv = (e: any) => {
-      setTicket(null);
-      setInv(e.detail);
-    };
-    const hTic = (e: any) => {
-      setInv(null);
-      setTicket(e.detail);
-    };
-    window.addEventListener("print-invoice", hInv);
-    window.addEventListener("print-ticket", hTic);
-    return () => {
-      window.removeEventListener("print-invoice", hInv);
-      window.removeEventListener("print-ticket", hTic);
-    };
-  }, []);
+ useEffect(() => {
+  const hInv = (e: any) => {
+    setTicket(null);
+    setInv(e.detail);
+  };
+  const hTic = (e: any) => {
+    setInv(null);
+    setTicket(e.detail);
+  };
+  const hDev = (e: any) => {
+    setInv(null);
+    setTicket(null);
+    setInv({ ...e.detail, type: "Devolucion" });
+  };
+  
+  window.addEventListener("print-invoice", hInv);
+  window.addEventListener("print-ticket", hTic);
+  window.addEventListener("print-devolucion", hDev);
+  
+  return () => {
+    window.removeEventListener("print-invoice", hInv);
+    window.removeEventListener("print-ticket", hTic);
+    window.removeEventListener("print-devolucion", hDev);
+  };
+}, []);
 
   if (!inv && !ticket) return null;
-  // ==== PLANTILLA: REPORTE ====
+// ==== PLANTILLA: REPORTE ====
 if (inv?.type === "Reporte") {
   const fmt = (n: number) => money(parseNum(n));
   const rangoStr = (() => {
@@ -2906,48 +2919,138 @@ if (inv?.type === "Reporte") {
 
   return (
     <div className="only-print print-area p-14">
+      {/* ... todo el contenido del reporte ... */}
+    </div>
+  );
+}
+
+// ==== PLANTILLA: COMPROBANTE DE DEVOLUCIÓN ====
+if (inv?.type === "Devolucion") {
+  const fmt = (n: number) => money(parseNum(n));
+  
+  return (
+    <div className="only-print print-area p-14">
       <div className="max-w-[780px] mx-auto text-black">
         <div className="flex items-start justify-between">
           <div>
-            <div style={{ fontWeight: 800, letterSpacing: 1 }}>REPORTE</div>
+            <div style={{ fontWeight: 800, letterSpacing: 1 }}>COMPROBANTE DE DEVOLUCIÓN</div>
             <div style={{ marginTop: 2 }}>MITOBICEL</div>
           </div>
           <div className="text-right">
-            <div><b>Período:</b> {String(inv?.periodo || "").toUpperCase()}</div>
-            <div><b>Rango:</b> {rangoStr}</div>
-            <div><b>Emitido:</b> {new Date().toLocaleString("es-AR")}</div>
+            <div><b>Fecha:</b> {new Date(inv.date_iso).toLocaleString("es-AR")}</div>
+            <div><b>N° Comprobante:</b> {inv.id}</div>
           </div>
         </div>
 
         <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
 
-{/* RESUMEN */}
-<div className="grid grid-cols-2 gap-3 text-sm">
-  <div>
-    <div style={{ fontWeight: 700 }}>Resumen</div>
-    <div>Ventas totales: {fmt(inv.resumen.ventas)}</div>
-    <div>Efectivo cobrado: {fmt(inv.resumen.efectivoCobrado)}</div>
-    <div>Vuelto entregado: {fmt(inv.resumen.vueltoEntregado)}</div>
-    <div>Vuelto configurado: {fmt(inv.resumen.cashFloatTarget || 0)}</div>
-    <div>Vuelto restante: {fmt(inv.resumen.vueltoRestante || 0)}</div>
-    <div><b>Efectivo neto: {fmt(inv.resumen.efectivoNeto)}</b></div>
-    <div>Transferencias: {fmt(inv.resumen.transferencias)}</div>
-  </div>
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <div style={{ fontWeight: 700 }}>Cliente</div>
+            <div>{inv.client_name}</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700 }}>Método de Devolución</div>
+            <div className="capitalize">{inv.metodo}</div>
+          </div>
+        </div>
 
-  <div>
-    <div style={{ fontWeight: 700 }}>Gastos y Devoluciones</div>
-    <div>Gastos (total): {fmt(inv.resumen.gastosTotal)}</div>
-    <div>— en efectivo: {fmt(inv.resumen.gastosEfectivo)}</div>
-    <div>— por transferencia: {fmt(inv.resumen.gastosTransfer)}</div>
-    <div>Devoluciones: {inv.resumen.devolucionesCantidad}</div>
-    <div>— en efectivo: {fmt(inv.resumen.devolucionesEfectivo)}</div>
-    <div>— por transferencia: {fmt(inv.resumen.devolucionesTransfer)}</div>
-    <div>— monto total: {fmt(inv.resumen.devolucionesTotal)}</div>
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Productos Devueltos</div>
+        
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th style={{ width: "6%" }}>#</th>
+              <th>Descripción</th>
+              <th style={{ width: "12%" }}>Cant. Dev.</th>
+              <th style={{ width: "18%" }}>Precio Unit.</th>
+              <th style={{ width: "18%" }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inv.items.map((it: any, i: number) => (
+              <tr key={i}>
+                <td style={{ textAlign: "right" }}>{i + 1}</td>
+                <td>{it.name}</td>
+                <td style={{ textAlign: "right" }}>{parseNum(it.qtyDevuelta)}</td>
+                <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
+                <td style={{ textAlign: "right" }}>
+                  {money(parseNum(it.qtyDevuelta) * parseNum(it.unitPrice))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>
+                Total Devolución
+              </td>
+              <td style={{ textAlign: "right", fontWeight: 700 }}>{money(inv.total)}</td>
+            </tr>
+          </tfoot>
+        </table>
 
-    {/* 👇 AÑADIR AQUÍ */}
-    <div>Comisiones (período): {fmt(inv.resumen.comisionesPeriodo)}</div>
-  </div>
-</div>
+        {/* Información de pagos/diferencias */}
+        {(inv.efectivo > 0 || inv.transferencia > 0 || inv.extra_pago_total > 0) && (
+          <>
+            <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+            <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Detalles de Pago</div>
+            
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {inv.efectivo > 0 && (
+                <div>
+                  <div>Efectivo Devuelto:</div>
+                  <div style={{ fontWeight: 600 }}>{money(inv.efectivo)}</div>
+                </div>
+              )}
+              {inv.transferencia > 0 && (
+                <div>
+                  <div>Transferencia Devuelta:</div>
+                  <div style={{ fontWeight: 600 }}>{money(inv.transferencia)}</div>
+                </div>
+              )}
+              {inv.extra_pago_efectivo > 0 && (
+                <div>
+                  <div>Pago Diferencia (Efectivo):</div>
+                  <div style={{ fontWeight: 600 }}>{money(inv.extra_pago_efectivo)}</div>
+                </div>
+              )}
+              {inv.extra_pago_transferencia > 0 && (
+                <div>
+                  <div>Pago Diferencia (Transferencia):</div>
+                  <div style={{ fontWeight: 600 }}>{money(inv.extra_pago_transferencia)}</div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Información específica por método */}
+        {inv.metodo === "saldo" && (
+          <div className="mt-4 p-3 bg-slate-100 rounded text-sm">
+            <div style={{ fontWeight: 700 }}>Acreditado como Saldo a Favor</div>
+            <div>El monto de {money(inv.total)} ha sido acreditado al saldo a favor del cliente.</div>
+          </div>
+        )}
+
+        {inv.metodo === "intercambio_otro" && inv.extra_pago_total > 0 && (
+          <div className="mt-4 p-3 bg-slate-100 rounded text-sm">
+            <div style={{ fontWeight: 700 }}>Diferencia Pagada</div>
+            <div>El cliente abonó {money(inv.extra_pago_total)} por la diferencia del intercambio.</div>
+          </div>
+        )}
+
+        <div className="mt-6 text-center text-sm">
+          <div style={{ fontWeight: 700 }}>¡Gracias por su confianza!</div>
+          <div>Para consultas o reclamos, presente este comprobante</div>
+        </div>
+
+        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+      </div>
+    </div>
+  );
+}
 
 
         {/* SECCIÓN: VENTAS (detalle similar a factura) */}
