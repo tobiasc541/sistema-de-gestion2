@@ -62,6 +62,20 @@ if (meta?.value) out.meta = { ...out.meta, ...meta.value };
 const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
 if (vendErr) { console.error("SELECT vendors:", vendErr); alert("No pude leer 'vendors' de Supabase."); }
 if (vendors) out.vendors = vendors;
+  const { data: commissionsData, error: commErr } = await supabase
+  .from("commissions")
+  .select("*");
+
+if (commErr) {
+  console.error("SELECT commissions:", commErr);
+} else if (commissionsData) {
+  // Convertir array de comisiones a objeto {fecha: monto}
+  const commissionsByDate: Record<string, number> = {};
+  commissionsData.forEach((row: any) => {
+    commissionsByDate[row.day] = parseNum(row.amount);
+  });
+  out.meta.commissionsByDate = commissionsByDate;
+}
   // clients
 const { data: clients, error: cliErr } = await supabase.from("clients").select("*");
 if (cliErr) { console.error("SELECT clients:", cliErr); alert("No pude leer 'clients' de Supabase."); }
