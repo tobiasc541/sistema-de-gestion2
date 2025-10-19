@@ -2317,33 +2317,47 @@ const [cantidadNuevo, setCantidadNuevo] = useState("");     // Cantidad a entreg
 
 
 useEffect(() => {
-  if (!clienteSeleccionado) return;
+  if (!clienteSeleccionado) {
+    setFacturasCliente([]);
+    return;
+  }
 
   async function cargarFacturas() {
-    if (hasSupabase) {
-      const { data, error } = await supabase
-        .from("invoices")
-        .select("*")
-        .eq("client_id", clienteSeleccionado)
-        .order("date_iso", { ascending: false });
+    try {
+      let facturasDelCliente = [];
 
-      if (error) {
-        console.error("Error cargando facturas:", error);
-        return;
+      if (hasSupabase) {
+        // Cargar desde Supabase
+        const { data, error } = await supabase
+          .from("invoices")
+          .select("*")
+          .eq("client_id", clienteSeleccionado)
+          .order("date_iso", { ascending: false });
+
+        if (error) {
+          console.error("Error cargando facturas:", error);
+          alert("Error al cargar las facturas del cliente");
+          return;
+        }
+        facturasDelCliente = data || [];
+      } else {
+        // Cargar desde estado local
+        facturasDelCliente = (state.invoices || []).filter(
+          (f: any) => f.client_id === clienteSeleccionado
+        );
       }
 
-      setFacturasCliente(data || []);
-    } else {
-      // Si no hay supabase, buscar en el estado local
-      const filtradas = state.invoices.filter(
-        (f: any) => f.client_id === clienteSeleccionado
-      );
-      setFacturasCliente(filtradas);
+      console.log("Facturas cargadas:", facturasDelCliente.length);
+      setFacturasCliente(facturasDelCliente);
+
+    } catch (error) {
+      console.error("Error en cargarFacturas:", error);
+      alert("Error al cargar las facturas del cliente");
     }
   }
 
   cargarFacturas();
-}, [clienteSeleccionado, state.invoices]);
+}, [clienteSeleccionado, state.invoices, hasSupabase]);
 
 
   // ==============================
