@@ -3212,17 +3212,6 @@ if (inv?.type === "Devolucion") {
 
        
 
-        {/* FINAL: FLUJO DE CAJA (EFECTIVO) */}
-        <div style={{ borderTop: "1px solid #000", margin: "14px 0 8px" }} />
-        <div className="text-center" style={{ fontWeight: 900, fontSize: 24, letterSpacing: 1 }}>
-          FLUJO DE CAJA (EFECTIVO): {fmt(inv.resumen.flujoCajaEfectivo)}
-        </div>
-
-        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
-      </div>
-    </div>
-  );
-}
 
 
   // ==== PLANTILLA: TICKET ====
