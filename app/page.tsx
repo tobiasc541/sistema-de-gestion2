@@ -817,6 +817,7 @@ function ProductosTab({ state, setState, role }: any) {
   const [price2, setPrice2] = useState("");
   const [cost, setCost] = useState("");
   const [stock, setStock] = useState("");
+  const [stockMinimo, setStockMinimo] = useState("0"); // ⭐⭐ NUEVO ESTADO ⭐⭐
 
   const [secFilter, setSecFilter] = useState("Todas");
   const [listFilter, setListFilter] = useState("Todas");
@@ -839,36 +840,39 @@ const sections: string[] = Array.from(new Set<string>([...derivedSections, ...ex
 
   const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
 
-async function addProduct() {
-  if (!name.trim()) return;
-  if (!section.trim()) {
-    alert("Elegí una sección o creá una nueva.");
-    return;
+  async function addProduct() {
+    if (!name.trim()) return;
+    if (!section.trim()) {
+      alert("Elegí una sección o creá una nueva.");
+      return;
+    }
+
+    const product = {
+      id: "p" + Math.random().toString(36).slice(2, 8),
+      name: name.trim(),
+      section,
+      list_label,
+      price1: parseNum(price1),
+      price2: parseNum(price2),
+      cost: parseNum(cost),
+      stock: parseNum(stock),
+      stock_minimo: parseNum(stockMinimo), // ⭐⭐ USAR EL VALOR DEL INPUT ⭐⭐
+    };
+
+    const st = clone(state);
+    st.products.push(product);
+    setState(st);
+    
+    // Limpiar todos los campos
+    setName("");
+    setPrice1("");
+    setPrice2("");
+    setCost("");
+    setStock("");
+    setStockMinimo("0"); // ⭐⭐ LIMPIAR TAMBIÉN EL STOCK MÍNIMO ⭐⭐
+    
+    if (hasSupabase) await supabase.from("products").insert(product);
   }
-
-  const product = {
-    id: "p" + Math.random().toString(36).slice(2, 8),
-    name: name.trim(),
-    section,
-    list_label,
-    price1: parseNum(price1),
-    price2: parseNum(price2),
-    cost: parseNum(cost),
-    stock: parseNum(stock),
-    stock_minimo: 0, // ⭐⭐ CAMBIAR ESTO ⭐⭐
-  };
-
-  const st = clone(state);
-  st.products.push(product);
-  setState(st);
-  setName("");
-  setPrice1("");
-  setPrice2("");
-  setCost("");
-  setStock(""); // ⭐⭐ LIMPIAR EL STOCK TAMBIÉN ⭐⭐
-  
-  if (hasSupabase) await supabase.from("products").insert(product);
-}
 
   function addSection() {
     const s = newSection.trim();
@@ -930,6 +934,7 @@ async function addProduct() {
           <NumberInput label="Precio lista Mitobicel" value={price1} onChange={setPrice1} />
           <NumberInput label="Precio lista Elshopping" value={price2} onChange={setPrice2} />
           <NumberInput label="Stock" value={stock} onChange={setStock} />
+          <NumberInput label="Stock mínimo" value={stockMinimo} onChange={setStockMinimo} /> {/* ⭐⭐ NUEVO CAMPO ⭐⭐ */}
           {role === "admin" && <NumberInput label="Costo (solo admin)" value={cost} onChange={setCost} />}
           <div className="md:col-span-6">
             <Button onClick={addProduct}>Agregar</Button>
