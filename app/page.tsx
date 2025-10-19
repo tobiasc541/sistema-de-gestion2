@@ -430,80 +430,96 @@ const [alias, setAlias] = useState("");
     else setItems([...items, { productId: p.id, name: p.name, section: p.section, qty: 1, unitPrice: unit, cost: p.cost }]);
   }
 
-  async function saveAndPrint() {
-    if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
-    if (items.length === 0) return alert("Agregá productos al carrito.");
+ async function saveAndPrint() {
+  if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
+  if (items.length === 0) return alert("Agregá productos al carrito.");
+  
+  const total = calcInvoiceTotal(items);
+  const cash  = parseNum(payCash);
+  const transf = parseNum(payTransf);
+  const suggestedChange = Math.max(0, cash - Math.max(0, total - transf));
+  const change = payChange.trim() === "" ? suggestedChange : Math.max(0, parseNum(payChange));
+  if (change > cash) return alert("El vuelto no puede ser mayor al efectivo entregado.");
+
+  const st = clone(state);
+  const number = st.meta.invoiceCounter++;
+  const id = "inv_" + number;
+
+  // 1) Consumir saldo a favor del cliente ANTES de calcular deuda
+  const cl = st.clients.find((c:any) => c.id === client.id)!;
+  const saldoActual = parseNum(cl.saldo_favor || 0);
+  const saldoAplicado = Math.min(total, saldoActual);
+  const totalTrasSaldo = total - saldoAplicado;
+
+  // 2) Lo efectivamente aplicado por pagos (efectivo+transf - vuelto)
+  const applied = Math.max(0, cash + transf - change);
+
+  // 3) Deuda que queda luego de aplicar saldo y pagos
+  const debtDelta = Math.max(0, totalTrasSaldo - applied);
+  const status = debtDelta > 0 ? "No Pagada" : "Pagada";
+
+  // 4) Actualizar cliente: bajar saldo_favor, subir deuda si corresponde
+  cl.saldo_favor = saldoActual - saldoAplicado;
+  cl.debt = parseNum(cl.debt) + debtDelta;
+
+  // ⭐⭐⭐⭐ NUEVO: DESCONTAR STOCK DE PRODUCTOS VENDIDOS ⭐⭐⭐⭐⭐
+  items.forEach(item => {
+    const product = st.products.find((p: any) => p.id === item.productId);
+    if (product) {
+      product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
+    }
+  });
+
+  const invoice = {
+    id,
+    number,
+    date_iso: todayISO(),
+    client_id: client.id,
+    client_name: client.name,
+    vendor_id: vendor.id,
+    vendor_name: vendor.name,
+    items: clone(items),
+    total,
+    total_after_credit: totalTrasSaldo,
+    cost: calcInvoiceCost(items),
+    payments: { cash, transfer: transf, change, alias: alias.trim(), saldo_aplicado: saldoAplicado },
+    status,
+    type: "Factura",
+    client_debt_total: cl.debt,
+  };
+
+  st.invoices.push(invoice);
+  st.meta.lastSavedInvoiceId = id;
+  setState(st);
+
+  if (hasSupabase) {
+    await supabase.from("invoices").insert(invoice);
+    await supabase.from("clients").update({ debt: cl.debt, saldo_favor: cl.saldo_favor }).eq("id", client.id);
     
+    // ⭐⭐⭐⭐ ACTUALIZAR STOCK EN SUPABASE ⭐⭐⭐⭐⭐
+    for (const item of items) {
+      const product = st.products.find((p: any) => p.id === item.productId);
+      if (product) {
+        await supabase.from("products")
+          .update({ stock: product.stock })
+          .eq("id", item.productId);
+      }
+    }
+    
+    await saveCountersSupabase(st.meta);
+  }
 
- const total = calcInvoiceTotal(items);
-const cash  = parseNum(payCash);
-const transf = parseNum(payTransf);
-const suggestedChange = Math.max(0, cash - Math.max(0, total - transf));
-const change = payChange.trim() === "" ? suggestedChange : Math.max(0, parseNum(payChange));
-if (change > cash) return alert("El vuelto no puede ser mayor al efectivo entregado.");
-
-const st = clone(state);
-const number = st.meta.invoiceCounter++;
-const id = "inv_" + number;
-
-// 1) Consumir saldo a favor del cliente ANTES de calcular deuda
-const cl = st.clients.find((c:any) => c.id === client.id)!;
-const saldoActual = parseNum(cl.saldo_favor || 0);
-const saldoAplicado = Math.min(total, saldoActual);
-const totalTrasSaldo = total - saldoAplicado;
-
-// 2) Lo efectivamente aplicado por pagos (efectivo+transf - vuelto)
-const applied = Math.max(0, cash + transf - change);
-
-// 3) Deuda que queda luego de aplicar saldo y pagos
-const debtDelta = Math.max(0, totalTrasSaldo - applied);
-const status = debtDelta > 0 ? "No Pagada" : "Pagada";
-
-// 4) Actualizar cliente: bajar saldo_favor, subir deuda si corresponde
-cl.saldo_favor = saldoActual - saldoAplicado;
-cl.debt = parseNum(cl.debt) + debtDelta;
-
-const invoice = {
-  id,
-  number,
-  date_iso: todayISO(),
-  client_id: client.id,
-  client_name: client.name,
-  vendor_id: vendor.id,
-  vendor_name: vendor.name,
-  items: clone(items),
-  total,                              // total original
-  total_after_credit: totalTrasSaldo, // NUEVO (opcional, para saber el impacto)
-  cost: calcInvoiceCost(items),
-  payments: { cash, transfer: transf, change, alias: alias.trim(), saldo_aplicado: saldoAplicado }, // NUEVO campo informativo
-  status,
-  type: "Factura",
-  client_debt_total: cl.debt,
-};
-
-st.invoices.push(invoice);
-st.meta.lastSavedInvoiceId = id;
-setState(st);
-
-if (hasSupabase) {
-  await supabase.from("invoices").insert(invoice);
-  await supabase.from("clients").update({ debt: cl.debt, saldo_favor: cl.saldo_favor }).eq("id", client.id);
-  await saveCountersSupabase(st.meta);
-}
-
-
-
-
-    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
-    await nextPaint();
-    window.print();
-     // 🔽 AHORA sí, limpiar la UI
+  window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+  await nextPaint();
+  window.print();
+  
+  // Limpiar UI
   setPayCash("");
   setPayTransf("");
   setPayChange("");
   setAlias("");
   setItems([]);
-  }
+}
 
 const total = calcInvoiceTotal(items);
 const cash = parseNum(payCash);
@@ -823,35 +839,36 @@ const sections: string[] = Array.from(new Set<string>([...derivedSections, ...ex
 
   const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
 
-  async function addProduct() {
-    if (!name.trim()) return;
-    if (!section.trim()) {
-  alert("Elegí una sección o creá una nueva.");
-  return;
-}
-
-   const product = {
-  id: "p" + Math.random().toString(36).slice(2, 8),
-  name: name.trim(),
-  section,
-  list_label,
-  price1: parseNum(price1),
-  price2: parseNum(price2),
-  cost: parseNum(cost),
-  stock: parseNum(stock),
-  stock_minimo: 0,
-};
-
-
-    const st = clone(state);
-    st.products.push(product);
-    setState(st);
-    setName("");
-    setPrice1("");
-    setPrice2("");
-    setCost("");
-    if (hasSupabase) await supabase.from("products").insert(product);
+async function addProduct() {
+  if (!name.trim()) return;
+  if (!section.trim()) {
+    alert("Elegí una sección o creá una nueva.");
+    return;
   }
+
+  const product = {
+    id: "p" + Math.random().toString(36).slice(2, 8),
+    name: name.trim(),
+    section,
+    list_label,
+    price1: parseNum(price1),
+    price2: parseNum(price2),
+    cost: parseNum(cost),
+    stock: parseNum(stock),
+    stock_minimo: 0, // ⭐⭐ CAMBIAR ESTO ⭐⭐
+  };
+
+  const st = clone(state);
+  st.products.push(product);
+  setState(st);
+  setName("");
+  setPrice1("");
+  setPrice2("");
+  setCost("");
+  setStock(""); // ⭐⭐ LIMPIAR EL STOCK TAMBIÉN ⭐⭐
+  
+  if (hasSupabase) await supabase.from("products").insert(product);
+}
 
   function addSection() {
     const s = newSection.trim();
@@ -2064,7 +2081,7 @@ function PresupuestosTab({ state, setState, session }: any) {
     alert("Presupuesto guardado.");
     setItems([]);
   }
-  async function convertirAFactura(b: any) {
+async function convertirAFactura(b: any) {
   const efectivoStr = prompt("¿Cuánto paga en EFECTIVO?", "0") ?? "0";
   const transferenciaStr = prompt("¿Cuánto paga por TRANSFERENCIA?", "0") ?? "0";
   const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
@@ -2076,6 +2093,14 @@ function PresupuestosTab({ state, setState, session }: any) {
   const st = clone(state);
   const number = st.meta.invoiceCounter++;
   const id = "inv_" + number;
+
+  // ⭐⭐⭐⭐ DESCONTAR STOCK AL CONVERTIR PRESUPUESTO ⭐⭐⭐⭐⭐
+  b.items.forEach((item: any) => {
+    const product = st.products.find((p: any) => p.id === item.productId);
+    if (product) {
+      product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
+    }
+  });
 
   const invoice = {
     id,
@@ -2089,8 +2114,7 @@ function PresupuestosTab({ state, setState, session }: any) {
     total: b.total,
     cost: calcInvoiceCost(b.items),
     payments: { cash: efectivo, transfer: transferencia, alias },
-  status: (efectivo + transferencia) >= b.total ? "Pagada" : "No Pagada",
-
+    status: (efectivo + transferencia) >= b.total ? "Pagada" : "No Pagada",
     type: "Factura",
   };
 
@@ -2102,6 +2126,17 @@ function PresupuestosTab({ state, setState, session }: any) {
   if (hasSupabase) {
     await supabase.from("invoices").insert(invoice);
     await supabase.from("budgets").update({ status: "Convertido" }).eq("id", b.id);
+    
+    // ⭐⭐⭐⭐ ACTUALIZAR STOCK EN SUPABASE ⭐⭐⭐⭐⭐
+    for (const item of b.items) {
+      const product = st.products.find((p: any) => p.id === item.productId);
+      if (product) {
+        await supabase.from("products")
+          .update({ stock: product.stock })
+          .eq("id", item.productId);
+      }
+    }
+    
     await saveCountersSupabase(st.meta);
   }
 
