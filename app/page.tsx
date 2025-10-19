@@ -1904,15 +1904,18 @@ useEffect(() => {
                 <td className="py-2 pr-3">{f.status || "—"}</td>
                 <td className="py-2 pr-3 space-x-2">
                   {/* Botón ver PDF */}
-                  <button
-                    onClick={() => viewInvoicePDF(f)}
-                    className="text-blue-500 hover:text-blue-700"
-                    title="Ver PDF"
-                  >
-                    📄
-                  </button>
-                  {/* 👇 AGREGAR ESTO - Botón eliminar (solo admin) */}
-  {session?.role === "admin" && (
+                  <td className="py-2 pr-3 space-x-2">
+  {/* Botón ver PDF */}
+  <button
+    onClick={() => viewInvoicePDF(f)}
+    className="text-blue-500 hover:text-blue-700"
+    title="Ver PDF"
+  >
+    📄
+  </button>
+
+  {/* 👇 AGREGAR ESTO - Botón eliminar (solo admin) */}
+  {state.user?.role === "admin" && (
     <button
       onClick={async () => {
         if (!confirm(`¿Seguro que deseas eliminar la factura Nº ${pad(f.number)}?`)) return;
