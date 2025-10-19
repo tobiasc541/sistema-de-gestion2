@@ -2949,7 +2949,7 @@ if (inv?.type === "Reporte") {
           </div>
         </div>
 
-        {/* SECCIÓN: VENTAS (detalle similar a factura) */}
+        {/* SECCIÓN: VENTAS */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
         <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Ventas del período</div>
         <table className="print-table text-sm">
@@ -2987,8 +2987,94 @@ if (inv?.type === "Reporte") {
           </tbody>
         </table>
 
-        {/* Aquí van las demás secciones (GASTOS, DEVOLUCIONES, etc.) que ya tenés */}
-        {/* ... el resto de tu código de reporte ... */}
+        {/* SECCIÓN: GASTOS */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Gastos</div>
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th style={{ width: "14%" }}>Fecha</th>
+              <th>Detalle</th>
+              <th style={{ width: "14%" }}>Efectivo</th>
+              <th style={{ width: "14%" }}>Transf.</th>
+              <th style={{ width: "24%" }}>Alias</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(inv.gastos || []).map((g: any, i: number) => (
+              <tr key={g.id || i}>
+                <td>{new Date(g.date_iso).toLocaleString("es-AR")}</td>
+                <td>{g.tipo} — {g.detalle}</td>
+                <td style={{ textAlign: "right" }}>{fmt(g.efectivo)}</td>
+                <td style={{ textAlign: "right" }}>{fmt(g.transferencia)}</td>
+                <td>{g.alias || "—"}</td>
+              </tr>
+            ))}
+            {(!inv.gastos || inv.gastos.length === 0) && (
+              <tr><td colSpan={5}>Sin gastos.</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        {/* SECCIÓN: DEVOLUCIONES */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Devoluciones</div>
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th style={{ width: "14%" }}>Fecha</th>
+              <th>Cliente</th>
+              <th style={{ width: "14%" }}>Método</th>
+              <th style={{ width: "14%" }}>Efectivo</th>
+              <th style={{ width: "14%" }}>Transf.</th>
+              <th style={{ width: "14%" }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(inv.devoluciones || []).map((d: any, i: number) => (
+              <tr key={d.id || i}>
+                <td>{new Date(d.date_iso).toLocaleString("es-AR")}</td>
+                <td>{d.client_name}</td>
+                <td style={{ textTransform: "capitalize" }}>{d.metodo}</td>
+                <td style={{ textAlign: "right" }}>{fmt(d.efectivo)}</td>
+                <td style={{ textAlign: "right" }}>{fmt(d.transferencia)}</td>
+                <td style={{ textAlign: "right" }}>{fmt(d.total)}</td>
+              </tr>
+            ))}
+            {(!inv.devoluciones || inv.devoluciones.length === 0) && (
+              <tr><td colSpan={6}>Sin devoluciones.</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        {/* SECCIÓN: Transferencias por alias (ventas) */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Transferencias por alias (ventas)</div>
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th>Alias</th>
+              <th style={{ width: "18%" }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(inv.transferenciasPorAlias || []).map((a: any, i: number) => (
+              <tr key={a.alias || i}>
+                <td>{a.alias}</td>
+                <td style={{ textAlign: "right" }}>{fmt(a.total)}</td>
+              </tr>
+            ))}
+            {(!inv.transferenciasPorAlias || inv.transferenciasPorAlias.length === 0) && (
+              <tr><td colSpan={2}>Sin transferencias en ventas.</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        {/* FINAL: FLUJO DE CAJA (EFECTIVO) */}
+        <div style={{ borderTop: "1px solid #000", margin: "14px 0 8px" }} />
+        <div className="text-center" style={{ fontWeight: 900, fontSize: 24, letterSpacing: 1 }}>
+          FLUJO DE CAJA (EFECTIVO): {fmt(inv.resumen.flujoCajaEfectivo)}
+        </div>
 
         <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
       </div>
@@ -3123,46 +3209,6 @@ if (inv?.type === "Devolucion") {
     </div>
   );
 }
-
-
-        {/* SECCIÓN: VENTAS (detalle similar a factura) */}
-               {/* SECCIÓN: VENTAS (detalle similar a factura) */}
-        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
-        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Ventas del período</div>
-        <table className="print-table text-sm">
-          <thead>
-            <tr>
-              <th style={{ width: "8%" }}>#</th>
-              <th>Cliente</th>
-              <th>Vendedor</th>
-              <th style={{ width: "14%" }}>Total</th>
-              <th style={{ width: "14%" }}>Efectivo</th>
-              <th style={{ width: "14%" }}>Transf.</th>
-              <th style={{ width: "12%" }}>Vuelto</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(inv.ventas || []).map((f: any, i: number) => {
-              const c = parseNum(f?.payments?.cash || 0);
-              const t = parseNum(f?.payments?.transfer || 0);
-              const vu = parseNum(f?.payments?.change || 0);
-              return (
-                <tr key={f.id}>
-                  <td style={{ textAlign: "right" }}>{String(f.number || i + 1).padStart(4, "0")}</td>
-                  <td>{f.client_name}</td>
-                  <td>{f.vendor_name}</td>
-                  <td style={{ textAlign: "right" }}>{fmt(f.total)}</td>
-                  <td style={{ textAlign: "right" }}>{fmt(c)}</td>
-                  <td style={{ textAlign: "right" }}>{fmt(t)}</td>
-                  <td style={{ textAlign: "right" }}>{fmt(vu)}</td>
-                </tr>
-              );
-            })}
-            {(!inv.ventas || inv.ventas.length === 0) && (
-              <tr><td colSpan={7}>Sin ventas en el período.</td></tr>
-            )}
-          </tbody>
-        </table>
 
         {/* SECCIÓN: GASTOS */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
