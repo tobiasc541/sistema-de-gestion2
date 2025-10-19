@@ -87,7 +87,13 @@ if (clients) out.clients = clients;
 // products
 const { data: products, error: prodErr } = await supabase.from("products").select("*");
 if (prodErr) { console.error("SELECT products:", prodErr); alert("No pude leer 'products' de Supabase."); }
-if (products) out.products = products;
+if (products) {
+  // ⭐⭐ MAPEAR stock_min CORRECTAMENTE ⭐⭐
+  out.products = products.map((p: any) => ({
+    ...p,
+    stock_minimo: p.stock_min !== null ? parseNum(p.stock_min) : 0 // Mapear stock_min a stock_minimo
+  }));
+}
 
 // invoices
 const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").order("number");
@@ -241,27 +247,33 @@ function groupBy(arr: any[], key: string) {
   }, {} as any);
 }
 // === Gasto del mes por cliente ===
+// === Gasto del mes por cliente ===
 function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
+  if (!clientId) return 0;
+  
   const y = refDate.getFullYear();
   const m = refDate.getMonth();
-  const start = new Date(y, m, 1, 0, 0, 0, 0).getTime();
-  const end   = new Date(y, m + 1, 0, 23, 59, 59, 999).getTime();
+  const start = new Date(y, m, 1, 0, 0, 0, 0);
+  const end = new Date(y, m + 1, 0, 23, 59, 59, 999);
 
   // Ventas del mes (solo Facturas)
   const factMes = (state.invoices || [])
-    .filter((f: any) =>
-      f.type === "Factura" &&
-      f.client_id === clientId &&
-      (() => { const t = new Date(f.date_iso).getTime(); return t >= start && t <= end; })()
-    )
+    .filter((f: any) => {
+      if (f.type !== "Factura" || f.client_id !== clientId) return false;
+      
+      const invoiceDate = new Date(f.date_iso);
+      return invoiceDate >= start && invoiceDate <= end;
+    })
     .reduce((s: number, f: any) => s + parseNum(f.total), 0);
 
   // Devoluciones del mes del cliente
   const devsMes = (state.devoluciones || [])
-    .filter((d: any) =>
-      d.client_id === clientId &&
-      (() => { const t = new Date(d.date_iso).getTime(); return t >= start && t <= end; })()
-    );
+    .filter((d: any) => {
+      if (d.client_id !== clientId) return false;
+      
+      const devolucionDate = new Date(d.date_iso);
+      return devolucionDate >= start && devolucionDate <= end;
+    });
 
   // Restan al gasto si son devolución en efectivo/transferencia/saldo
   const devRestables = devsMes
@@ -277,7 +289,6 @@ function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
       0
     );
 
-  // Intercambio del mismo producto no cambia el gasto
   return Math.max(0, factMes - devRestables + extrasIntercambio);
 }
 
@@ -805,7 +816,7 @@ function ClientesTab({ state, setState }: any) {
 
 /* Productos */
 function ProductosTab({ state, setState, role }: any) {
-    // Filtrar productos que están bajo el stock mínimo
+   // Filtrar productos que están bajo el stock mínimo
   const productosBajoStock = state.products.filter(
     (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
   );
@@ -839,7 +850,6 @@ const sections: string[] = Array.from(new Set<string>([...derivedSections, ...ex
 
 
   const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
-
   async function addProduct() {
     if (!name.trim()) return;
     if (!section.trim()) {
@@ -871,7 +881,13 @@ const sections: string[] = Array.from(new Set<string>([...derivedSections, ...ex
     setStock("");
     setStockMinimo("0"); // ⭐⭐ LIMPIAR TAMBIÉN EL STOCK MÍNIMO ⭐⭐
     
-    if (hasSupabase) await supabase.from("products").insert(product);
+    if (hasSupabase) {
+      // ⭐⭐ USAR stock_min EN VEZ DE stock_minimo ⭐⭐
+      await supabase.from("products").insert({
+        ...product,
+        stock_min: parseNum(stockMinimo) // Guardar como stock_min en Supabase
+      });
+    }
   }
 
   function addSection() {
@@ -992,7 +1008,7 @@ const sections: string[] = Array.from(new Set<string>([...derivedSections, ...ex
         />
       </td>
 
-        {/* Stock mínimo editable */}
+           {/* Stock mínimo editable */}
       <td className="py-2 pr-4">
         <NumberInput
           value={p.stock_minimo}
@@ -1005,7 +1021,8 @@ const sections: string[] = Array.from(new Set<string>([...derivedSections, ...ex
             setState(st);
 
             if (hasSupabase) {
-              await supabase.from("products").update({ stock_minimo: newMin }).eq("id", p.id);
+              // ⭐⭐ ACTUALIZAR stock_min EN SUPABASE ⭐⭐
+              await supabase.from("products").update({ stock_min: newMin }).eq("id", p.id);
             }
           }}
         />
