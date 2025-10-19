@@ -2188,7 +2188,18 @@ function PresupuestosTab({ state, setState, session }: any) {
         </div>
       </Card>
 
-      <Card title="Presupuestos guardados">
+    <Card 
+  title="Presupuestos guardados"
+  actions={
+    <Button tone="slate" onClick={async () => {
+      const refreshedState = await loadFromSupabase(seedState());
+      setState(refreshedState);
+      alert("Presupuestos actualizados");
+    }}>
+      Actualizar
+    </Button>
+  }
+>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-slate-400">
@@ -2250,23 +2261,32 @@ function PresupuestosTab({ state, setState, session }: any) {
     <span className="text-xs">Convertido</span>
   )}
 {/* Botón Eliminar */}
-  <button
-    title="Eliminar presupuesto"
-    onClick={() => {
-      if (confirm(`¿Seguro que deseas eliminar el presupuesto Nº ${pad(b.number)}?`)) {
-        const st = clone(state);
-        st.budgets = st.budgets.filter((x: any) => x.id !== b.id);
-        setState(st);
-        if (hasSupabase) {
-          supabase.from("budgets").delete().eq("id", b.id);
-        }
-        alert(`Presupuesto Nº ${pad(b.number)} eliminado.`);
+<button
+  title="Eliminar presupuesto"
+  onClick={async () => {
+    if (!confirm(`¿Seguro que deseas eliminar el presupuesto Nº ${pad(b.number)}?`)) return;
+    
+    const st = clone(state);
+    st.budgets = st.budgets.filter((x: any) => x.id !== b.id);
+    setState(st);
+    
+    if (hasSupabase) {
+      const { error } = await supabase.from("budgets").delete().eq("id", b.id);
+      if (error) {
+        console.error("Error eliminando presupuesto:", error);
+        alert("Error al eliminar el presupuesto de la base de datos.");
+        // Recargar datos si hay error
+        const refreshedState = await loadFromSupabase(seedState());
+        setState(refreshedState);
+        return;
       }
-    }}
-    className="text-red-500 hover:text-red-400 text-lg ml-2"
-  >
-    🗑️
-  </button>
+    }
+    alert(`Presupuesto Nº ${pad(b.number)} eliminado correctamente.`);
+  }}
+  className="text-red-500 hover:text-red-400 text-lg ml-2"
+>
+  🗑️
+</button>
 </td>
 
 
@@ -3290,13 +3310,37 @@ export default function Page() {
   const [session, setSession] = useState<any | null>(null);
   const [tab, setTab] = useState("Facturación");
 
-  useEffect(() => {
-    if (!hasSupabase) return;
-    (async () => {
-      const s = await loadFromSupabase(seedState());
-      setState(s);
-    })();
-  }, []);
+useEffect(() => {
+  if (!hasSupabase) return;
+  (async () => {
+    const s = await loadFromSupabase(seedState());
+    setState(s);
+  })();
+
+  // Agregar esta parte para sincronización en tiempo real:
+  if (hasSupabase) {
+    const budgetSubscription = supabase
+      .channel('budgets-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'budgets'
+        },
+        async () => {
+          // Recargar los presupuestos cuando haya cambios
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(budgetSubscription);
+    };
+  }
+}, []);
 
   function onLogin(user: any) {
     setSession(user);
