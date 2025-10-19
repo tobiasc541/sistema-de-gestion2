@@ -94,11 +94,15 @@ const { data: invoices, error: invErr } = await supabase.from("invoices").select
 if (invErr) { console.error("SELECT invoices:", invErr); alert("No pude leer 'invoices' de Supabase."); }
 if (invoices) out.invoices = invoices;
 
-// devoluciones
-const { data: devoluciones, error: devErr } = await supabase
-  .from("devoluciones").select("*").order("date_iso",{ascending:false});
-if (devErr) { console.error("SELECT devoluciones:", devErr); alert("No pude leer 'devoluciones' de Supabase."); }
-if (devoluciones) out.devoluciones = devoluciones;
+  // 👇👇👇 AGREGAR AQUÍ - Cargar devoluciones
+  const { data: devoluciones, error: devErr } = await supabase
+    .from("devoluciones").select("*").order("date_iso", { ascending: false });
+  if (devErr) { 
+    console.error("SELECT devoluciones:", devErr); 
+    alert("No pude leer 'devoluciones' de Supabase."); 
+  }
+  if (devoluciones) out.devoluciones = devoluciones;
+  // 👆👆👆 HASTA AQUÍ
 
 // budgets
 const { data: budgets, error: budErr } = await supabase.from("budgets").select("*").order("number");
@@ -2324,6 +2328,8 @@ useEffect(() => {
 
   async function cargarFacturas() {
     try {
+      console.log("Cargando facturas para cliente:", clienteSeleccionado);
+      
       let facturasDelCliente = [];
 
       if (hasSupabase) {
@@ -2332,6 +2338,7 @@ useEffect(() => {
           .from("invoices")
           .select("*")
           .eq("client_id", clienteSeleccionado)
+          .eq("type", "Factura") // Solo facturas, no recibos de pago
           .order("date_iso", { ascending: false });
 
         if (error) {
@@ -2340,15 +2347,21 @@ useEffect(() => {
           return;
         }
         facturasDelCliente = data || [];
+        console.log("Facturas cargadas desde Supabase:", facturasDelCliente);
       } else {
         // Cargar desde estado local
         facturasDelCliente = (state.invoices || []).filter(
-          (f: any) => f.client_id === clienteSeleccionado
+          (f: any) => f.client_id === clienteSeleccionado && f.type === "Factura"
         );
+        console.log("Facturas cargadas desde estado local:", facturasDelCliente);
       }
 
-      console.log("Facturas cargadas:", facturasDelCliente.length);
       setFacturasCliente(facturasDelCliente);
+
+      // Debug: mostrar información del cliente
+      const cliente = state.clients.find((c: any) => c.id === clienteSeleccionado);
+      console.log("Cliente seleccionado:", cliente);
+      console.log("Total de facturas encontradas:", facturasDelCliente.length);
 
     } catch (error) {
       console.error("Error en cargarFacturas:", error);
@@ -2357,7 +2370,7 @@ useEffect(() => {
   }
 
   cargarFacturas();
-}, [clienteSeleccionado, state.invoices, hasSupabase]);
+}, [clienteSeleccionado, state.invoices, hasSupabase, state.clients]);
 
 
   // ==============================
