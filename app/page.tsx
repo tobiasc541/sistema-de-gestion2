@@ -1495,6 +1495,7 @@ function rangoActualISO() {
 }
 
 // ===== NUEVO: traer facturas y devoluciones por rango, con fallback local =====
+// ===== NUEVO: traer facturas y devoluciones por rango, con fallback local =====
 useEffect(() => {
   const { isoStart, isoEnd } = rangoActualISO();
 
@@ -1520,8 +1521,24 @@ useEffect(() => {
         .order("date_iso", { ascending: false });
       if (e2) { console.error("SELECT devoluciones (rango):", e2); alert("No pude leer devoluciones del período."); }
 
+      // GASTOS
+      const { data: gastosData, error: e3 } = await supabase
+        .from("gastos")
+        .select("*")
+        .gte("date_iso", isoStart)
+        .lte("date_iso", isoEnd)
+        .order("date_iso", { ascending: false });
+      if (e3) { console.error("SELECT gastos (rango):", e3); alert("No pude leer gastos del período."); }
+
       setDocsEnRango(inv || []);
       setDevolucionesPeriodo(dev || []);
+      
+      // Actualizar el estado global con los gastos del período
+      if (gastosData) {
+        const st = clone(state);
+        st.gastos = gastosData;
+        setState(st);
+      }
     } else {
       // Fallback local si no hay Supabase
       const docs = (state.invoices || []).filter((f:any) => {
@@ -1541,7 +1558,7 @@ useEffect(() => {
 
   fetchListados();
   // refresca cuando cambia el período o cuando guardaste una venta
-}, [periodo, dia, mes, anio, state.meta?.lastSavedInvoiceId]);
+}, [periodo, dia, mes, anio, state.meta?.lastSavedInvoiceId, state.gastos?.length]);
 
 
   // ✅ Ahora sí: comisiones del período usando start/end
@@ -1568,11 +1585,16 @@ useEffect(() => {
   // Ganancia estimada
   const ganancia = invoices.reduce((s: number, f: any) => s + (parseNum(f.total) - parseNum(f.cost)), 0);
 
-  // GASTOS del período
+   // GASTOS del período
   const gastosPeriodo = (state.gastos || []).filter((g: any) => {
+    if (!g || !g.date_iso) return false;
     const t = new Date(g.date_iso).getTime();
     return t >= start && t <= end;
   });
+    // DEBUG: Verificar gastos
+  console.log("Todos los gastos en state:", state.gastos);
+  console.log("Gastos en período:", gastosPeriodo);
+  console.log("Rango:", new Date(start), "a", new Date(end));
   const totalGastos = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
   const totalGastosEfectivo = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo), 0);
   const totalGastosTransferencia = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.transferencia), 0);
@@ -1701,7 +1723,18 @@ useEffect(() => {
         </div>
       </Card>
 
-      <Card title="Acciones" actions={<Button onClick={imprimirReporte}>Imprimir reporte</Button>}>
+          <Card title="Acciones" actions={
+        <div className="flex gap-2">
+          <Button tone="slate" onClick={async () => {
+            const refreshedState = await loadFromSupabase(seedState());
+            setState(refreshedState);
+            alert("Datos actualizados manualmente");
+          }}>
+            Actualizar datos
+          </Button>
+          <Button onClick={imprimirReporte}>Imprimir reporte</Button>
+        </div>
+      }>
         <div className="text-sm text-slate-400">Genera un reporte imprimible con el rango seleccionado.</div>
       </Card>
 
