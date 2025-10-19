@@ -2919,7 +2919,79 @@ if (inv?.type === "Reporte") {
 
   return (
     <div className="only-print print-area p-14">
-      {/* ... todo el contenido del reporte ... */}
+      <div className="max-w-[780px] mx-auto text-black">
+        <div className="flex items-start justify-between">
+          <div>
+            <div style={{ fontWeight: 800, letterSpacing: 1 }}>REPORTE</div>
+            <div style={{ marginTop: 2 }}>MITOBICEL</div>
+          </div>
+          <div className="text-right">
+            <div><b>Período:</b> {rangoStr}</div>
+            <div><b>Tipo:</b> {inv.periodo}</div>
+          </div>
+        </div>
+
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+        {/* RESUMEN PRINCIPAL */}
+        <div className="grid grid-cols-3 gap-3 text-sm mb-4">
+          <div>
+            <div style={{ fontWeight: 700 }}>Ventas totales</div>
+            <div>{fmt(inv.resumen.ventas)}</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700 }}>Efectivo neto</div>
+            <div>{fmt(inv.resumen.efectivoNeto)}</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700 }}>Transferencias</div>
+            <div>{fmt(inv.resumen.transferencias)}</div>
+          </div>
+        </div>
+
+        {/* SECCIÓN: VENTAS (detalle similar a factura) */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Ventas del período</div>
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th style={{ width: "8%" }}>#</th>
+              <th>Cliente</th>
+              <th>Vendedor</th>
+              <th style={{ width: "14%" }}>Total</th>
+              <th style={{ width: "14%" }}>Efectivo</th>
+              <th style={{ width: "14%" }}>Transf.</th>
+              <th style={{ width: "12%" }}>Vuelto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(inv.ventas || []).map((f: any, i: number) => {
+              const c = parseNum(f?.payments?.cash || 0);
+              const t = parseNum(f?.payments?.transfer || 0);
+              const vu = parseNum(f?.payments?.change || 0);
+              return (
+                <tr key={f.id}>
+                  <td style={{ textAlign: "right" }}>{String(f.number || i + 1).padStart(4, "0")}</td>
+                  <td>{f.client_name}</td>
+                  <td>{f.vendor_name}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(f.total)}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(c)}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(t)}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(vu)}</td>
+                </tr>
+              );
+            })}
+            {(!inv.ventas || inv.ventas.length === 0) && (
+              <tr><td colSpan={7}>Sin ventas en el período.</td></tr>
+            )}
+          </tbody>
+        </table>
+
+        {/* Aquí van las demás secciones (GASTOS, DEVOLUCIONES, etc.) que ya tenés */}
+        {/* ... el resto de tu código de reporte ... */}
+
+        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+      </div>
     </div>
   );
 }
@@ -3054,6 +3126,7 @@ if (inv?.type === "Devolucion") {
 
 
         {/* SECCIÓN: VENTAS (detalle similar a factura) */}
+               {/* SECCIÓN: VENTAS (detalle similar a factura) */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
         <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Ventas del período</div>
         <table className="print-table text-sm">
