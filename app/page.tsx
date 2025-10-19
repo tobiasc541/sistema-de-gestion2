@@ -2303,10 +2303,15 @@ function PresupuestosTab({ state, setState, session }: any) {
     </div>
   );
 }
+
+
+
+// En GastosDevolucionesTab, reemplaza el useEffect completo por este:
+
 /* Gastos y Devoluciones */
 function GastosDevolucionesTab({ state, setState, session }: any) {
   const [productoNuevoId, setProductoNuevoId] = useState(""); // Producto elegido para entregar
-const [cantidadNuevo, setCantidadNuevo] = useState("");     // Cantidad a entregar
+  const [cantidadNuevo, setCantidadNuevo] = useState("");     // Cantidad a entregar
   const [modo, setModo] = useState("Gasto"); // "Gasto" o "Devolución"
   const [tipoGasto, setTipoGasto] = useState("Proveedor");
   const [detalle, setDetalle] = useState("");
@@ -2319,59 +2324,74 @@ const [cantidadNuevo, setCantidadNuevo] = useState("");     // Cantidad a entreg
   const [facturasCliente, setFacturasCliente] = useState<any[]>([]);
   const [metodoDevolucion, setMetodoDevolucion] = useState("efectivo");
 
-
-useEffect(() => {
-  if (!clienteSeleccionado) {
-    setFacturasCliente([]);
-    return;
-  }
-
-  async function cargarFacturas() {
-    try {
-      console.log("Cargando facturas para cliente:", clienteSeleccionado);
-      
-      let facturasDelCliente = [];
-
-      if (hasSupabase) {
-        // Cargar desde Supabase
-        const { data, error } = await supabase
-          .from("invoices")
-          .select("*")
-          .eq("client_id", clienteSeleccionado)
-          .eq("type", "Factura") // Solo facturas, no recibos de pago
-          .order("date_iso", { ascending: false });
-
-        if (error) {
-          console.error("Error cargando facturas:", error);
-          alert("Error al cargar las facturas del cliente");
-          return;
-        }
-        facturasDelCliente = data || [];
-        console.log("Facturas cargadas desde Supabase:", facturasDelCliente);
-      } else {
-        // Cargar desde estado local
-        facturasDelCliente = (state.invoices || []).filter(
-          (f: any) => f.client_id === clienteSeleccionado && f.type === "Factura"
-        );
-        console.log("Facturas cargadas desde estado local:", facturasDelCliente);
-      }
-
-      setFacturasCliente(facturasDelCliente);
-
-      // Debug: mostrar información del cliente
-      const cliente = state.clients.find((c: any) => c.id === clienteSeleccionado);
-      console.log("Cliente seleccionado:", cliente);
-      console.log("Total de facturas encontradas:", facturasDelCliente.length);
-
-    } catch (error) {
-      console.error("Error en cargarFacturas:", error);
-      alert("Error al cargar las facturas del cliente");
+  // Cargar facturas cuando se selecciona un cliente
+  useEffect(() => {
+    if (!clienteSeleccionado) {
+      setFacturasCliente([]);
+      return;
     }
-  }
 
-  cargarFacturas();
-}, [clienteSeleccionado, state.invoices, hasSupabase, state.clients]);
+    // Filtrar facturas del cliente desde el estado local
+    const facturasDelCliente = (state.invoices || [])
+      .filter((f: any) => 
+        f.client_id === clienteSeleccionado && 
+        f.type === "Factura" &&
+        f.items && 
+        Array.isArray(f.items) && 
+        f.items.length > 0
+      )
+      .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime());
 
+    setFacturasCliente(facturasDelCliente);
+    
+    // Debug: mostrar información
+    console.log("Cliente seleccionado:", clienteSeleccionado);
+    console.log("Facturas encontradas:", facturasDelCliente.length);
+    console.log("Facturas:", facturasDelCliente);
+
+  }, [clienteSeleccionado, state.invoices]);
+
+  // Función para agregar producto a devolver
+  const agregarProductoADevolver = (item: any, factura: any, cantidad: number) => {
+    if (cantidad <= 0 || cantidad > item.qty) {
+      alert("Cantidad inválida");
+      return;
+    }
+
+    const productoExistente = productosDevueltos.find(
+      (p) => p.productId === item.productId && p.facturaId === factura.id
+    );
+
+    if (productoExistente) {
+      // Actualizar cantidad si ya existe
+      setProductosDevueltos(prev =>
+        prev.map(p =>
+          p.productId === item.productId && p.facturaId === factura.id
+            ? { ...p, qtyDevuelta: cantidad }
+            : p
+        )
+      );
+    } else {
+      // Agregar nuevo producto a devolver
+      setProductosDevueltos(prev => [
+        ...prev,
+        {
+          ...item,
+          facturaId: factura.id,
+          facturaNumero: factura.number,
+          qtyDevuelta: cantidad,
+          qtyOriginal: item.qty
+        }
+      ]);
+    }
+  };
+
+  // Función para quitar producto de la devolución
+  const quitarProductoDevolucion = (productId: string, facturaId: string) => {
+    setProductosDevueltos(prev =>
+      prev.filter(p => !(p.productId === productId && p.facturaId === facturaId))
+    );
+  };
 
   // ==============================
   // Funciones para guardar Gasto y Devolución
@@ -2382,11 +2402,9 @@ useEffect(() => {
       return;
     }
 
-    // Si los campos están vacíos, tratarlos como 0 automáticamente
     const efectivoFinal = montoEfectivo.trim() === "" ? 0 : parseNum(montoEfectivo);
     const transferenciaFinal = montoTransferencia.trim() === "" ? 0 : parseNum(montoTransferencia);
 
-    // Si ambos son 0, mostrar error
     if (efectivoFinal === 0 && transferenciaFinal === 0) {
       alert("Debes ingresar al menos un monto en efectivo o transferencia.");
       return;
@@ -2416,384 +2434,397 @@ useEffect(() => {
     setAlias("");
   }
 
- /* ==============================
-   FUNCIÓN guardarDevolucion
-============================== */
-async function guardarDevolucion() {
-  // Intercambio por otro producto
-if (metodoDevolucion === "intercambio_otro") {
-  if (!productoNuevoId || parseNum(cantidadNuevo) <= 0) {
-    alert("Debes seleccionar un producto nuevo y la cantidad.");
-    return;
+  async function guardarDevolucion() {
+    if (!clienteSeleccionado) {
+      alert("Selecciona un cliente antes de guardar la devolución.");
+      return;
+    }
+
+    if (productosDevueltos.length === 0) {
+      alert("Debes seleccionar al menos un producto para devolver.");
+      return;
+    }
+
+    // Intercambio por otro producto - validación
+    if (metodoDevolucion === "intercambio_otro") {
+      if (!productoNuevoId || parseNum(cantidadNuevo) <= 0) {
+        alert("Debes seleccionar un producto nuevo y la cantidad.");
+        return;
+      }
+    }
+
+    const clientName = state.clients.find((c: any) => c.id === clienteSeleccionado)?.name || "Cliente desconocido";
+
+    // Total calculado según cantidades devueltas
+    const totalDevolucion = productosDevueltos.reduce(
+      (s, it) => s + parseNum(it.qtyDevuelta) * parseNum(it.unitPrice),
+      0
+    );
+
+    const devolucion = {
+      id: "d" + Math.random().toString(36).slice(2, 8),
+      client_id: clienteSeleccionado,
+      client_name: clientName,
+      items: productosDevueltos,
+      metodo: metodoDevolucion,
+      efectivo: metodoDevolucion === "efectivo" ? parseNum(montoEfectivo) : 0,
+      transferencia: metodoDevolucion === "transferencia" ? parseNum(montoTransferencia) : 0,
+      extra_pago_efectivo: metodoDevolucion === "intercambio_otro" ? parseNum(montoEfectivo) : 0,
+      extra_pago_transferencia: metodoDevolucion === "intercambio_otro" ? parseNum(montoTransferencia) : 0,
+      extra_pago_total: (metodoDevolucion === "intercambio_otro" ? parseNum(montoEfectivo) + parseNum(montoTransferencia) : 0),
+      total: totalDevolucion,
+      date_iso: todayISO(),
+    };
+
+    const st = clone(state);
+    st.devoluciones.push(devolucion);
+
+    // 1) Ajuste de saldo a favor (si corresponde)
+    if (metodoDevolucion === "saldo") {
+      const cli = st.clients.find((c: any) => c.id === clienteSeleccionado);
+      if (cli) cli.saldo_favor = parseNum(cli.saldo_favor) + parseNum(totalDevolucion);
+    }
+
+    // 2) Stock: entra lo devuelto
+    productosDevueltos.forEach((it) => {
+      const prod = st.products.find((p: any) => p.id === it.productId);
+      if (prod) prod.stock = parseNum(prod.stock) + parseNum(it.qtyDevuelta);
+    });
+
+    // 3) Stock: sale lo entregado en intercambio_otro
+    if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
+      const nuevo = st.products.find((p: any) => p.id === productoNuevoId);
+      if (nuevo) nuevo.stock = parseNum(nuevo.stock) - parseNum(cantidadNuevo);
+    }
+
+    setState(st);
+
+    // ==== Persistencia ====
+    if (hasSupabase) {
+      await supabase.from("devoluciones").insert(devolucion);
+
+      // actualizar saldo_favor si se acreditó
+      if (metodoDevolucion === "saldo") {
+        const cli = st.clients.find((c: any) => c.id === clienteSeleccionado);
+        await supabase.from("clients")
+          .update({ saldo_favor: cli?.saldo_favor ?? 0 })
+          .eq("id", clienteSeleccionado);
+      }
+
+      // persistir stocks tocados
+      for (const it of productosDevueltos) {
+        const nuevoStock = st.products.find((p: any) => p.id === it.productId)?.stock;
+        await supabase.from("products").update({ stock: nuevoStock }).eq("id", it.productId);
+      }
+      if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
+        const stockNuevo = st.products.find((p: any) => p.id === productoNuevoId)?.stock;
+        await supabase.from("products").update({ stock: stockNuevo }).eq("id", productoNuevoId);
+      }
+    }
+
+    alert("Devolución registrada con éxito.");
+    setProductosDevueltos([]);
+    setClienteSeleccionado("");
+    setMontoEfectivo("");
+    setMontoTransferencia("");
+    setMetodoDevolucion("efectivo");
+    setProductoNuevoId("");
+    setCantidadNuevo("");
   }
 
-  alert("Intercambio por otro producto iniciado. Luego implementaremos la lógica.");
-}
-  if (!clienteSeleccionado) {
-    alert("Selecciona un cliente antes de guardar la devolución.");
-    return;
-  }
-
-  if (productosDevueltos.length === 0) {
-    alert("Debes seleccionar al menos un producto para devolver.");
-    return;
-  }
-
-  const clientName =
-    state.clients.find((c: any) => c.id === clienteSeleccionado)?.name || "Cliente desconocido";
-
-  // Total calculado según cantidades devueltas
-  const totalDevolucion = productosDevueltos.reduce(
-    (s, it) => s + parseNum(it.qtyDevuelta) * parseNum(it.unitPrice),
-    0
-  );
-
-const devolucion = {
-  id: "d" + Math.random().toString(36).slice(2, 8),
-  client_id: clienteSeleccionado,
-  client_name: clientName,
-  items: productosDevueltos,
-  metodo: metodoDevolucion,
-  efectivo: metodoDevolucion === "efectivo" ? parseNum(montoEfectivo) : 0,
-  transferencia: metodoDevolucion === "transferencia" ? parseNum(montoTransferencia) : 0,
-  // === NUEVO: diferencia abonada cuando es "intercambio_otro"
-  extra_pago_efectivo: metodoDevolucion === "intercambio_otro" ? parseNum(montoEfectivo) : 0,
-  extra_pago_transferencia: metodoDevolucion === "intercambio_otro" ? parseNum(montoTransferencia) : 0,
-  extra_pago_total:
-    (metodoDevolucion === "intercambio_otro"
-      ? parseNum(montoEfectivo) + parseNum(montoTransferencia)
-      : 0),
-  // total de lo que se devuelve (solo para restar si NO es intercambio)
-  total: totalDevolucion,
-  date_iso: todayISO(),
-};
-
-
-const st = clone(state);
-st.devoluciones.push(devolucion);
-
-// 1) Ajuste de saldo a favor (si corresponde)
-if (metodoDevolucion === "saldo") {
-  const cli = st.clients.find((c:any)=>c.id === clienteSeleccionado);
-  if (cli) cli.saldo_favor = parseNum(cli.saldo_favor) + parseNum(totalDevolucion);
-}
-
-// 2) Stock: entra lo devuelto
-productosDevueltos.forEach((it) => {
-  const prod = st.products.find((p:any) => p.id === it.productId);
-  if (prod) prod.stock = parseNum(prod.stock) + parseNum(it.qtyDevuelta);
-});
-
-// 3) Stock: sale lo entregado en intercambio_otro
-if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
-  const nuevo = st.products.find((p:any) => p.id === productoNuevoId);
-  if (nuevo) nuevo.stock = parseNum(nuevo.stock) - parseNum(cantidadNuevo);
-}
-
-setState(st);
-
-// ==== Persistencia ====
-if (hasSupabase) {
-  await supabase.from("devoluciones").insert(devolucion);
-
-  // actualizar saldo_favor si se acreditó
-  if (metodoDevolucion === "saldo") {
-    const cli = st.clients.find((c:any)=>c.id===clienteSeleccionado);
-    await supabase.from("clients")
-      .update({ saldo_favor: cli?.saldo_favor ?? 0 })
-      .eq("id", clienteSeleccionado);
-  }
-
-  // persistir stocks tocados
-  for (const it of productosDevueltos) {
-    const nuevoStock = st.products.find((p:any) => p.id === it.productId)?.stock;
-    await supabase.from("products").update({ stock: nuevoStock }).eq("id", it.productId);
-  }
-  if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
-    const stockNuevo = st.products.find((p:any) => p.id === productoNuevoId)?.stock;
-    await supabase.from("products").update({ stock: stockNuevo }).eq("id", productoNuevoId);
-  }
-}
-
-
-
-  alert("Devolución registrada con éxito.");
-  setProductosDevueltos([]);
-  setClienteSeleccionado("");
-  setMontoEfectivo("");
-  setMontoTransferencia("");
-  setMetodoDevolucion("efectivo");
-}
-
-/* ==============================
-   UI — Renderizado
-============================== */
-return (
-  <div className="max-w-5xl mx-auto p-4 space-y-4">
-    <Card title="Gastos y Devoluciones">
-      <div className="grid md:grid-cols-2 gap-3">
-        <Select
-          label="Modo"
-          value={modo}
-          onChange={setModo}
-          options={[
-            { value: "Gasto", label: "Registrar Gasto" },
-            { value: "Devolución", label: "Registrar Devolución" },
-          ]}
-        />
-      </div>
-    </Card>
-
-    {modo === "Gasto" && (
-      <Card title="Registrar Gasto">
+  return (
+    <div className="max-w-5xl mx-auto p-4 space-y-4">
+      <Card 
+        title="Gastos y Devoluciones"
+        actions={
+          <Button tone="slate" onClick={async () => {
+            const refreshedState = await loadFromSupabase(seedState());
+            setState(refreshedState);
+            alert("Datos actualizados");
+          }}>
+            Actualizar datos
+          </Button>
+        }
+      >
         <div className="grid md:grid-cols-2 gap-3">
           <Select
-            label="Tipo de gasto"
-            value={tipoGasto}
-            onChange={setTipoGasto}
+            label="Modo"
+            value={modo}
+            onChange={setModo}
             options={[
-              { value: "Proveedor", label: "Proveedor" },
-              { value: "Otro", label: "Otro" },
+              { value: "Gasto", label: "Registrar Gasto" },
+              { value: "Devolución", label: "Registrar Devolución" },
             ]}
           />
-          <Input
-            label="Detalle"
-            value={detalle}
-            onChange={setDetalle}
-            placeholder="Ej: Coca-Cola, Luz, Transporte..."
-          />
-          <NumberInput
-            label="Monto en efectivo"
-            value={montoEfectivo}
-            onChange={setMontoEfectivo}
-            placeholder="0"
-          />
-          <NumberInput
-            label="Monto en transferencia"
-            value={montoTransferencia}
-            onChange={setMontoTransferencia}
-            placeholder="0"
-          />
-          <Input
-            label="Alias / CVU (opcional)"
-            value={alias}
-            onChange={setAlias}
-            placeholder="alias.cuenta.banco"
-          />
-          <div className="pt-6">
-            <Button onClick={guardarGasto}>Guardar gasto</Button>
-          </div>
         </div>
       </Card>
-    )}
 
-    {modo === "Devolución" && (
-      <Card title="Registrar Devolución">
-        {/* Selección de cliente */}
-        <div className="grid md:grid-cols-2 gap-3">
-          <Select
-            label="Cliente"
-            value={clienteSeleccionado}
-            onChange={setClienteSeleccionado}
-            options={state.clients.map((c: any) => ({
-              value: c.id,
-              label: `${c.number} - ${c.name}`,
-            }))}
-          />
-        </div>
+      {modo === "Gasto" && (
+        <Card title="Registrar Gasto">
+          <div className="grid md:grid-cols-2 gap-3">
+            <Select
+              label="Tipo de gasto"
+              value={tipoGasto}
+              onChange={setTipoGasto}
+              options={[
+                { value: "Proveedor", label: "Proveedor" },
+                { value: "Otro", label: "Otro" },
+              ]}
+            />
+            <Input
+              label="Detalle"
+              value={detalle}
+              onChange={setDetalle}
+              placeholder="Ej: Coca-Cola, Luz, Transporte..."
+            />
+            <NumberInput
+              label="Monto en efectivo"
+              value={montoEfectivo}
+              onChange={setMontoEfectivo}
+              placeholder="0"
+            />
+            <NumberInput
+              label="Monto en transferencia"
+              value={montoTransferencia}
+              onChange={setMontoTransferencia}
+              placeholder="0"
+            />
+            <Input
+              label="Alias / CVU (opcional)"
+              value={alias}
+              onChange={setAlias}
+              placeholder="alias.cuenta.banco"
+            />
+            <div className="pt-6">
+              <Button onClick={guardarGasto}>Guardar gasto</Button>
+            </div>
+          </div>
+        </Card>
+      )}
 
-        {/* Listado de productos de facturas */}
-        {facturasCliente.length > 0 ? (
-          <div className="mt-4">
-            <h4 className="text-sm font-semibold mb-2">Productos comprados</h4>
-            {facturasCliente.map((factura) => (
-              <div
-                key={factura.id}
-                className="mb-4 border border-slate-800 rounded-lg p-3"
-              >
-                <div className="text-xs text-slate-400 mb-2">
-                  Factura #{factura.number} —{" "}
-                  {new Date(factura.date_iso).toLocaleDateString("es-AR")}
+      {modo === "Devolución" && (
+        <Card title="Registrar Devolución">
+          {/* Selección de cliente */}
+          <div className="grid md:grid-cols-2 gap-3">
+            <Select
+              label="Cliente"
+              value={clienteSeleccionado}
+              onChange={setClienteSeleccionado}
+              options={[
+                { value: "", label: "— Seleccionar cliente —" },
+                ...state.clients.map((c: any) => ({
+                  value: c.id,
+                  label: `${c.number} - ${c.name}`,
+                }))
+              ]}
+            />
+          </div>
+
+          {/* Listado de productos de facturas */}
+          {clienteSeleccionado && (
+            <div className="mt-4">
+              <h4 className="text-sm font-semibold mb-2">Facturas del cliente</h4>
+              
+              {facturasCliente.length > 0 ? (
+                facturasCliente.map((factura) => (
+                  <div
+                    key={factura.id}
+                    className="mb-4 border border-slate-800 rounded-lg p-3"
+                  >
+                    <div className="text-sm font-medium mb-2">
+                      Factura #{factura.number} — {new Date(factura.date_iso).toLocaleDateString("es-AR")} — Total: {money(factura.total)}
+                    </div>
+                    
+                    <table className="min-w-full text-sm">
+                      <thead className="text-slate-400 bg-slate-800/50">
+                        <tr>
+                          <th className="text-left py-2 px-2">Producto</th>
+                          <th className="text-center py-2 px-2">Cant. Original</th>
+                          <th className="text-center py-2 px-2">Precio Unit.</th>
+                          <th className="text-center py-2 px-2">Cant. a Devolver</th>
+                          <th className="text-center py-2 px-2">Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {factura.items.map((item: any, idx: number) => {
+                          const productoEnDevolucion = productosDevueltos.find(
+                            p => p.productId === item.productId && p.facturaId === factura.id
+                          );
+                          
+                          return (
+                            <tr key={`${factura.id}-${item.productId}`} className="border-t border-slate-700">
+                              <td className="py-2 px-2">{item.name}</td>
+                              <td className="text-center py-2 px-2">{item.qty}</td>
+                              <td className="text-center py-2 px-2">{money(item.unitPrice)}</td>
+                              <td className="text-center py-2 px-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={item.qty}
+                                  defaultValue={productoEnDevolucion?.qtyDevuelta || 0}
+                                  className="w-16 text-center border border-slate-700 rounded bg-slate-900 px-1 py-1"
+                                  onChange={(e) => {
+                                    const cantidad = parseInt(e.target.value) || 0;
+                                    if (cantidad > 0) {
+                                      agregarProductoADevolver(item, factura, cantidad);
+                                    } else if (productoEnDevolucion) {
+                                      quitarProductoDevolucion(item.productId, factura.id);
+                                    }
+                                  }}
+                                />
+                              </td>
+                              <td className="text-center py-2 px-2">
+                                {productoEnDevolucion ? (
+                                  <button
+                                    onClick={() => quitarProductoDevolucion(item.productId, factura.id)}
+                                    className="text-red-400 hover:text-red-300 text-sm"
+                                  >
+                                    Quitar
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-500 text-sm">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-slate-400 p-3 border border-slate-800 rounded-lg">
+                  Este cliente no tiene facturas registradas.
                 </div>
-                <table className="min-w-full text-sm">
-                  <thead className="text-slate-400">
-                    <tr>
-                      <th className="text-left py-1">Producto</th>
-                      <th className="text-right py-1">Cant.</th>
-                      <th className="text-right py-1">Precio</th>
-                      <th className="text-right py-1">Devolver</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {factura.items.map((item: any, idx: number) => (
-                      <tr key={idx} className="border-t border-slate-800">
-                        <td className="py-1">{item.name}</td>
-                        <td className="text-right py-1">{item.qty}</td>
-                        <td className="text-right py-1">${item.unitPrice}</td>
-                        <td className="text-right py-1">
-                          <input
-                            type="number"
-                            min={1}
-                            max={item.qty}
-                            placeholder="0"
-                            className="w-16 text-center border border-slate-700 rounded bg-slate-900"
-                            onChange={(e) => {
-                              const cantidad = parseNum(e.target.value);
-                              if (cantidad > 0 && cantidad <= item.qty) {
-                                setProductosDevueltos((prev) => {
-                                  const existe = prev.find(
-                                    (p) =>
-                                      p.productId === item.productId &&
-                                      p.facturaId === factura.id
-                                  );
-                                  if (existe) {
-                                    return prev.map((p) =>
-                                      p.productId === item.productId &&
-                                      p.facturaId === factura.id
-                                        ? { ...p, qtyDevuelta: cantidad }
-                                        : p
-                                    );
-                                  }
-                                  return [
-                                    ...prev,
-                                    {
-                                      ...item,
-                                      facturaId: factura.id,
-                                      qtyDevuelta: cantidad,
-                                    },
-                                  ];
-                                });
-                              }
-                            }}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
-          </div>
-        ) : (
-          clienteSeleccionado && (
-            <div className="text-xs text-slate-400 mt-4">
-              Este cliente no tiene compras registradas.
+              )}
             </div>
-          )
-        )}
+          )}
 
-        {/* Resumen total */}
-        {productosDevueltos.length > 0 && (
-          <div className="mt-6 border-t border-slate-700 pt-4">
-            <h4 className="text-sm font-semibold mb-2">Resumen</h4>
-            <div className="text-sm">
-              Total devolución:{" "}
-              <span className="font-bold">
-                $
-                {productosDevueltos.reduce(
-                  (s, it) => s + parseNum(it.qtyDevuelta) * parseNum(it.unitPrice),
-                  0
-                )}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Selección del método de devolución */}
-        {productosDevueltos.length > 0 && (
-          <div className="mt-6 border-t border-slate-700 pt-4">
-            <h4 className="text-sm font-semibold mb-2">Método de devolución</h4>
-           <Select
-  label="Seleccionar método"
-  value={metodoDevolucion}
-  onChange={setMetodoDevolucion}
-  options={[
-    { value: "efectivo", label: "Efectivo" },
-    { value: "transferencia", label: "Transferencia" },
-    { value: "saldo", label: "Saldo a favor" },
-    { value: "intercambio_mismo", label: "Intercambio mismo producto" },
-    { value: "intercambio_otro", label: "Intercambio por otro producto" },
-  ]}
-/>
-
-
-            {metodoDevolucion !== "saldo" && (
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                <NumberInput
-                  label="Monto en efectivo"
-                  value={montoEfectivo}
-                  onChange={setMontoEfectivo}
-                  placeholder="0"
-                />
-                <NumberInput
-                  label="Monto en transferencia"
-                  value={montoTransferencia}
-                  onChange={setMontoTransferencia}
-                  placeholder="0"
-                />
+          {/* Resumen de productos a devolver */}
+          {productosDevueltos.length > 0 && (
+            <div className="mt-6 border-t border-slate-700 pt-4">
+              <h4 className="text-sm font-semibold mb-2">Productos a devolver</h4>
+              <div className="space-y-2">
+                {productosDevueltos.map((producto, index) => (
+                  <div key={index} className="flex justify-between items-center text-sm p-2 bg-slate-800/30 rounded">
+                    <div>
+                      <span className="font-medium">{producto.name}</span>
+                      <span className="text-slate-400 ml-2">
+                        (Factura #{producto.facturaNumero})
+                      </span>
+                    </div>
+                    <div>
+                      <span>{producto.qtyDevuelta} × {money(producto.unitPrice)} = </span>
+                      <span className="font-medium">{money(producto.qtyDevuelta * producto.unitPrice)}</span>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex justify-between items-center font-semibold border-t border-slate-700 pt-2 mt-2">
+                  <span>Total devolución:</span>
+                  <span>
+                    {money(productosDevueltos.reduce((sum, p) => sum + (p.qtyDevuelta * p.unitPrice), 0))}
+                  </span>
+                </div>
               </div>
-            )}
-          </div>
-        )}
-{/* Campos adicionales si es intercambio por otro producto */}
-{metodoDevolucion === "intercambio_otro" && (
-  <div className="mt-4 space-y-3">
-    <h4 className="text-sm font-semibold">Producto nuevo a entregar</h4>
-    <Select
-      label="Seleccionar producto nuevo"
-      value={productoNuevoId}
-      onChange={setProductoNuevoId}
-      options={state.products.map((p: any) => ({
-        value: p.id,
-        label: `${p.name} — Stock: ${p.stock || 0}`,
-      }))}
-    />
-    <NumberInput
-      label="Cantidad"
-      value={cantidadNuevo}
-      onChange={setCantidadNuevo}
-      placeholder="0"
-    />
+            </div>
+          )}
 
-    <h4 className="text-sm font-semibold mt-4">Pago de diferencia (opcional)</h4>
-    <div className="grid grid-cols-2 gap-3">
-      <NumberInput
-        label="Pago en efectivo"
-        value={montoEfectivo}
-        onChange={setMontoEfectivo}
-        placeholder="0"
-      />
-      <NumberInput
-        label="Pago en transferencia"
-        value={montoTransferencia}
-        onChange={setMontoTransferencia}
-        placeholder="0"
-      />
-      <Input
-        className="col-span-2"
-        label="Alias / CVU destino"
-        value={alias}
-        onChange={setAlias}
-        placeholder="ej: mitobicel.banco"
-      />
+          {/* Selección del método de devolución */}
+          {productosDevueltos.length > 0 && (
+            <div className="mt-6 border-t border-slate-700 pt-4">
+              <h4 className="text-sm font-semibold mb-2">Método de devolución</h4>
+              <Select
+                label="Seleccionar método"
+                value={metodoDevolucion}
+                onChange={setMetodoDevolucion}
+                options={[
+                  { value: "efectivo", label: "Efectivo" },
+                  { value: "transferencia", label: "Transferencia" },
+                  { value: "saldo", label: "Saldo a favor" },
+                  { value: "intercambio_mismo", label: "Intercambio mismo producto" },
+                  { value: "intercambio_otro", label: "Intercambio por otro producto" },
+                ]}
+              />
+
+              {/* Campos para intercambio por otro producto */}
+              {metodoDevolucion === "intercambio_otro" && (
+                <div className="mt-4 space-y-3">
+                  <h4 className="text-sm font-semibold">Producto nuevo a entregar</h4>
+                  <Select
+                    label="Seleccionar producto nuevo"
+                    value={productoNuevoId}
+                    onChange={setProductoNuevoId}
+                    options={[
+                      { value: "", label: "— Seleccionar producto —" },
+                      ...state.products.map((p: any) => ({
+                        value: p.id,
+                        label: `${p.name} — Stock: ${p.stock || 0}`,
+                      }))
+                    ]}
+                  />
+                  <NumberInput
+                    label="Cantidad"
+                    value={cantidadNuevo}
+                    onChange={setCantidadNuevo}
+                    placeholder="0"
+                  />
+
+                  <h4 className="text-sm font-semibold mt-4">Pago de diferencia (opcional)</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <NumberInput
+                      label="Pago en efectivo"
+                      value={montoEfectivo}
+                      onChange={setMontoEfectivo}
+                      placeholder="0"
+                    />
+                    <NumberInput
+                      label="Pago en transferencia"
+                      value={montoTransferencia}
+                      onChange={setMontoTransferencia}
+                      placeholder="0"
+                    />
+                    <Input
+                      className="col-span-2"
+                      label="Alias / CVU destino"
+                      value={alias}
+                      onChange={setAlias}
+                      placeholder="ej: mitobicel.banco"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Campos para efectivo/transferencia */}
+              {(metodoDevolucion === "efectivo" || metodoDevolucion === "transferencia") && (
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <NumberInput
+                    label="Monto en efectivo"
+                    value={montoEfectivo}
+                    onChange={setMontoEfectivo}
+                    placeholder="0"
+                  />
+                  <NumberInput
+                    label="Monto en transferencia"
+                    value={montoTransferencia}
+                    onChange={setMontoTransferencia}
+                    placeholder="0"
+                  />
+                </div>
+              )}
+
+              {/* Botón para confirmar devolución */}
+              <div className="mt-4 text-right">
+                <Button onClick={guardarDevolucion} tone="emerald">
+                  Confirmar devolución
+                </Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
     </div>
-  </div>
-)}
-
-          {/* Botón para confirmar devolución */}
-        {productosDevueltos.length > 0 && (
-          <div className="mt-4 text-right">
-            <Button onClick={guardarDevolucion} tone="emerald">
-              Confirmar devolución
-            </Button>
-          </div>
-        )}
-      </Card>
-    )}
-  </div>
   );
 }
-
 
 
 /* ===== helpers para impresión ===== */
@@ -3337,32 +3368,34 @@ export default function Page() {
   const [session, setSession] = useState<any | null>(null);
   const [tab, setTab] = useState("Facturación");
 
-useEffect(() => {
-  if (!hasSupabase) return;
-  (async () => {
-    const s = await loadFromSupabase(seedState());
-    setState(s);
-  })();
+  useEffect(() => {
+    if (!hasSupabase) return;
+    (async () => {
+      const s = await loadFromSupabase(seedState());
+      setState(s);
+    })();
 
-  // Agregar esta parte para sincronización en tiempo real:
-  if (hasSupabase) {
-    const budgetSubscription = supabase
-      .channel('budgets-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'budgets'
-        },
-        async () => {
-          // Recargar los presupuestos cuando haya cambios
-          const refreshedState = await loadFromSupabase(seedState());
-          setState(refreshedState);
-        }
-      )
-      .subscribe();
-     // 👇👇👇 AGREGAR ESTA SUSCRIPCIÓN PARA FACTURAS
+    // Agregar esta parte para sincronización en tiempo real:
+    if (hasSupabase) {
+      // Suscripción para presupuestos
+      const budgetSubscription = supabase
+        .channel('budgets-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'budgets'
+          },
+          async () => {
+            // Recargar los presupuestos cuando haya cambios
+            const refreshedState = await loadFromSupabase(seedState());
+            setState(refreshedState);
+          }
+        )
+        .subscribe();
+
+      // 👇👇👇 AGREGAR ESTA SUSCRIPCIÓN PARA FACTURAS
       const invoicesSubscription = supabase
         .channel('invoices-changes')
         .on(
@@ -3380,11 +3413,13 @@ useEffect(() => {
         )
         .subscribe();
 
-    return () => {
-      supabase.removeChannel(budgetSubscription);
-    };
-  }
-}, []);
+      return () => {
+        supabase.removeChannel(budgetSubscription);
+        supabase.removeChannel(invoicesSubscription); // 👈 AGREGAR ESTA LÍNEA
+      };
+    }
+  }, []);
+
 
   function onLogin(user: any) {
     setSession(user);
