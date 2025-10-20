@@ -893,7 +893,7 @@ const sections: string[] = Array.from(new Set<string>([...derivedSections, ...ex
     stock_min: product.stock_minimo // ⭐⭐ CORREGIDO ⭐⭐
   });
 }
-} // ⭐⭐ ESTA LLAVE FALTABA ⭐⭐
+
   function addSection() {
     const s = newSection.trim();
     if (!s) return;
