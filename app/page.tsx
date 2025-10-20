@@ -132,8 +132,7 @@ if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
 
   return out;
 }
-    return out;               // <-- agrega este return si faltaba
-}   
+
 
 
 async function saveCountersSupabase(meta: any) {
@@ -850,7 +849,7 @@ function ProductosTab({ state, setState, role }: any) {
     setStock("");
     setSection("");
 
-  ifif (hasSupabase) {
+  if (hasSupabase) {
   const { error } = await supabase.from("products").insert({
     id: product.id,
     name: product.name,
@@ -1565,7 +1564,7 @@ function ReportesTab({ state, setState, session }: any) {
     window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
     await nextPaint();
     window.print();
-  }
+  
 
   // ===== AQUÍ ESTÁ EL RETURN PRINCIPAL DEL COMPONENTE =====
   return (
@@ -2277,7 +2276,7 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
     console.log("Facturas encontradas:", facturasDelCliente.length);
     console.log("Facturas:", facturasDelCliente);
 
-  }, [clienteSeleccionado, state.invoices]);
+  }, [clienteSeleccionado, state.invoices, state.meta?.lastSavedInvoiceId, state.gastos?.length]);
 
   // Función para agregar producto a devolver
   const agregarProductoADevolver = (item: any, factura: any, cantidad: number) => {
