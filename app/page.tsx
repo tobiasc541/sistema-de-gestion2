@@ -850,18 +850,25 @@ function ProductosTab({ state, setState, role }: any) {
     setStock("");
     setSection("");
 
-    if (hasSupabase) {
-      await supabase.from("products").insert({
-        id: product.id,
-        name: product.name,
-        section: product.section,
-        price1: product.price1,
-        price2: product.price2,
-        stock: product.stock,
-        stock_min: 0
-      });
-    }
+  ifif (hasSupabase) {
+  const { error } = await supabase.from("products").insert({
+    id: product.id,
+    name: product.name,
+    section: product.section,
+    list_label: "General",
+    price1: product.price1,
+    price2: product.price2,
+    cost: 0,
+    stock: product.stock,
+    stock_min: 0
+  });
+
+  if (error) {
+    console.error("Error guardando producto:", error);
+    alert("Error al guardar: " + error.message);
+    return; // No continuar si hay error
   }
+}
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
