@@ -817,106 +817,52 @@ function ClientesTab({ state, setState }: any) {
 
 /* Productos */
 function ProductosTab({ state, setState, role }: any) {
-  // Filtrar productos que están bajo el stock mínimo
+  const [name, setName] = useState("");
+  const [section, setSection] = useState("");
+  const [price1, setPrice1] = useState("");
+  const [price2, setPrice2] = useState("");
+  const [stock, setStock] = useState("");
+
   const productosBajoStock = state.products.filter(
     (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
   );
 
-  const [name, setName] = useState("");
-  const [section, setSection] = useState("");
-  const [list_label, setListLabel] = useState("MITOBICEL");
-  const [price1, setPrice1] = useState("");
-  const [price2, setPrice2] = useState("");
-  const [cost, setCost] = useState("");
-  const [stock, setStock] = useState("");
-  const [stockMinimo, setStockMinimo] = useState("0");
-
-  const [secFilter, setSecFilter] = useState("Todas");
-  const [listFilter, setListFilter] = useState("Todas");
-  const [q, setQ] = useState("");
-
-  // creación dinámica de secciones
-  const [newSection, setNewSection] = useState("");
-  const [extraSections, setExtraSections] = useState<string[]>([]);
-
-  // Sin secciones predefinidas: solo las que existen en tu DB o las que agregues
-  const derivedSections: string[] = Array.from(
-    new Set(
-      state.products
-        .map((p: any) => String(p.section ?? "").trim())
-        .filter((s: string) => !!s)
-    )
-  );
-  const sections: string[] = Array.from(new Set<string>([...derivedSections, ...extraSections]));
-
-  const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
-
   async function addProduct() {
     if (!name.trim()) return;
-    if (!section.trim()) {
-      alert("Elegí una sección o creá una nueva.");
-      return;
-    }
 
     const product = {
       id: "p" + Math.random().toString(36).slice(2, 8),
       name: name.trim(),
-      section,
-      list_label,
+      section: section.trim() || "General",
       price1: parseNum(price1),
       price2: parseNum(price2),
-      cost: parseNum(cost),
       stock: parseNum(stock),
-      stock_minimo: parseNum(stockMinimo),
+      stock_minimo: 0,
     };
 
     const st = clone(state);
     st.products.push(product);
     setState(st);
     
-    // Limpiar todos los campos
     setName("");
     setPrice1("");
     setPrice2("");
-    setCost("");
     setStock("");
-    setStockMinimo("0");
-    
+    setSection("");
+
     if (hasSupabase) {
       await supabase.from("products").insert({
         id: product.id,
         name: product.name,
         section: product.section,
-        list_label: product.list_label,
         price1: product.price1,
         price2: product.price2,
-        cost: product.cost,
         stock: product.stock,
-        stock_min: product.stock_minimo
+        stock_min: 0
       });
     }
   }
 
-  function addSection() {
-    const s = newSection.trim();
-    if (!s) return;
-    const exists = sections.some((x: string) => x.toLowerCase() === s.toLowerCase());
-    if (exists) {
-      alert("Esa sección ya existe.");
-      return;
-    }
-    setExtraSections([...extraSections, s]);
-    setNewSection("");
-    setSection(s);
-  }
-
-  const filtered = state.products.filter((p: any) => {
-    const okS = secFilter === "Todas" || p.section === secFilter;
-    const okL = listFilter === "Todas" || p.list_label === listFilter;
-    const okQ = !q || p.name.toLowerCase().includes(q.toLowerCase());
-    return okS && okL && okQ;
-  });
-  
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       {productosBajoStock.length > 0 && (
@@ -931,98 +877,39 @@ function ProductosTab({ state, setState, role }: any) {
         </Card>
       )}
       
-      <Card title="Crear sección">
-        <div className="grid md:grid-cols-3 gap-3">
-          <Input label="Nombre de la sección" value={newSection} onChange={setNewSection} placeholder="Ej: Perfumería, Librería…" />
-          <div className="pt-6">
-            <Button onClick={addSection}>Agregar sección</Button>
-          </div>
-        </div>
-      </Card>
-
       <Card title="Crear producto">
-        <div className="grid md:grid-cols-6 gap-3">
-          <Input label="Nombre" value={name} onChange={setName} className="md:col-span-2" />
-          <Select
-            label="Sección"
-            value={section}
-            onChange={setSection}
-            options={[
-              { value: "", label: "— Elegí una sección —" },
-              ...sections.map((s: string) => ({ value: s, label: s })),
-            ]}
-          />
-          <Select label="Lista" value={list_label} onChange={setListLabel} options={lists.map((s) => ({ value: s, label: s }))} />
-          <NumberInput label="Precio lista Mitobicel" value={price1} onChange={setPrice1} />
-          <NumberInput label="Precio lista Elshopping" value={price2} onChange={setPrice2} />
+        <div className="grid md:grid-cols-5 gap-3">
+          <Input label="Nombre" value={name} onChange={setName} />
+          <Input label="Sección" value={section} onChange={setSection} placeholder="General" />
+          <NumberInput label="Precio 1" value={price1} onChange={setPrice1} />
+          <NumberInput label="Precio 2" value={price2} onChange={setPrice2} />
           <NumberInput label="Stock" value={stock} onChange={setStock} />
-          <NumberInput label="Stock mínimo" value={stockMinimo} onChange={setStockMinimo} />
-          {role === "admin" && <NumberInput label="Costo (solo admin)" value={cost} onChange={setCost} />}
-          <div className="md:col-span-6">
+          <div className="md:col-span-5">
             <Button onClick={addProduct}>Agregar</Button>
           </div>
         </div>
       </Card>
 
       <Card title="Listado de productos">
-        <div className="grid md:grid-cols-4 gap-2 mb-3">
-          <Select label="Sección" value={secFilter} onChange={setSecFilter} options={["Todas", ...sections].map((s: string) => ({ value: s, label: s }))} />
-          <Select label="Lista" value={listFilter} onChange={setListFilter} options={["Todas", ...lists].map((s) => ({ value: s, label: s }))} />
-          <Input label="Buscar" value={q} onChange={setQ} placeholder="Nombre..." />
-        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-slate-400">
               <tr>
                 <th className="py-2 pr-4">Nombre</th>
                 <th className="py-2 pr-4">Sección</th>
-                <th className="py-2 pr-4">Lista</th>
-                <th className="py-2 pr-4">Lista 1</th>
-                <th className="py-2 pr-4">Lista 2</th>
-                {role === "admin" && <th className="py-2 pr-4">Costo</th>}
+                <th className="py-2 pr-4">Precio 1</th>
+                <th className="py-2 pr-4">Precio 2</th>
                 <th className="py-2 pr-4">Stock</th>
-                <th className="py-2 pr-4">Stock mínimo</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {filtered.map((p: any) => (
+              {state.products.map((p: any) => (
                 <tr key={p.id}>
                   <td className="py-2 pr-4">{p.name}</td>
                   <td className="py-2 pr-4">{p.section}</td>
-                  <td className="py-2 pr-4">{p.list_label}</td>
                   <td className="py-2 pr-4">{money(p.price1)}</td>
                   <td className="py-2 pr-4">{money(p.price2)}</td>
-                  {role === "admin" && <td className="py-2 pr-4">{money(p.cost)}</td>}
-                  <td className="py-2 pr-4">
-                    <NumberInput
-                      value={p.stock}
-                      onChange={async (v: any) => {
-                        const newStock = parseNum(v);
-                        const st = clone(state);
-                        const prod = st.products.find((x) => x.id === p.id);
-                        if (prod) prod.stock = newStock;
-                        setState(st);
-                        if (hasSupabase) {
-                          await supabase.from("products").update({ stock: newStock }).eq("id", p.id);
-                        }
-                      }}
-                    />
-                  </td>
-                  <td className="py-2 pr-4">
-                    <NumberInput
-                      value={p.stock_minimo}
-                      onChange={async (v: any) => {
-                        const newMin = parseNum(v);
-                        const st = clone(state);
-                        const prod = st.products.find((x: any) => x.id === p.id);
-                        if (prod) prod.stock_minimo = newMin;
-                        setState(st);
-                        if (hasSupabase) {
-                          await supabase.from("products").update({ stock_min: newMin }).eq("id", p.id);
-                        }
-                      }}
-                    />
-                  </td>
+                  <td className="py-2 pr-4">{p.stock}</td>
                 </tr>
               ))}
             </tbody>
@@ -1032,7 +919,6 @@ function ProductosTab({ state, setState, role }: any) {
     </div>
   );
 }
-
 
 
 
