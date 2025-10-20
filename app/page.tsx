@@ -1581,7 +1581,9 @@ useEffect(() => {
     window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
     await nextPaint();
     window.print();
-  }  // ← ESTE } CIERRA LA FUNCIÓN imprimirReporte
+    }  // ← ESTE } CIERRA LA FUNCIÓN imprimirReporte
+
+  }  // ← AGREGAR ESTA LLAVE PARA CERRAR EL COMPONENTE ReportesTab
 
   return (  // ← AHORA ESTE return ESTÁ DENTRO DE ReportesTab
     <div className="max-w-6xl mx-auto p-4 space-y-4">
