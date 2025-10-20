@@ -813,9 +813,11 @@ function ClientesTab({ state, setState }: any) {
 
 
 
+
+
 /* Productos */
 function ProductosTab({ state, setState, role }: any) {
-   // Filtrar productos que están bajo el stock mínimo
+  // Filtrar productos que están bajo el stock mínimo
   const productosBajoStock = state.products.filter(
     (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
   );
@@ -827,7 +829,7 @@ function ProductosTab({ state, setState, role }: any) {
   const [price2, setPrice2] = useState("");
   const [cost, setCost] = useState("");
   const [stock, setStock] = useState("");
-  const [stockMinimo, setStockMinimo] = useState("0"); // ⭐⭐ NUEVO ESTADO ⭐⭐
+  const [stockMinimo, setStockMinimo] = useState("0");
 
   const [secFilter, setSecFilter] = useState("Todas");
   const [listFilter, setListFilter] = useState("Todas");
@@ -837,76 +839,76 @@ function ProductosTab({ state, setState, role }: any) {
   const [newSection, setNewSection] = useState("");
   const [extraSections, setExtraSections] = useState<string[]>([]);
 
-// Sin secciones predefinidas: solo las que existen en tu DB o las que agregues
-const derivedSections: string[] = Array.from(
-  new Set(
-    state.products
-      .map((p: any) => String(p.section ?? "").trim())
-      .filter((s: string) => !!s)
-  )
-);
-const sections: string[] = Array.from(new Set<string>([...derivedSections, ...extraSections]));
-
+  // Sin secciones predefinidas: solo las que existen en tu DB o las que agregues
+  const derivedSections: string[] = Array.from(
+    new Set(
+      state.products
+        .map((p: any) => String(p.section ?? "").trim())
+        .filter((s: string) => !!s)
+    )
+  );
+  const sections: string[] = Array.from(new Set<string>([...derivedSections, ...extraSections]));
 
   const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
-async function addProduct() {
-  if (!name.trim()) return;
-  if (!section.trim()) {
-    alert("Elegí una sección o creá una nueva.");
-    return;
+
+  async function addProduct() {
+    if (!name.trim()) return;
+    if (!section.trim()) {
+      alert("Elegí una sección o creá una nueva.");
+      return;
+    }
+
+    const product = {
+      id: "p" + Math.random().toString(36).slice(2, 8),
+      name: name.trim(),
+      section,
+      list_label,
+      price1: parseNum(price1),
+      price2: parseNum(price2),
+      cost: parseNum(cost),
+      stock: parseNum(stock),
+      stock_minimo: parseNum(stockMinimo),
+    };
+
+    const st = clone(state);
+    st.products.push(product);
+    setState(st);
+    
+    // Limpiar todos los campos
+    setName("");
+    setPrice1("");
+    setPrice2("");
+    setCost("");
+    setStock("");
+    setStockMinimo("0");
+    
+    if (hasSupabase) {
+      await supabase.from("products").insert({
+        id: product.id,
+        name: product.name,
+        section: product.section,
+        list_label: product.list_label,
+        price1: product.price1,
+        price2: product.price2,
+        cost: product.cost,
+        stock: product.stock,
+        stock_min: product.stock_minimo
+      });
+    }
   }
 
-  const product = {
-    id: "p" + Math.random().toString(36).slice(2, 8),
-    name: name.trim(),
-    section,
-    list_label,
-    price1: parseNum(price1),
-    price2: parseNum(price2),
-    cost: parseNum(cost),
-    stock: parseNum(stock),
-    stock_minimo: parseNum(stockMinimo),
-  };
-
-  const st = clone(state);
-  st.products.push(product);
-  setState(st);
-  
-  // Limpiar todos los campos
-  setName("");
-  setPrice1("");
-  setPrice2("");
-  setCost("");
-  setStock("");
-  setStockMinimo("0");
-  
-  if (hasSupabase) {
-    await supabase.from("products").insert({
-      id: product.id,
-      name: product.name,
-      section: product.section,
-      list_label: product.list_label,
-      price1: product.price1,
-      price2: product.price2,
-      cost: product.cost,
-      stock: product.stock,
-      stock_min: product.stock_minimo
-    });
+  function addSection() {
+    const s = newSection.trim();
+    if (!s) return;
+    const exists = sections.some((x: string) => x.toLowerCase() === s.toLowerCase());
+    if (exists) {
+      alert("Esa sección ya existe.");
+      return;
+    }
+    setExtraSections([...extraSections, s]);
+    setNewSection("");
+    setSection(s);
   }
-} // ← AGREGAR ESTA LLAVE DE CIERRE
-
-function addSection() {
-  const s = newSection.trim();
-  if (!s) return;
-  const exists = sections.some((x: string) => x.toLowerCase() === s.toLowerCase());
-  if (exists) {
-    alert("Esa sección ya existe.");
-    return;
-  }
-  setExtraSections([...extraSections, s]);
-  setNewSection("");
-  setSection(s);
-}
 
   const filtered = state.products.filter((p: any) => {
     const okS = secFilter === "Todas" || p.section === secFilter;
@@ -915,20 +917,20 @@ function addSection() {
     return okS && okL && okQ;
   });
   
-
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       {productosBajoStock.length > 0 && (
-  <Card title="⚠️ Productos con bajo stock">
-    <ul className="list-disc pl-5 text-sm text-red-400">
-      {productosBajoStock.map((p: any) => (
-        <li key={p.id}>
-          {p.name} – Stock actual: {p.stock}, Mínimo: {p.stock_minimo}
-        </li>
-      ))}
-    </ul>
-  </Card>
-)}
+        <Card title="⚠️ Productos con bajo stock">
+          <ul className="list-disc pl-5 text-sm text-red-400">
+            {productosBajoStock.map((p: any) => (
+              <li key={p.id}>
+                {p.name} – Stock actual: {p.stock}, Mínimo: {p.stock_minimo}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      
       <Card title="Crear sección">
         <div className="grid md:grid-cols-3 gap-3">
           <Input label="Nombre de la sección" value={newSection} onChange={setNewSection} placeholder="Ej: Perfumería, Librería…" />
@@ -942,20 +944,19 @@ function addSection() {
         <div className="grid md:grid-cols-6 gap-3">
           <Input label="Nombre" value={name} onChange={setName} className="md:col-span-2" />
           <Select
-  label="Sección"
-  value={section}
-  onChange={setSection}
-  options={[
-    { value: "", label: "— Elegí una sección —" },
-    ...sections.map((s: string) => ({ value: s, label: s })),
-  ]}
-/>
-
+            label="Sección"
+            value={section}
+            onChange={setSection}
+            options={[
+              { value: "", label: "— Elegí una sección —" },
+              ...sections.map((s: string) => ({ value: s, label: s })),
+            ]}
+          />
           <Select label="Lista" value={list_label} onChange={setListLabel} options={lists.map((s) => ({ value: s, label: s }))} />
           <NumberInput label="Precio lista Mitobicel" value={price1} onChange={setPrice1} />
           <NumberInput label="Precio lista Elshopping" value={price2} onChange={setPrice2} />
           <NumberInput label="Stock" value={stock} onChange={setStock} />
-          <NumberInput label="Stock mínimo" value={stockMinimo} onChange={setStockMinimo} /> {/* ⭐⭐ NUEVO CAMPO ⭐⭐ */}
+          <NumberInput label="Stock mínimo" value={stockMinimo} onChange={setStockMinimo} />
           {role === "admin" && <NumberInput label="Costo (solo admin)" value={cost} onChange={setCost} />}
           <div className="md:col-span-6">
             <Button onClick={addProduct}>Agregar</Button>
@@ -971,77 +972,66 @@ function addSection() {
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-           <thead className="text-left text-slate-400">
-  <tr>
-    <th className="py-2 pr-4">Nombre</th>
-    <th className="py-2 pr-4">Sección</th>
-    <th className="py-2 pr-4">Lista</th>
-    <th className="py-2 pr-4">Lista 1</th>
-    <th className="py-2 pr-4">Lista 2</th>
-    {role === "admin" && <th className="py-2 pr-4">Costo</th>}
-    <th className="py-2 pr-4">Stock</th>
-    <th className="py-2 pr-4">Stock mínimo</th>
-  </tr>
-</thead>
-
-<tbody className="divide-y divide-slate-800">
-  {filtered.map((p: any) => (
-    <tr key={p.id}>
-      <td className="py-2 pr-4">{p.name}</td>
-      <td className="py-2 pr-4">{p.section}</td>
-      <td className="py-2 pr-4">{p.list_label}</td>
-      <td className="py-2 pr-4">{money(p.price1)}</td>
-      <td className="py-2 pr-4">{money(p.price2)}</td>
-      {role === "admin" && <td className="py-2 pr-4">{money(p.cost)}</td>}
-
-      {/* Stock actual editable */}
-      <td className="py-2 pr-4">
-        <NumberInput
-          value={p.stock}
-          onChange={async (v: any) => {
-            const newStock = parseNum(v);
-            const st = clone(state);
-
-            const prod = st.products.find((x) => x.id === p.id);
-            if (prod) prod.stock = newStock;
-            setState(st);
-
-            if (hasSupabase) {
-              await supabase.from("products").update({ stock: newStock }).eq("id", p.id);
-            }
-          }}
-        />
-      </td>
-
-           {/* Stock mínimo editable */}
-      <td className="py-2 pr-4">
-        <NumberInput
-          value={p.stock_minimo}
-          onChange={async (v: any) => {
-            const newMin = parseNum(v);
-            const st = clone(state);
-
-            const prod = st.products.find((x: any) => x.id === p.id);
-            if (prod) prod.stock_minimo = newMin;
-            setState(st);
-
-         if (hasSupabase) {
-  await supabase.from("products").update({ stock_min: newMin }).eq("id", p.id);
-}
-          }}
-        />
-      </td>
-    </tr>
-  ))}
-</tbody>
-</table>
-</div>
-</Card>
-</div>
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-4">Nombre</th>
+                <th className="py-2 pr-4">Sección</th>
+                <th className="py-2 pr-4">Lista</th>
+                <th className="py-2 pr-4">Lista 1</th>
+                <th className="py-2 pr-4">Lista 2</th>
+                {role === "admin" && <th className="py-2 pr-4">Costo</th>}
+                <th className="py-2 pr-4">Stock</th>
+                <th className="py-2 pr-4">Stock mínimo</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {filtered.map((p: any) => (
+                <tr key={p.id}>
+                  <td className="py-2 pr-4">{p.name}</td>
+                  <td className="py-2 pr-4">{p.section}</td>
+                  <td className="py-2 pr-4">{p.list_label}</td>
+                  <td className="py-2 pr-4">{money(p.price1)}</td>
+                  <td className="py-2 pr-4">{money(p.price2)}</td>
+                  {role === "admin" && <td className="py-2 pr-4">{money(p.cost)}</td>}
+                  <td className="py-2 pr-4">
+                    <NumberInput
+                      value={p.stock}
+                      onChange={async (v: any) => {
+                        const newStock = parseNum(v);
+                        const st = clone(state);
+                        const prod = st.products.find((x) => x.id === p.id);
+                        if (prod) prod.stock = newStock;
+                        setState(st);
+                        if (hasSupabase) {
+                          await supabase.from("products").update({ stock: newStock }).eq("id", p.id);
+                        }
+                      }}
+                    />
+                  </td>
+                  <td className="py-2 pr-4">
+                    <NumberInput
+                      value={p.stock_minimo}
+                      onChange={async (v: any) => {
+                        const newMin = parseNum(v);
+                        const st = clone(state);
+                        const prod = st.products.find((x: any) => x.id === p.id);
+                        if (prod) prod.stock_minimo = newMin;
+                        setState(st);
+                        if (hasSupabase) {
+                          await supabase.from("products").update({ stock_min: newMin }).eq("id", p.id);
+                        }
+                      }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
   );
 }
-
-
 
 
 
