@@ -849,63 +849,64 @@ const sections: string[] = Array.from(new Set<string>([...derivedSections, ...ex
 
 
   const lists = ["MITOBICEL", "ELSHOPPINGDLC", "General"];
-  async function addProduct() {
-    if (!name.trim()) return;
-    if (!section.trim()) {
-      alert("Elegí una sección o creá una nueva.");
-      return;
-    }
-
-    const product = {
-      id: "p" + Math.random().toString(36).slice(2, 8),
-      name: name.trim(),
-      section,
-      list_label,
-      price1: parseNum(price1),
-      price2: parseNum(price2),
-      cost: parseNum(cost),
-      stock: parseNum(stock),
-      stock_minimo: parseNum(stockMinimo), // ⭐⭐ USAR EL VALOR DEL INPUT ⭐⭐
-    };
-
-    const st = clone(state);
-    st.products.push(product);
-    setState(st);
-    
-    // Limpiar todos los campos
-    setName("");
-    setPrice1("");
-    setPrice2("");
-    setCost("");
-    setStock("");
-    setStockMinimo("0"); // ⭐⭐ LIMPIAR TAMBIÉN EL STOCK MÍNIMO ⭐⭐
-    
-   if (hasSupabase) {
-  await supabase.from("products").insert({
-    id: product.id,
-    name: product.name,
-    section: product.section,
-    list_label: product.list_label,
-    price1: product.price1,
-    price2: product.price2,
-    cost: product.cost,
-    stock: product.stock,
-    stock_min: product.stock_minimo // ⭐⭐ CORREGIDO ⭐⭐
-  });
-}
-
-  function addSection() {
-    const s = newSection.trim();
-    if (!s) return;
-    const exists = sections.some((x: string) => x.toLowerCase() === s.toLowerCase());
-    if (exists) {
-      alert("Esa sección ya existe.");
-      return;
-    }
-    setExtraSections([...extraSections, s]);
-    setNewSection("");
-    setSection(s);
+async function addProduct() {
+  if (!name.trim()) return;
+  if (!section.trim()) {
+    alert("Elegí una sección o creá una nueva.");
+    return;
   }
+
+  const product = {
+    id: "p" + Math.random().toString(36).slice(2, 8),
+    name: name.trim(),
+    section,
+    list_label,
+    price1: parseNum(price1),
+    price2: parseNum(price2),
+    cost: parseNum(cost),
+    stock: parseNum(stock),
+    stock_minimo: parseNum(stockMinimo),
+  };
+
+  const st = clone(state);
+  st.products.push(product);
+  setState(st);
+  
+  // Limpiar todos los campos
+  setName("");
+  setPrice1("");
+  setPrice2("");
+  setCost("");
+  setStock("");
+  setStockMinimo("0");
+  
+  if (hasSupabase) {
+    await supabase.from("products").insert({
+      id: product.id,
+      name: product.name,
+      section: product.section,
+      list_label: product.list_label,
+      price1: product.price1,
+      price2: product.price2,
+      cost: product.cost,
+      stock: product.stock,
+      stock_min: product.stock_minimo
+    });
+  }
+} // ← AGREGAR ESTA LLAVE DE CIERRE
+
+function addSection() {
+  const s = newSection.trim();
+  if (!s) return;
+  const exists = sections.some((x: string) => x.toLowerCase() === s.toLowerCase());
+  if (exists) {
+    alert("Esa sección ya existe.");
+    return;
+  }
+  setExtraSections([...extraSections, s]);
+  setNewSection("");
+  setSection(s);
+}
 
   const filtered = state.products.filter((p: any) => {
     const okS = secFilter === "Todas" || p.section === secFilter;
