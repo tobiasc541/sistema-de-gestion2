@@ -1271,9 +1271,6 @@ function VendedoresTab({ state, setState }: any) {
 }
 
 /* Reportes */
-/* Reportes */
-/* Reportes */
-/* Reportes */
 function ReportesTab({ state, setState, session }: any) {
   // ====== Filtros de fecha ======
   const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -1298,15 +1295,13 @@ function ReportesTab({ state, setState, session }: any) {
     setState(st);
 
     if (hasSupabase) {
-      // dentro de ReportesTab
       await supabase
         .from("cash_floats")
         .upsert(
-          { day: diaClave, amount: nuevo, updated_by: "app" }, // <- actualizado
+          { day: diaClave, amount: nuevo, updated_by: "app" },
           { onConflict: "day" }
         );
     } else {
-      // fallback local (por si no hay supabase)
       await saveCountersSupabase?.(st.meta);
     }
   }
@@ -1315,13 +1310,6 @@ function ReportesTab({ state, setState, session }: any) {
   const commissionsByDate = (state?.meta?.commissionsByDate ?? {}) as Record<string, number>;
   const commissionTarget =
     periodo === "dia" ? parseNum(commissionsByDate[diaClave] ?? 0) : 0;
-
-  // Sumar comisiones en el período (sirve para mes/año)
-  // ⚠️ Se calcula más abajo porque usa {start, end}
-  // const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]) => {
-  //   const t = new Date(`${k}T00:00:00`).getTime();
-  //   return t >= start && t <= end ? sum + parseNum(v) : sum;
-  // }, 0);
 
   async function setCommissionForDay(nuevo: number) {
     const st = clone(state);
@@ -1333,8 +1321,8 @@ function ReportesTab({ state, setState, session }: any) {
       await supabase
         .from("commissions")
         .upsert(
-          { day: diaClave, amount: nuevo, updated_by: "app" }, // <- session no existe acá
-          { onConflict: "day" } // clave única por día
+          { day: diaClave, amount: nuevo, updated_by: "app" },
+          { onConflict: "day" }
         );
     } else {
       await saveCountersSupabase?.(st.meta);
@@ -1363,92 +1351,87 @@ function ReportesTab({ state, setState, session }: any) {
     return { start: start.getTime(), end: end.getTime() };
   }
   const { start, end } = rangoActual();
+
   // ===== NUEVO: estados para listados traídos por rango =====
-const [docsEnRango, setDocsEnRango] = useState<any[]>([]);
-const [devolucionesPeriodo, setDevolucionesPeriodo] = useState<any[]>([]);
-const [cargandoListados, setCargandoListados] = useState(false);
+  const [docsEnRango, setDocsEnRango] = useState<any[]>([]);
+  const [devolucionesPeriodo, setDevolucionesPeriodo] = useState<any[]>([]);
+  const [cargandoListados, setCargandoListados] = useState(false);
 
-// ===== NUEVO: mismos límites pero en ISO para consultar a Supabase =====
-function rangoActualISO() {
-  const { start, end } = rangoActual();
-  return { isoStart: new Date(start).toISOString(), isoEnd: new Date(end).toISOString() };
-}
-
-// ===== NUEVO: traer facturas y devoluciones por rango, con fallback local =====
-// ===== NUEVO: traer facturas y devoluciones por rango, con fallback local =====
-useEffect(() => {
-  const { isoStart, isoEnd } = rangoActualISO();
-
-  async function fetchListados() {
-    setCargandoListados(true);
-
-    if (hasSupabase) {
-      // FACTURAS
-      const { data: inv, error: e1 } = await supabase
-        .from("invoices")
-        .select("*")
-        .gte("date_iso", isoStart)
-        .lte("date_iso", isoEnd)
-        .order("date_iso", { ascending: false });
-      if (e1) { console.error("SELECT invoices (rango):", e1); alert("No pude leer facturas del período."); }
-
-      // DEVOLUCIONES
-      const { data: dev, error: e2 } = await supabase
-        .from("devoluciones")
-        .select("*")
-        .gte("date_iso", isoStart)
-        .lte("date_iso", isoEnd)
-        .order("date_iso", { ascending: false });
-      if (e2) { console.error("SELECT devoluciones (rango):", e2); alert("No pude leer devoluciones del período."); }
-
-      // GASTOS
-      const { data: gastosData, error: e3 } = await supabase
-        .from("gastos")
-        .select("*")
-        .gte("date_iso", isoStart)
-        .lte("date_iso", isoEnd)
-        .order("date_iso", { ascending: false });
-      if (e3) { console.error("SELECT gastos (rango):", e3); alert("No pude leer gastos del período."); }
-
-      setDocsEnRango(inv || []);
-      setDevolucionesPeriodo(dev || []);
-      
-      // Actualizar el estado global con los gastos del período
-      if (gastosData) {
-        const st = clone(state);
-        st.gastos = gastosData;
-        setState(st);
-      }
-    } else {
-      // Fallback local si no hay Supabase
-      const docs = (state.invoices || []).filter((f:any) => {
-        const t = new Date(f.date_iso).getTime();
-        return t >= start && t <= end;
-      });
-      const devs = (state.devoluciones || []).filter((d:any) => {
-        const t = new Date(d.date_iso).getTime();
-        return t >= start && t <= end;
-      });
-      setDocsEnRango(docs);
-      setDevolucionesPeriodo(devs);
-    }
-
-    setCargandoListados(false);
+  // ===== NUEVO: mismos límites pero en ISO para consultar a Supabase =====
+  function rangoActualISO() {
+    const { start, end } = rangoActual();
+    return { isoStart: new Date(start).toISOString(), isoEnd: new Date(end).toISOString() };
   }
 
-  fetchListados();
-  // refresca cuando cambia el período o cuando guardaste una venta
-}, [periodo, dia, mes, anio, state.meta?.lastSavedInvoiceId, state.gastos?.length]);
+  // ===== NUEVO: traer facturas y devoluciones por rango, con fallback local =====
+  useEffect(() => {
+    const { isoStart, isoEnd } = rangoActualISO();
 
+    async function fetchListados() {
+      setCargandoListados(true);
+
+      if (hasSupabase) {
+        // FACTURAS
+        const { data: inv, error: e1 } = await supabase
+          .from("invoices")
+          .select("*")
+          .gte("date_iso", isoStart)
+          .lte("date_iso", isoEnd)
+          .order("date_iso", { ascending: false });
+        if (e1) { console.error("SELECT invoices (rango):", e1); alert("No pude leer facturas del período."); }
+
+        // DEVOLUCIONES
+        const { data: dev, error: e2 } = await supabase
+          .from("devoluciones")
+          .select("*")
+          .gte("date_iso", isoStart)
+          .lte("date_iso", isoEnd)
+          .order("date_iso", { ascending: false });
+        if (e2) { console.error("SELECT devoluciones (rango):", e2); alert("No pude leer devoluciones del período."); }
+
+        // GASTOS
+        const { data: gastosData, error: e3 } = await supabase
+          .from("gastos")
+          .select("*")
+          .gte("date_iso", isoStart)
+          .lte("date_iso", isoEnd)
+          .order("date_iso", { ascending: false });
+        if (e3) { console.error("SELECT gastos (rango):", e3); alert("No pude leer gastos del período."); }
+
+        setDocsEnRango(inv || []);
+        setDevolucionesPeriodo(dev || []);
+        
+        // Actualizar el estado global con los gastos del período
+        if (gastosData) {
+          const st = clone(state);
+          st.gastos = gastosData;
+          setState(st);
+        }
+      } else {
+        // Fallback local si no hay Supabase
+        const docs = (state.invoices || []).filter((f:any) => {
+          const t = new Date(f.date_iso).getTime();
+          return t >= start && t <= end;
+        });
+        const devs = (state.devoluciones || []).filter((d:any) => {
+          const t = new Date(d.date_iso).getTime();
+          return t >= start && t <= end;
+        });
+        setDocsEnRango(docs);
+        setDevolucionesPeriodo(devs);
+      }
+
+      setCargandoListados(false);
+    }
+
+    fetchListados();
+  }, [periodo, dia, mes, anio, state.meta?.lastSavedInvoiceId, state.gastos?.length]);
 
   // ✅ Ahora sí: comisiones del período usando start/end
   const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]) => {
     const t = new Date(`${k}T00:00:00`).getTime();
     return t >= start && t <= end ? sum + parseNum(v) : sum;
   }, 0);
-
-  // Documentos dentro del rango
-
 
   // Ventas (solo Facturas)
   const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
@@ -1465,16 +1448,13 @@ useEffect(() => {
   // Ganancia estimada
   const ganancia = invoices.reduce((s: number, f: any) => s + (parseNum(f.total) - parseNum(f.cost)), 0);
 
-   // GASTOS del período
+  // GASTOS del período
   const gastosPeriodo = (state.gastos || []).filter((g: any) => {
     if (!g || !g.date_iso) return false;
     const t = new Date(g.date_iso).getTime();
     return t >= start && t <= end;
   });
-    // DEBUG: Verificar gastos
-  console.log("Todos los gastos en state:", state.gastos);
-  console.log("Gastos en período:", gastosPeriodo);
-  console.log("Rango:", new Date(start), "a", new Date(end));
+  
   const totalGastos = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
   const totalGastosEfectivo = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo), 0);
   const totalGastosTransferencia = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.transferencia), 0);
@@ -1492,7 +1472,6 @@ useEffect(() => {
     return Object.entries(m).map(([alias, total]) => ({ alias, total }));
   })();
 
-
   const devolucionesMontoEfectivo = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.efectivo), 0);
   const devolucionesMontoTransfer = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.transferencia), 0);
   const devolucionesMontoTotal    = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
@@ -1502,7 +1481,7 @@ useEffect(() => {
     totalEfectivoNeto
     - totalGastosEfectivo
     - devolucionesMontoEfectivo
-    - commissionsPeriodo      // 👈 RESTA comisiones del período
+    - commissionsPeriodo
     + vueltoRestante;
 
   // Agrupados
@@ -1559,13 +1538,11 @@ useEffect(() => {
         devolucionesTransfer: devolucionesMontoTransfer,
         devolucionesTotal: devolucionesMontoTotal,
 
-        // NUEVO: info de vuelto por día
         cashFloatTarget,
         vueltoRestante,
 
         flujoCajaEfectivo: flujoCajaEfectivoFinal,
 
-        // 👇 NUEVO
         comisionesPeriodo: commissionsPeriodo,
       },
 
@@ -1581,11 +1558,10 @@ useEffect(() => {
     window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
     await nextPaint();
     window.print();
-    }  // ← ESTE } CIERRA LA FUNCIÓN imprimirReporte
+  }
 
-  }  // ← AGREGAR ESTA LLAVE PARA CERRAR EL COMPONENTE ReportesTab
-
-  return (  // ← AHORA ESTE return ESTÁ DENTRO DE ReportesTab
+  // ===== AQUÍ ESTÁ EL RETURN PRINCIPAL DEL COMPONENTE =====
+  return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       <Card title="Filtros">
         <div className="grid md:grid-cols-4 gap-3">
@@ -1605,7 +1581,7 @@ useEffect(() => {
         </div>
       </Card>
 
-          <Card title="Acciones" actions={
+      <Card title="Acciones" actions={
         <div className="flex gap-2">
           <Button tone="slate" onClick={async () => {
             const refreshedState = await loadFromSupabase(seedState());
@@ -1620,6 +1596,7 @@ useEffect(() => {
         <div className="text-sm text-slate-400">Genera un reporte imprimible con el rango seleccionado.</div>
       </Card>
 
+      {/* ... el resto del JSX del componente permanece igual ... */}
       {periodo === "dia" && (
         <Card
           title="Vuelto en caja (por día)"
@@ -1637,7 +1614,6 @@ useEffect(() => {
               label={`Vuelto configurado para ${diaClave}`}
               value={String(cashFloatTarget)}
               onChange={(v: any) => {
-                // se edita en memoria; se persiste al tocar Guardar
                 const st = clone(state);
                 st.meta.cashFloatByDate = st.meta.cashFloatByDate || {};
                 st.meta.cashFloatByDate[diaClave] = parseNum(v);
@@ -1699,16 +1675,13 @@ useEffect(() => {
 
       <div className="grid md:grid-cols-4 gap-3">
         <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
-
         <Card title="Efectivo (cobrado)">
           <div className="text-2xl font-bold">{money(totalEfectivo)}</div>
           <div className="text-xs text-slate-400 mt-1">Sin descontar vuelto</div>
         </Card>
-
         <Card title="Vuelto entregado">
           <div className="text-2xl font-bold">{money(totalVuelto)}</div>
         </Card>
-
         <Card title="Transferencias">
           <div className="text-2xl font-bold">{money(totalTransf)}</div>
         </Card>
@@ -1721,12 +1694,10 @@ useEffect(() => {
             Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante
           </div>
         </Card>
-
         <Card title="Ganancia estimada">
           <div className="text-2xl font-bold">{money(ganancia)}</div>
           <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
         </Card>
-
         <Card title="Flujo final de caja (efectivo)">
           <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
           <div className="text-xs text-slate-400 mt-1">
@@ -1800,178 +1771,156 @@ useEffect(() => {
         )}
       </Card>
 
-<Card title="Listado de facturas">
-  <div className="overflow-x-auto">
-    <table className="min-w-full text-sm">
-      <thead className="text-left text-slate-400">
-        <tr>
-          <th className="py-2 pr-3">#</th>
-          <th className="py-2 pr-3">Fecha</th>
-          <th className="py-2 pr-3">Cliente</th>
-          <th className="py-2 pr-3">Vendedor</th>
-          <th className="py-2 pr-3">Total</th>
-          <th className="py-2 pr-3">Efectivo</th>
-          <th className="py-2 pr-3">Transf.</th>
-          <th className="py-2 pr-3">Vuelto</th>
-          <th className="py-2 pr-3">Alias/CVU</th>
-          <th className="py-2 pr-3">Tipo</th>
-          <th className="py-2 pr-3">Estado</th>
-          <th className="py-2 pr-3">Acciones</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-slate-800">
-        {docsEnRango
-          .slice()
-          .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
-          .map((f: any) => {
-            const cash = parseNum(f?.payments?.cash);
-            const tr = parseNum(f?.payments?.transfer);
-            const ch = parseNum(f?.payments?.change);
-            const alias = (f?.payments?.alias || "").trim() || "—";
-
-            // Función para ver PDF usando la misma lógica de presupuestos
-            const viewInvoicePDF = (invoice: any) => {
-              window.dispatchEvent(new CustomEvent("print-invoice", { detail: { ...invoice, type: "Factura" } } as any));
-              setTimeout(() => window.print(), 0);
-            };
-
-            // Función para eliminar factura (solo admin)
-            const deleteInvoice = async (invoice: any) => {
-              if (!confirm(`¿Seguro que deseas eliminar la factura Nº ${pad(invoice.number)}?`)) return;
-              const st = clone(state);
-              st.invoices = st.invoices.filter((x: any) => x.id !== invoice.id);
-              setState(st);
-              if (hasSupabase) {
-                await supabase.from("invoices").delete().eq("id", invoice.id);
-              }
-              alert(`Factura Nº ${pad(invoice.number)} eliminada.`);
-            };
-
-            return (
-              <tr key={f.id}>
-                <td className="py-2 pr-3">{pad(f.number || 0)}</td>
-                <td className="py-2 pr-3">{new Date(f.date_iso).toLocaleString("es-AR")}</td>
-                <td className="py-2 pr-3">{f.client_name}</td>
-                <td className="py-2 pr-3">{f.vendor_name}</td>
-                <td className="py-2 pr-3">{money(parseNum(f.total))}</td>
-                <td className="py-2 pr-3">{money(cash)}</td>
-                <td className="py-2 pr-3">{money(tr)}</td>
-                <td className="py-2 pr-3">{money(ch)}</td>
-                <td className="py-2 pr-3 truncate max-w-[180px]">{alias}</td>
-                <td className="py-2 pr-3">{f.type || "—"}</td>
-                <td className="py-2 pr-3">{f.status || "—"}</td>
-                <td className="py-2 pr-3 space-x-2">
-                  {/* Botón ver PDF */}
-              
-  {/* Botón ver PDF */}
-  <button
-    onClick={() => viewInvoicePDF(f)}
-    className="text-blue-500 hover:text-blue-700"
-    title="Ver PDF"
-  >
-    📄
-  </button>
-
-  {/* Botón eliminar (solo admin) */}
-  {session?.role === "admin" && (
-    <button
-      onClick={async () => {
-        if (!confirm(`¿Seguro que deseas eliminar la factura Nº ${pad(f.number)}?`)) return;
-        
-        const st = clone(state);
-        st.invoices = st.invoices.filter((x: any) => x.id !== f.id);
-        setState(st);
-        
-        if (hasSupabase) {
-          await supabase.from("invoices").delete().eq("id", f.id);
-        }
-        
-        alert(`Factura Nº ${pad(f.number)} eliminada.`);
-      }}
-      className="text-red-500 hover:text-red-700"
-      title="Eliminar"
-    >
-      🗑️
-    </button>
-  )}
-</td>
-
-    
-                </td>
+      <Card title="Listado de facturas">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-3">#</th>
+                <th className="py-2 pr-3">Fecha</th>
+                <th className="py-2 pr-3">Cliente</th>
+                <th className="py-2 pr-3">Vendedor</th>
+                <th className="py-2 pr-3">Total</th>
+                <th className="py-2 pr-3">Efectivo</th>
+                <th className="py-2 pr-3">Transf.</th>
+                <th className="py-2 pr-3">Vuelto</th>
+                <th className="py-2 pr-3">Alias/CVU</th>
+                <th className="py-2 pr-3">Tipo</th>
+                <th className="py-2 pr-3">Estado</th>
+                <th className="py-2 pr-3">Acciones</th>
               </tr>
-            );
-          })}
-        {docsEnRango.length === 0 && (
-          <tr>
-            <td className="py-3 text-slate-400" colSpan={12}>
-              Sin documentos en el período.
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  </div>
-</Card>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {docsEnRango
+                .slice()
+                .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+                .map((f: any) => {
+                  const cash = parseNum(f?.payments?.cash);
+                  const tr = parseNum(f?.payments?.transfer);
+                  const ch = parseNum(f?.payments?.change);
+                  const alias = (f?.payments?.alias || "").trim() || "—";
 
+                  // Función para ver PDF usando la misma lógica de presupuestos
+                  const viewInvoicePDF = (invoice: any) => {
+                    window.dispatchEvent(new CustomEvent("print-invoice", { detail: { ...invoice, type: "Factura" } } as any));
+                    setTimeout(() => window.print(), 0);
+                  };
 
+                  return (
+                    <tr key={f.id}>
+                      <td className="py-2 pr-3">{pad(f.number || 0)}</td>
+                      <td className="py-2 pr-3">{new Date(f.date_iso).toLocaleString("es-AR")}</td>
+                      <td className="py-2 pr-3">{f.client_name}</td>
+                      <td className="py-2 pr-3">{f.vendor_name}</td>
+                      <td className="py-2 pr-3">{money(parseNum(f.total))}</td>
+                      <td className="py-2 pr-3">{money(cash)}</td>
+                      <td className="py-2 pr-3">{money(tr)}</td>
+                      <td className="py-2 pr-3">{money(ch)}</td>
+                      <td className="py-2 pr-3 truncate max-w-[180px]">{alias}</td>
+                      <td className="py-2 pr-3">{f.type || "—"}</td>
+                      <td className="py-2 pr-3">{f.status || "—"}</td>
+                      <td className="py-2 pr-3 space-x-2">
+                        {/* Botón ver PDF */}
+                        <button
+                          onClick={() => viewInvoicePDF(f)}
+                          className="text-blue-500 hover:text-blue-700"
+                          title="Ver PDF"
+                        >
+                          📄
+                        </button>
 
+                        {/* Botón eliminar (solo admin) */}
+                        {session?.role === "admin" && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`¿Seguro que deseas eliminar la factura Nº ${pad(f.number)}?`)) return;
+                              
+                              const st = clone(state);
+                              st.invoices = st.invoices.filter((x: any) => x.id !== f.id);
+                              setState(st);
+                              
+                              if (hasSupabase) {
+                                await supabase.from("invoices").delete().eq("id", f.id);
+                              }
+                              
+                              alert(`Factura Nº ${pad(f.number)} eliminada.`);
+                            }}
+                            className="text-red-500 hover:text-red-700"
+                            title="Eliminar"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              {docsEnRango.length === 0 && (
+                <tr>
+                  <td className="py-3 text-slate-400" colSpan={12}>
+                    Sin documentos en el período.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
-<Card title="Listado de devoluciones">
-  <div className="overflow-x-auto">
-    <table className="min-w-full text-sm">
-      <thead className="text-left text-slate-400">
-        <tr>
-          <th className="py-2 pr-3">Fecha</th>
-          <th className="py-2 pr-3">Cliente</th>
-          <th className="py-2 pr-3">Método</th>
-          <th className="py-2 pr-3">Efectivo</th>
-          <th className="py-2 pr-3">Transf.</th>
-          <th className="py-2 pr-3">Total</th>
-          <th className="py-2 pr-3">Detalle</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-slate-800">
-        {devolucionesPeriodo
-          .slice()
-          .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
-          .map((d: any) => (
-            <tr key={d.id}>
-              <td className="py-2 pr-3">{new Date(d.date_iso).toLocaleString("es-AR")}</td>
-              <td className="py-2 pr-3">{d.client_name}</td>
-              <td className="py-2 pr-3 capitalize">{d.metodo}</td>
-              <td className="py-2 pr-3">{money(parseNum(d.efectivo))}</td>
-              <td className="py-2 pr-3">{money(parseNum(d.transferencia))}</td>
-              <td className="py-2 pr-3">{money(parseNum(d.total))}</td>
-              <td className="py-2 pr-3">
-                {(d.items || []).map((it: any, i: number) => (
-                  <div key={i} className="text-xs">
-                    {it.name} — dev.: {parseNum(it.qtyDevuelta)} × {money(parseNum(it.unitPrice))}
-                  </div>
+      <Card title="Listado de devoluciones">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-3">Fecha</th>
+                <th className="py-2 pr-3">Cliente</th>
+                <th className="py-2 pr-3">Método</th>
+                <th className="py-2 pr-3">Efectivo</th>
+                <th className="py-2 pr-3">Transf.</th>
+                <th className="py-2 pr-3">Total</th>
+                <th className="py-2 pr-3">Detalle</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {devolucionesPeriodo
+                .slice()
+                .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+                .map((d: any) => (
+                  <tr key={d.id}>
+                    <td className="py-2 pr-3">{new Date(d.date_iso).toLocaleString("es-AR")}</td>
+                    <td className="py-2 pr-3">{d.client_name}</td>
+                    <td className="py-2 pr-3 capitalize">{d.metodo}</td>
+                    <td className="py-2 pr-3">{money(parseNum(d.efectivo))}</td>
+                    <td className="py-2 pr-3">{money(parseNum(d.transferencia))}</td>
+                    <td className="py-2 pr-3">{money(parseNum(d.total))}</td>
+                    <td className="py-2 pr-3">
+                      {(d.items || []).map((it: any, i: number) => (
+                        <div key={i} className="text-xs">
+                          {it.name} — dev.: {parseNum(it.qtyDevuelta)} × {money(parseNum(it.unitPrice))}
+                        </div>
+                      ))}
+                      {d.metodo === "intercambio_otro" && (
+                        <div className="text-xs text-slate-400 mt-1">
+                          Dif. abonada: ef. {money(parseNum(d.extra_pago_efectivo || 0))} · tr. {money(parseNum(d.extra_pago_transferencia || 0))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
                 ))}
-                {d.metodo === "intercambio_otro" && (
-                  <div className="text-xs text-slate-400 mt-1">
-                    Dif. abonada: ef. {money(parseNum(d.extra_pago_efectivo || 0))} · tr. {money(parseNum(d.extra_pago_transferencia || 0))}
-                  </div>
-                )}
-              </td>
-            </tr>
-          ))}
-        {devolucionesPeriodo.length === 0 && (
-          <tr>
-            <td className="py-3 text-slate-400" colSpan={7}>
-              Sin devoluciones en el período.
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  </div>
-</Card>
-
-</div>
-);
-}
-
+              {devolucionesPeriodo.length === 0 && (
+                <tr>
+                  <td className="py-3 text-slate-400" colSpan={7}>
+                    Sin devoluciones en el período.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+} // ← ESTE CIERRA EL COMPONENTE ReportesTab
 
      
 
