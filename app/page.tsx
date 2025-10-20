@@ -88,10 +88,9 @@ if (clients) out.clients = clients;
 const { data: products, error: prodErr } = await supabase.from("products").select("*");
 if (prodErr) { console.error("SELECT products:", prodErr); alert("No pude leer 'products' de Supabase."); }
 if (products) {
-  // ⭐⭐ MAPEAR stock_min CORRECTAMENTE ⭐⭐
   out.products = products.map((p: any) => ({
     ...p,
-    stock_minimo: p.stock_min !== null ? parseNum(p.stock_min) : 0 // Mapear stock_min a stock_minimo
+    stock_minimo: p.stock_min !== null ? parseNum(p.stock_min) : 0
   }));
 }
 
@@ -881,15 +880,20 @@ const sections: string[] = Array.from(new Set<string>([...derivedSections, ...ex
     setStock("");
     setStockMinimo("0"); // ⭐⭐ LIMPIAR TAMBIÉN EL STOCK MÍNIMO ⭐⭐
     
-    if (hasSupabase) {
-      // ⭐⭐ USAR stock_min EN VEZ DE stock_minimo ⭐⭐
-      await supabase.from("products").insert({
-        ...product,
-        stock_min: parseNum(stockMinimo) // Guardar como stock_min en Supabase
-      });
-    }
-  }
-
+   if (hasSupabase) {
+  await supabase.from("products").insert({
+    id: product.id,
+    name: product.name,
+    section: product.section,
+    list_label: product.list_label,
+    price1: product.price1,
+    price2: product.price2,
+    cost: product.cost,
+    stock: product.stock,
+    stock_min: product.stock_minimo // ⭐⭐ CORREGIDO ⭐⭐
+  });
+}
+} // ⭐⭐ ESTA LLAVE FALTABA ⭐⭐
   function addSection() {
     const s = newSection.trim();
     if (!s) return;
@@ -1020,10 +1024,9 @@ const sections: string[] = Array.from(new Set<string>([...derivedSections, ...ex
             if (prod) prod.stock_minimo = newMin;
             setState(st);
 
-            if (hasSupabase) {
-              // ⭐⭐ ACTUALIZAR stock_min EN SUPABASE ⭐⭐
-              await supabase.from("products").update({ stock_min: newMin }).eq("id", p.id);
-            }
+         if (hasSupabase) {
+  await supabase.from("products").update({ stock_min: newMin }).eq("id", p.id);
+}
           }}
         />
       </td>
