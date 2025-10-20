@@ -1860,7 +1860,7 @@ useEffect(() => {
                 <td className="py-2 pr-3">{f.status || "—"}</td>
                 <td className="py-2 pr-3 space-x-2">
                   {/* Botón ver PDF */}
-              <td className="py-2 pr-3 space-x-2">
+              
   {/* Botón ver PDF */}
   <button
     onClick={() => viewInvoicePDF(f)}
