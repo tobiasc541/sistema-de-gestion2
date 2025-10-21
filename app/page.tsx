@@ -1564,6 +1564,7 @@ function ReportesTab({ state, setState, session }: any) {
     window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
     await nextPaint();
     window.print();
+      } 
   
 
   // ===== AQUÍ ESTÁ EL RETURN PRINCIPAL DEL COMPONENTE =====
