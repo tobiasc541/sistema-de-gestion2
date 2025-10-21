@@ -46,58 +46,56 @@ function seedState() {
 }
 
 
-/* ===== Carga/actualización desde Supabase ===== */
 async function loadFromSupabase(fallback: any) {
   if (!hasSupabase) return fallback;
   const out = clone(fallback);
   
+  // meta
+  const { data: meta, error: metaErr } = await supabase
+    .from("meta").select("*").eq("key","counters").maybeSingle();
+  if (metaErr) { console.error("SELECT meta:", metaErr); alert("No pude leer 'meta' de Supabase."); }
+  if (meta?.value) out.meta = { ...out.meta, ...meta.value };
 
-// meta
-const { data: meta, error: metaErr } = await supabase
-  .from("meta").select("*").eq("key","counters").maybeSingle();
-if (metaErr) { console.error("SELECT meta:", metaErr); alert("No pude leer 'meta' de Supabase."); }
-if (meta?.value) out.meta = { ...out.meta, ...meta.value };
+  // 👇👇👇 AGREGAR AQUÍ - Cargar comisiones
+  const { data: commissionsData, error: commErr } = await supabase
+    .from("commissions")
+    .select("*");
 
-// 👇👇👇 AGREGAR AQUÍ - Cargar comisiones
-const { data: commissionsData, error: commErr } = await supabase
-  .from("commissions")
-  .select("*");
+  if (commErr) {
+    console.error("SELECT commissions:", commErr);
+  } else if (commissionsData) {
+    const commissionsByDate: Record<string, number> = {};
+    commissionsData.forEach((row: any) => {
+      commissionsByDate[row.day] = parseNum(row.amount);
+    });
+    out.meta.commissionsByDate = commissionsByDate;
+  }
+  // 👆👆👆 HASTA AQUÍ
 
-if (commErr) {
-  console.error("SELECT commissions:", commErr);
-} else if (commissionsData) {
-  const commissionsByDate: Record<string, number> = {};
-  commissionsData.forEach((row: any) => {
-    commissionsByDate[row.day] = parseNum(row.amount);
-  });
-  out.meta.commissionsByDate = commissionsByDate;
-}
-// 👆👆👆 HASTA AQUÍ
-
-// vendors (esto ya existe, DEJARLO COMO ESTÁ)
-const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
-if (vendErr) { console.error("SELECT vendors:", vendErr); alert("No pude leer 'vendors' de Supabase."); }
-if (vendors) out.vendors = vendors;
+  // vendors (esto ya existe, DEJARLO COMO ESTÁ)
+  const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
+  if (vendErr) { console.error("SELECT vendors:", vendErr); alert("No pude leer 'vendors' de Supabase."); }
+  if (vendors) out.vendors = vendors;
+  
   // clients
-const { data: clients, error: cliErr } = await supabase.from("clients").select("*");
-if (cliErr) { console.error("SELECT clients:", cliErr); alert("No pude leer 'clients' de Supabase."); }
-if (clients) out.clients = clients;
+  const { data: clients, error: cliErr } = await supabase.from("clients").select("*");
+  if (cliErr) { console.error("SELECT clients:", cliErr); alert("No pude leer 'clients' de Supabase."); }
+  if (clients) out.clients = clients;
 
+  // products
+  const { data: products, error: prodErr } = await supabase.from("products").select("*");
+  if (prodErr) { console.error("SELECT products:", prodErr); alert("No pude leer 'products' de Supabase."); }
+  if (products) {
+    out.products = products.map((p: any) => ({
+      ...p,
+      stock_minimo: p.stock_min !== null ? parseNum(p.stock_min) : 0
+    }));
+  }
 
-// products
-const { data: products, error: prodErr } = await supabase.from("products").select("*");
-if (prodErr) { console.error("SELECT products:", prodErr); alert("No pude leer 'products' de Supabase."); }
-if (products) {
-  out.products = products.map((p: any) => ({
-    ...p,
-    stock_minimo: p.stock_min !== null ? parseNum(p.stock_min) : 0
-  }));
-}
-
-// invoices
-const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").order("number");
-if (invErr) { console.error("SELECT invoices:", invErr); alert("No pude leer 'invoices' de Supabase."); }
-if (invoices) out.invoices = invoices;
+  // invoices
+  const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").order("number");
+  if (invErr) { console.error("SELECT invoices:", invErr); alert("No pude leer 'invoices' de Supabase."); }
+  if (invoices) out.invoices = invoices;
 
   // 👇👇👇 AGREGAR AQUÍ - Cargar devoluciones
   const { data: devoluciones, error: devErr } = await supabase
@@ -109,31 +107,28 @@ if (invoices) out.invoices = invoices;
   if (devoluciones) out.devoluciones = devoluciones;
   // 👆👆👆 HASTA AQUÍ
 
-// budgets
-const { data: budgets, error: budErr } = await supabase.from("budgets").select("*").order("number");
-if (budErr) { console.error("SELECT budgets:", budErr); alert("No pude leer 'budgets' de Supabase."); }
-if (budgets) out.budgets = budgets;
+  // budgets
+  const { data: budgets, error: budErr } = await supabase.from("budgets").select("*").order("number");
+  if (budErr) { console.error("SELECT budgets:", budErr); alert("No pude leer 'budgets' de Supabase."); }
+  if (budgets) out.budgets = budgets;
 
-
- // Si está vacío, NO sembrar datos de ejemplo (nada de demo).
-if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
-
-  // Solo aseguro counters en meta para que la app no falle.
-  await supabase.from("meta").upsert({
-    key: "counters",
-    value: {
-      invoiceCounter: 1,
-      budgetCounter: 1,
-      cashFloat: out.meta?.cashFloat ?? 0,
-      cashFloatByDate: out.meta?.cashFloatByDate ?? {},
-       commissionsByDate: out.meta?.commissionsByDate ?? {},  // 👈
-    },
-  });
+  // Si está vacío, NO sembrar datos de ejemplo (nada de demo).
+  if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
+    // Solo aseguro counters en meta para que la app no falle.
+    await supabase.from("meta").upsert({
+      key: "counters",
+      value: {
+        invoiceCounter: 1,
+        budgetCounter: 1,
+        cashFloat: out.meta?.cashFloat ?? 0,
+        cashFloatByDate: out.meta?.cashFloatByDate ?? {},
+        commissionsByDate: out.meta?.commissionsByDate ?? {},
+      },
+    });
+  }
 
   return out;
 }
-
-
 
 async function saveCountersSupabase(meta: any) {
   if (!hasSupabase) return;
@@ -148,6 +143,8 @@ async function saveCountersSupabase(meta: any) {
     },
   });
 }
+
+
 
 
 
@@ -849,25 +846,26 @@ function ProductosTab({ state, setState, role }: any) {
     setStock("");
     setSection("");
 
-  if (hasSupabase) {
-  const { error } = await supabase.from("products").insert({
-    id: product.id,
-    name: product.name,
-    section: product.section,
-    list_label: "General",
-    price1: product.price1,
-    price2: product.price2,
-    cost: 0,
-    stock: product.stock,
-    stock_min: 0
-  });
+    if (hasSupabase) {
+      const { error } = await supabase.from("products").insert({
+        id: product.id,
+        name: product.name,
+        section: product.section,
+        list_label: "General",
+        price1: product.price1,
+        price2: product.price2,
+        cost: 0,
+        stock: product.stock,
+        stock_min: 0
+      });
 
-  if (error) {
-    console.error("Error guardando producto:", error);
-    alert("Error al guardar: " + error.message);
-    return; // No continuar si hay error
+      if (error) {
+        console.error("Error guardando producto:", error);
+        alert("Error al guardar: " + error.message);
+        return;
+      }
+    }
   }
-}
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
