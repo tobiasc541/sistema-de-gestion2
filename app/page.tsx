@@ -71,6 +71,20 @@ async function loadFromSupabase(fallback: any) {
     out.meta.commissionsByDate = commissionsByDate;
   }
   // 👆👆👆 HASTA AQUÍ
+  // 👇👇👇 AGREGAR AQUÍ - Cargar cash_floats
+const { data: cashFloatsData, error: cashFloatsErr } = await supabase
+  .from("cash_floats")
+  .select("*");
+
+if (cashFloatsErr) {
+  console.error("SELECT cash_floats:", cashFloatsErr);
+} else if (cashFloatsData) {
+  const cashFloatByDate: Record<string, number> = {};
+  cashFloatsData.forEach((row: any) => {
+    cashFloatByDate[row.day] = parseNum(row.amount);
+  });
+  out.meta.cashFloatByDate = cashFloatByDate;
+}
 
   // vendors (esto ya existe, DEJARLO COMO ESTÁ)
   const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
