@@ -835,7 +835,11 @@ function ProductosTab({ state, setState, role }: any) {
       stock: parseNum(stock),
       stock_minimo: 0,
     };
-
+ // 👇👇👇 AGREGAR ESTO JUSTO AQUÍ 👇👇👇
+  console.log("🔍 PRODUCTO A GUARDAR:", product);
+  console.log("🔍 hasSupabase:", hasSupabase);
+  // 👆👆👆 HASTA AQUÍ 👆👆👆
+    
     const st = clone(state);
     st.products.push(product);
     setState(st);
@@ -847,6 +851,7 @@ function ProductosTab({ state, setState, role }: any) {
     setSection("");
 
     if (hasSupabase) {
+      
       const { error } = await supabase.from("products").insert({
         id: product.id,
         name: product.name,
