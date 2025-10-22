@@ -29,6 +29,7 @@ function seedState() {
   cashFloat: 0,
   cashFloatByDate: {} as Record<string, number>,
   commissionsByDate: {} as Record<string, number>,   // 👈 NUEVO
+      gabiFundsByDate: {} as Record<string, number>, // 👈 NUEVO
 },
 
 
@@ -42,6 +43,7 @@ function seedState() {
     gastos: [] as any[],
     devoluciones: [] as any[],  // <--- AGREGAR ESTO
     queue: [] as any[],
+     gabiFunds: [] as any[], // 👈 NUEVO
   };
 }
 
@@ -84,6 +86,22 @@ if (cashFloatsErr) {
     cashFloatByDate[row.day] = parseNum(row.amount);
   });
   out.meta.cashFloatByDate = cashFloatByDate;
+}
+  // 👇👇👇 AGREGAR AQUÍ - Cargar fondos de Gabi
+const { data: gabiFundsData, error: gabiErr } = await supabase
+  .from("gabi_funds")
+  .select("*")
+  .order("day", { ascending: false });
+
+if (gabiErr) {
+  console.error("SELECT gabi_funds:", gabiErr);
+} else if (gabiFundsData) {
+  const gabiFundsByDate: Record<string, number> = {};
+  gabiFundsData.forEach((row: any) => {
+    gabiFundsByDate[row.day] = parseNum(row.initial_amount);
+  });
+  out.meta.gabiFundsByDate = gabiFundsByDate;
+  out.gabiFunds = gabiFundsData;
 }
 
   // vendors (esto ya existe, DEJARLO COMO ESTÁ)
@@ -1362,6 +1380,8 @@ function ReportesTab({ state, setState, session }: any) {
   const [dia, setDia] = useState<string>(todayStr);
   const [mes, setMes] = useState<string>(thisMonthStr);
   const [anio, setAnio] = useState<string>(String(today.getFullYear()));
+  const [gabiInitial, setGabiInitial] = useState("");
+const [gabiSpent, setGabiSpent] = useState("");
 
   // --- helpers para vuelto por día ---
   const diaClave = dia; // YYYY-MM-DD del selector
@@ -1516,6 +1536,18 @@ function ReportesTab({ state, setState, session }: any) {
   // Ventas (solo Facturas)
   const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
   const totalVentas = invoices.reduce((s: number, f: any) => s + parseNum(f.total), 0);
+  // 👇👇👇 CÁLCULOS GABI - AGREGAR JUSTO AQUÍ 👇👇👇
+
+// Gastos de Gabi del día
+const gastosGabi = gastosPeriodo.filter((g: any) => g.tipo === "Gabi");
+const totalGastosGabi = gastosGabi.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
+
+// Fondos de Gabi
+const gabiFundsByDate = (state?.meta?.gabiFundsByDate ?? {}) as Record<string, number>;
+const gabiInitialTarget = periodo === "dia" ? parseNum(gabiFundsByDate[diaClave] ?? 0) : 0;
+const fondosGabiRestantes = Math.max(0, gabiInitialTarget - totalGastosGabi);
+
+// 👆👆👆 HASTA AQUÍ 👆👆👆
 
   // Pagos
   const totalVuelto  = invoices.reduce((s: number, f: any) => s + parseNum(f?.payments?.change), 0);
@@ -1557,13 +1589,14 @@ function ReportesTab({ state, setState, session }: any) {
   const devolucionesMontoTotal    = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
 
   // Flujo final de caja (efectivo) incluyendo el vuelto restante del día
-  const flujoCajaEfectivoFinal =
-    totalEfectivoNeto
-    - totalGastosEfectivo
-    - devolucionesMontoEfectivo
-    - commissionsPeriodo
-    + vueltoRestante;
-
+// Flujo final de caja (efectivo) incluyendo el vuelto restante del día Y fondos de Gabi
+const flujoCajaEfectivoFinal =
+  totalEfectivoNeto
+  - totalGastosEfectivo
+  - devolucionesMontoEfectivo
+  - commissionsPeriodo
+  + vueltoRestante
+  + fondosGabiRestantes; // 👈 NUEVO: Sumar fondos restantes de Gabi
   // Agrupados
   const porVendedor = Object.values(
     invoices.reduce((acc: any, f: any) => {
@@ -1753,6 +1786,86 @@ function ReportesTab({ state, setState, session }: any) {
           </div>
         </Card>
       )}
+      {/* 👇👇👇 SECCIÓN GABI - AGREGAR JUSTO AQUÍ 👇👇👇 */}
+      // 👇👇👇 AGREGAR ESTAS FUNCIONES DENTRO DEL COMPONENTE ReportesTab 👇👇👇
+
+// Función para guardar fondos iniciales de Gabi
+async function setGabiFundsForDay(nuevo: number) {
+  const st = clone(state);
+  st.meta.gabiFundsByDate = st.meta.gabiFundsByDate || {};
+  st.meta.gabiFundsByDate[diaClave] = nuevo;
+  setState(st);
+
+  if (hasSupabase) {
+    await supabase
+      .from("gabi_funds")
+      .upsert(
+        { 
+          id: `gabi_${diaClave}`,
+          day: diaClave, 
+          initial_amount: nuevo,
+          updated_at: todayISO()
+        },
+        { onConflict: "day" }
+      );
+  }
+}
+
+// Función para actualizar gastos de Gabi
+async function updateGabiSpentForDay(gastado: number) {
+  if (!hasSupabase) return;
+
+  const { data: existing } = await supabase
+    .from("gabi_funds")
+    .select("*")
+    .eq("day", diaClave)
+    .single();
+
+  if (existing) {
+    const remaining = parseNum(existing.initial_amount) - gastado;
+    await supabase
+      .from("gabi_funds")
+      .update({
+        spent_amount: gastado,
+        remaining_amount: remaining,
+        updated_at: todayISO()
+      })
+      .eq("day", diaClave);
+  }
+}
+{periodo === "dia" && (
+  <Card
+    title="Fondos de Gabi (por día)"
+    actions={
+      <Button onClick={async () => {
+        await setGabiFundsForDay(parseNum(gabiInitial));
+        alert("Fondos de Gabi guardados.");
+      }}>
+        Guardar
+      </Button>
+    }
+  >
+    <div className="grid md:grid-cols-3 gap-3">
+      <NumberInput
+        label={`Dinero dado a Gabi para ${diaClave}`}
+        value={gabiInitial}
+        onChange={setGabiInitial}
+        placeholder="Ej: 50000"
+      />
+      <div className="md:col-span-2 grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Gastos de Gabi registrados</div>
+          <div className="text-xl font-bold">{money(totalGastosGabi)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Fondos restantes de Gabi</div>
+          <div className="text-xl font-bold">{money(fondosGabiRestantes)}</div>
+        </div>
+      </div>
+    </div>
+  </Card>
+)}
+{/* 👆👆👆 HASTA AQUÍ 👆👆👆 */}
 
       <div className="grid md:grid-cols-4 gap-3">
         <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
@@ -1792,6 +1905,16 @@ function ReportesTab({ state, setState, session }: any) {
           <div>Total de gastos: <b>{money(totalGastos)}</b></div>
           <div>- En efectivo: {money(totalGastosEfectivo)}</div>
           <div>- En transferencia: {money(totalGastosTransferencia)}</div>
+              {/* 👇👇👇 SECCIÓN GABI EN GASTOS - AGREGAR JUSTO AQUÍ 👇👇👇 */}
+    {periodo === "dia" && (
+      <div className="mt-2 p-2 bg-slate-800/30 rounded">
+        <div className="font-semibold">Fondos de Gabi</div>
+        <div>- Dinero dado: {money(gabiInitialTarget)}</div>
+        <div>- Gastado: {money(totalGastosGabi)}</div>
+        <div>- Restante: <b>{money(fondosGabiRestantes)}</b></div>
+      </div>
+    )}
+    {/* 👆👆👆 HASTA AQUÍ 👆👆👆 */}
 
           <h4 className="mt-2 font-semibold">Transferencias por alias</h4>
           {transferenciasPorAlias.length === 0 ? (
@@ -2320,6 +2443,7 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
   const [montoEfectivo, setMontoEfectivo] = useState("");
   const [montoTransferencia, setMontoTransferencia] = useState("");
   const [alias, setAlias] = useState("");
+  const [tipoGasto, setTipoGasto] = useState("Proveedor");
 
   const [clienteSeleccionado, setClienteSeleccionado] = useState("");
   const [productosDevueltos, setProductosDevueltos] = useState<any[]>([]);
@@ -2653,6 +2777,16 @@ ${cli.debt > 0 ? `Se aplicó saldo a favor a la deuda existente. Deuda actual: $
               onChange={setDetalle}
               placeholder="Ej: Coca-Cola, Luz, Transporte..."
             />
+            <Select
+  label="Tipo de gasto"
+  value={tipoGasto}
+  onChange={setTipoGasto}
+  options={[
+    { value: "Proveedor", label: "Proveedor" },
+    { value: "Gabi", label: "Gabi" }, // 👈 NUEVA OPCIÓN
+    { value: "Otro", label: "Otro" },
+  ]}
+/>
             <NumberInput
               label="Monto en efectivo"
               value={montoEfectivo}
