@@ -2380,69 +2380,91 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
   }
 
   async function guardarDevolucion() {
-    if (!clienteSeleccionado) {
-      alert("Selecciona un cliente antes de guardar la devolución.");
-      return;
-    }
-
-    if (productosDevueltos.length === 0) {
-      alert("Debes seleccionar al menos un producto para devolver.");
-      return;
-    }
-
-    // Intercambio por otro producto - validación
-    if (metodoDevolucion === "intercambio_otro") {
-      if (!productoNuevoId || parseNum(cantidadNuevo) <= 0) {
-        alert("Debes seleccionar un producto nuevo y la cantidad.");
-        return;
-      }
-    }
-
-    const clientName = state.clients.find((c: any) => c.id === clienteSeleccionado)?.name || "Cliente desconocido";
-
-    // Total calculado según cantidades devueltas
-    const totalDevolucion = productosDevueltos.reduce(
-      (s, it) => s + parseNum(it.qtyDevuelta) * parseNum(it.unitPrice),
-      0
-    );
-
-    const devolucion = {
-      id: "d" + Math.random().toString(36).slice(2, 8),
-      client_id: clienteSeleccionado,
-      client_name: clientName,
-      items: productosDevueltos,
-      metodo: metodoDevolucion,
-      efectivo: metodoDevolucion === "efectivo" ? parseNum(montoEfectivo) : 0,
-      transferencia: metodoDevolucion === "transferencia" ? parseNum(montoTransferencia) : 0,
-      extra_pago_efectivo: metodoDevolucion === "intercambio_otro" ? parseNum(montoEfectivo) : 0,
-      extra_pago_transferencia: metodoDevolucion === "intercambio_otro" ? parseNum(montoTransferencia) : 0,
-      extra_pago_total: (metodoDevolucion === "intercambio_otro" ? parseNum(montoEfectivo) + parseNum(montoTransferencia) : 0),
-      total: totalDevolucion,
-      date_iso: todayISO(),
-    };
-
-   const st = clone(state);
-  st.devoluciones.push(devolucion);
-
-  // 1) Ajuste de saldo a favor (si corresponde)
-  if (metodoDevolucion === "saldo") {
-    const cli = st.clients.find((c: any) => c.id === clienteSeleccionado);
-    if (cli) cli.saldo_favor = parseNum(cli.saldo_favor) + parseNum(totalDevolucion);
+  if (!clienteSeleccionado) {
+    alert("Selecciona un cliente antes de guardar la devolución.");
+    return;
   }
 
-  // 2) Stock: entra lo devuelto
+  if (productosDevueltos.length === 0) {
+    alert("Debes seleccionar al menos un producto para devolver.");
+    return;
+  }
+
+  // Intercambio por otro producto - validación
+  if (metodoDevolucion === "intercambio_otro") {
+    if (!productoNuevoId || parseNum(cantidadNuevo) <= 0) {
+      alert("Debes seleccionar un producto nuevo y la cantidad.");
+      return;
+    }
+  }
+
+  const clientName = state.clients.find((c: any) => c.id === clienteSeleccionado)?.name || "Cliente desconocido";
+
+  // Total calculado según cantidades devueltas
+  const totalDevolucion = productosDevueltos.reduce(
+    (s, it) => s + parseNum(it.qtyDevuelta) * parseNum(it.unitPrice),
+    0
+  );
+
+  const devolucion = {
+    id: "d" + Math.random().toString(36).slice(2, 8),
+    client_id: clienteSeleccionado,
+    client_name: clientName,
+    items: productosDevueltos,
+    metodo: metodoDevolucion,
+    efectivo: metodoDevolucion === "efectivo" ? parseNum(montoEfectivo) : 0,
+    transferencia: metodoDevolucion === "transferencia" ? parseNum(montoTransferencia) : 0,
+    extra_pago_efectivo: metodoDevolucion === "intercambio_otro" ? parseNum(montoEfectivo) : 0,
+    extra_pago_transferencia: metodoDevolucion === "intercambio_otro" ? parseNum(montoTransferencia) : 0,
+    extra_pago_total: (metodoDevolucion === "intercambio_otro" ? parseNum(montoEfectivo) + parseNum(montoTransferencia) : 0),
+    total: totalDevolucion,
+    date_iso: todayISO(),
+  };
+
+  const st = clone(state);
+  st.devoluciones.push(devolucion);
+
+  // OBTENER EL CLIENTE
+  const cli = st.clients.find((c: any) => c.id === clienteSeleccionado);
+  
+  if (!cli) {
+    alert("Error: Cliente no encontrado.");
+    return;
+  }
+
+  // ===== NUEVA LÓGICA: APLICAR SALDO A FAVOR A LA DEUDA =====
+  if (metodoDevolucion === "saldo") {
+    // 1) Acreditar saldo a favor
+    cli.saldo_favor = parseNum(cli.saldo_favor) + parseNum(totalDevolucion);
+    
+    // 2) Aplicar saldo a favor a la deuda (si hay deuda)
+    const saldoAFavor = cli.saldo_favor;
+    const deudaActual = parseNum(cli.debt);
+    
+    if (deudaActual > 0 && saldoAFavor > 0) {
+      const montoAAplicar = Math.min(saldoAFavor, deudaActual);
+      
+      // Reducir tanto la deuda como el saldo a favor
+      cli.debt = Math.max(0, deudaActual - montoAAplicar);
+      cli.saldo_favor = Math.max(0, saldoAFavor - montoAAplicar);
+      
+      console.log(`✅ Aplicado $${montoAAplicar} de saldo a favor a la deuda. Deuda restante: $${cli.debt}, Saldo a favor restante: $${cli.saldo_favor}`);
+    }
+  }
+
+  // Stock: entra lo devuelto
   productosDevueltos.forEach((it) => {
     const prod = st.products.find((p: any) => p.id === it.productId);
     if (prod) prod.stock = parseNum(prod.stock) + parseNum(it.qtyDevuelta);
   });
 
-  // 3) Stock: sale lo entregado en intercambio_otro
+  // Stock: sale lo entregado en intercambio_otro
   if (metodoDevolucion === "intercambio_otro" && productoNuevoId) {
     const nuevo = st.products.find((p: any) => p.id === productoNuevoId);
     if (nuevo) nuevo.stock = parseNum(nuevo.stock) - parseNum(cantidadNuevo);
   }
 
-  // === NUEVO: ACTUALIZAR LAS FACTURAS ORIGINALES ===
+  // Actualizar las facturas originales
   productosDevueltos.forEach((productoDevuelto) => {
     const factura = st.invoices.find((f: any) => f.id === productoDevuelto.facturaId);
     if (factura) {
@@ -2465,19 +2487,19 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
 
   setState(st);
 
-  // ==== Persistencia ====
+  // Persistencia
   if (hasSupabase) {
     await supabase.from("devoluciones").insert(devolucion);
 
-    // actualizar saldo_favor si se acreditó
-    if (metodoDevolucion === "saldo") {
-      const cli = st.clients.find((c: any) => c.id === clienteSeleccionado);
-      await supabase.from("clients")
-        .update({ saldo_favor: cli?.saldo_favor ?? 0 })
-        .eq("id", clienteSeleccionado);
-    }
+    // Actualizar cliente (deuda y saldo_favor)
+    await supabase.from("clients")
+      .update({ 
+        debt: cli.debt,
+        saldo_favor: cli.saldo_favor
+      })
+      .eq("id", clienteSeleccionado);
 
-    // persistir stocks tocados
+    // Persistir stocks tocados
     for (const it of productosDevueltos) {
       const nuevoStock = st.products.find((p: any) => p.id === it.productId)?.stock;
       await supabase.from("products").update({ stock: nuevoStock }).eq("id", it.productId);
@@ -2488,7 +2510,7 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
       await supabase.from("products").update({ stock: stockNuevo }).eq("id", productoNuevoId);
     }
 
-    // === NUEVO: Actualizar facturas en Supabase ===
+    // Actualizar facturas en Supabase
     for (const productoDevuelto of productosDevueltos) {
       const factura = st.invoices.find((f: any) => f.id === productoDevuelto.facturaId);
       if (factura) {
@@ -2502,12 +2524,25 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
       }
     }
   }
-      // === NUEVO: IMPRIMIR COMPROBANTE DE DEVOLUCIÓN ===
+
+  // Imprimir comprobante de devolución
   window.dispatchEvent(new CustomEvent("print-devolucion", { detail: devolucion } as any));
   await nextPaint();
   window.print();
 
-  alert("Devolución registrada con éxito.");
+  // Mensaje informativo sobre la aplicación del saldo a la deuda
+  if (metodoDevolucion === "saldo") {
+    const mensaje = `Devolución registrada con éxito. 
+    
+Saldo a favor acreditado: $${totalDevolucion}
+${cli.debt > 0 ? `Se aplicó saldo a favor a la deuda existente. Deuda actual: $${cli.debt}` : 'La deuda ha sido completamente saldada con el saldo a favor.'}`;
+    
+    alert(mensaje);
+  } else {
+    alert("Devolución registrada con éxito.");
+  }
+
+  // Limpiar formulario
   setProductosDevueltos([]);
   setClienteSeleccionado("");
   setMontoEfectivo("");
