@@ -1835,7 +1835,6 @@ async function updateGabiSpentForDay(gastado: number) {
 
 
 
-// 👆👆👆 HASTA AQUÍ 👆👆👆
 
 {periodo === "dia" && (
   <Card
