@@ -3261,19 +3261,27 @@ const fullyPaid = balance <= 0.009;
             <th style={{ width: "18%" }}>Total</th>
           </tr>
         </thead>
-        <tbody>
-          {inv.items.map((it: any, i: number) => (
-            <tr key={i}>
-              <td style={{ textAlign: "right" }}>{i + 1}</td>
-              <td>{it.name}</td>
-              <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
-              <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
-              <td style={{ textAlign: "right" }}>
-                {money(parseNum(it.qty) * parseNum(it.unitPrice))}
-              </td>
-            </tr>
-          ))}
-        </tbody>
+  <tbody>
+  {inv.items.map((it: any, i: number) => (
+    <tr key={i}>
+      <td style={{ textAlign: "right" }}>{i + 1}</td>
+      
+      <td>
+        {it.name}
+        {/* 👇 AQUÍ ESTÁ EL CAMBIO - Agregar la sección */}
+        <div style={{ fontSize: "10px", color: "#666", fontStyle: "italic" }}>
+          {it.section || "General"}
+        </div>
+      </td>
+      
+      <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
+      <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
+      <td style={{ textAlign: "right" }}>
+        {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+      </td>
+    </tr>
+  ))}
+</tbody>
 
         {/* ===== tfoot corregido (un solo tfoot, sin anidar) ===== */}
         <tfoot>
