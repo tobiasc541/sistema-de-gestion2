@@ -1672,7 +1672,49 @@ const flujoCajaEfectivoFinal =
     await nextPaint();
     window.print();
       } 
-  
+  // Función para guardar fondos iniciales de Gabi
+async function setGabiFundsForDay(nuevo: number) {
+  const st = clone(state);
+  st.meta.gabiFundsByDate = st.meta.gabiFundsByDate || {};
+  st.meta.gabiFundsByDate[diaClave] = nuevo;
+  setState(st);
+
+  if (hasSupabase) {
+    await supabase
+      .from("gabi_funds")
+      .upsert(
+        { 
+          id: `gabi_${diaClave}`,
+          day: diaClave, 
+          initial_amount: nuevo,
+          updated_at: todayISO()
+        },
+        { onConflict: "day" }
+      );
+  }
+}
+  // Función para actualizar gastos de Gabi
+async function updateGabiSpentForDay(gastado: number) {
+  if (!hasSupabase) return;
+
+  const { data: existing } = await supabase
+    .from("gabi_funds")
+    .select("*")
+    .eq("day", diaClave)
+    .single();
+
+  if (existing) {
+    const remaining = parseNum(existing.initial_amount) - gastado;
+    await supabase
+      .from("gabi_funds")
+      .update({
+        spent_amount: gastado,
+        remaining_amount: remaining,
+        updated_at: todayISO()
+      })
+      .eq("day", diaClave);
+  }
+}
 
   // ===== AQUÍ ESTÁ EL RETURN PRINCIPAL DEL COMPONENTE =====
   return (
@@ -1787,54 +1829,10 @@ const flujoCajaEfectivoFinal =
         </Card>
       )}
       {/* 👇👇👇 SECCIÓN GABI - AGREGAR JUSTO AQUÍ 👇👇👇 */}
-      // 👇👇👇 AGREGAR ESTAS FUNCIONES DENTRO DEL COMPONENTE ReportesTab 👇👇👇
+     
 
-/// 👇👇👇 AGREGAR ESTAS FUNCIONES DENTRO DEL COMPONENTE ReportesTab 👇👇👇
 
-// Función para guardar fondos iniciales de Gabi
-async function setGabiFundsForDay(nuevo: number) {
-  const st = clone(state);
-  st.meta.gabiFundsByDate = st.meta.gabiFundsByDate || {};
-  st.meta.gabiFundsByDate[diaClave] = nuevo;
-  setState(st);
 
-  if (hasSupabase) {
-    await supabase
-      .from("gabi_funds")
-      .upsert(
-        { 
-          id: `gabi_${diaClave}`,
-          day: diaClave, 
-          initial_amount: nuevo,
-          updated_at: todayISO()
-        },
-        { onConflict: "day" }
-      );
-  }
-}
-
-// Función para actualizar gastos de Gabi
-async function updateGabiSpentForDay(gastado: number) {
-  if (!hasSupabase) return;
-
-  const { data: existing } = await supabase
-    .from("gabi_funds")
-    .select("*")
-    .eq("day", diaClave)
-    .single();
-
-  if (existing) {
-    const remaining = parseNum(existing.initial_amount) - gastado;
-    await supabase
-      .from("gabi_funds")
-      .update({
-        spent_amount: gastado,
-        remaining_amount: remaining,
-        updated_at: todayISO()
-      })
-      .eq("day", diaClave);
-  }
-}
 
 // 👆👆👆 HASTA AQUÍ 👆👆👆
 
@@ -2447,7 +2445,7 @@ function GastosDevolucionesTab({ state, setState, session }: any) {
   const [montoEfectivo, setMontoEfectivo] = useState("");
   const [montoTransferencia, setMontoTransferencia] = useState("");
   const [alias, setAlias] = useState("");
-  const [tipoGasto, setTipoGasto] = useState("Proveedor");
+
 
   const [clienteSeleccionado, setClienteSeleccionado] = useState("");
   const [productosDevueltos, setProductosDevueltos] = useState<any[]>([]);
