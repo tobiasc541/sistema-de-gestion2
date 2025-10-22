@@ -1789,6 +1789,8 @@ const flujoCajaEfectivoFinal =
       {/* 👇👇👇 SECCIÓN GABI - AGREGAR JUSTO AQUÍ 👇👇👇 */}
       // 👇👇👇 AGREGAR ESTAS FUNCIONES DENTRO DEL COMPONENTE ReportesTab 👇👇👇
 
+/// 👇👇👇 AGREGAR ESTAS FUNCIONES DENTRO DEL COMPONENTE ReportesTab 👇👇👇
+
 // Función para guardar fondos iniciales de Gabi
 async function setGabiFundsForDay(nuevo: number) {
   const st = clone(state);
@@ -1833,6 +1835,9 @@ async function updateGabiSpentForDay(gastado: number) {
       .eq("day", diaClave);
   }
 }
+
+// 👆👆👆 HASTA AQUÍ 👆👆👆
+
 {periodo === "dia" && (
   <Card
     title="Fondos de Gabi (por día)"
@@ -1865,47 +1870,46 @@ async function updateGabiSpentForDay(gastado: number) {
     </div>
   </Card>
 )}
-{/* 👆👆👆 HASTA AQUÍ 👆👆👆 */}
 
-      <div className="grid md:grid-cols-4 gap-3">
-        <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
-        <Card title="Efectivo (cobrado)">
-          <div className="text-2xl font-bold">{money(totalEfectivo)}</div>
-          <div className="text-xs text-slate-400 mt-1">Sin descontar vuelto</div>
-        </Card>
-        <Card title="Vuelto entregado">
-          <div className="text-2xl font-bold">{money(totalVuelto)}</div>
-        </Card>
-        <Card title="Transferencias">
-          <div className="text-2xl font-bold">{money(totalTransf)}</div>
-        </Card>
-      </div>
+<div className="grid md:grid-cols-4 gap-3">
+  <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
+  <Card title="Efectivo (cobrado)">
+    <div className="text-2xl font-bold">{money(totalEfectivo)}</div>
+    <div className="text-xs text-slate-400 mt-1">Sin descontar vuelto</div>
+  </Card>
+  <Card title="Vuelto entregado">
+    <div className="text-2xl font-bold">{money(totalVuelto)}</div>
+  </Card>
+  <Card title="Transferencias">
+    <div className="text-2xl font-bold">{money(totalTransf)}</div>
+  </Card>
+</div>
 
-      <div className="grid md:grid-cols-3 gap-3">
-        <Card title="Efectivo (neto)">
-          <div className="text-2xl font-bold">{money(totalEfectivoNeto)}</div>
-          <div className="text-xs text-slate-400 mt-1">
-            Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante
-          </div>
-        </Card>
-        <Card title="Ganancia estimada">
-          <div className="text-2xl font-bold">{money(ganancia)}</div>
-          <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
-        </Card>
-        <Card title="Flujo final de caja (efectivo)">
-          <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
-          <div className="text-xs text-slate-400 mt-1">
-            Efectivo neto - Gastos (ef.) - Devoluciones (ef.) + Vuelto restante
-          </div>
-        </Card>
-      </div>
+<div className="grid md:grid-cols-3 gap-3">
+  <Card title="Efectivo (neto)">
+    <div className="text-2xl font-bold">{money(totalEfectivoNeto)}</div>
+    <div className="text-xs text-slate-400 mt-1">
+      Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante
+    </div>
+  </Card>
+  <Card title="Ganancia estimada">
+    <div className="text-2xl font-bold">{money(ganancia)}</div>
+    <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
+  </Card>
+  <Card title="Flujo final de caja (efectivo)">
+    <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
+    <div className="text-xs text-slate-400 mt-1">
+      Efectivo neto - Gastos (ef.) - Devoluciones (ef.) + Vuelto restante
+    </div>
+  </Card>
+</div>
 
-      <Card title="Gastos y Devoluciones">
-        <div className="space-y-3 text-sm">
-          <div>Total de gastos: <b>{money(totalGastos)}</b></div>
-          <div>- En efectivo: {money(totalGastosEfectivo)}</div>
-          <div>- En transferencia: {money(totalGastosTransferencia)}</div>
-              {/* 👇👇👇 SECCIÓN GABI EN GASTOS - AGREGAR JUSTO AQUÍ 👇👇👇 */}
+<Card title="Gastos y Devoluciones">
+  <div className="space-y-3 text-sm">
+    <div>Total de gastos: <b>{money(totalGastos)}</b></div>
+    <div>- En efectivo: {money(totalGastosEfectivo)}</div>
+    <div>- En transferencia: {money(totalGastosTransferencia)}</div>
+    {/* 👇👇👇 SECCIÓN GABI EN GASTOS - AGREGAR JUSTO AQUÍ 👇👇👇 */}
     {periodo === "dia" && (
       <div className="mt-2 p-2 bg-slate-800/30 rounded">
         <div className="font-semibold">Fondos de Gabi</div>
@@ -1916,16 +1920,16 @@ async function updateGabiSpentForDay(gastado: number) {
     )}
     {/* 👆👆👆 HASTA AQUÍ 👆👆👆 */}
 
-          <h4 className="mt-2 font-semibold">Transferencias por alias</h4>
-          {transferenciasPorAlias.length === 0 ? (
-            <div className="text-slate-400">Sin transferencias registradas.</div>
-          ) : (
-            <ul className="list-disc pl-5">
-              {transferenciasPorAlias.map((t) => (
-                <li key={t.alias}>{t.alias}: {money(t.total)}</li>
-              ))}
-            </ul>
-          )}
+    <h4 className="mt-2 font-semibold">Transferencias por alias</h4>
+    {transferenciasPorAlias.length === 0 ? (
+      <div className="text-slate-400">Sin transferencias registradas.</div>
+    ) : (
+      <ul className="list-disc pl-5">
+        {transferenciasPorAlias.map((t) => (
+          <li key={t.alias}>{t.alias}: {money(t.total)}</li>
+        ))}
+      </ul>
+    )}
 
           <h4 className="mt-4 font-semibold">Devoluciones registradas</h4>
           <div>Cantidad: <b>{devolucionesPeriodo.length}</b></div>
