@@ -870,7 +870,7 @@ function ProductosTab({ state, setState, role }: any) {
  // 👇👇👇 AGREGAR ESTO JUSTO AQUÍ 👇👇👇
   console.log("🔍 PRODUCTO A GUARDAR:", product);
   console.log("🔍 hasSupabase:", hasSupabase);
-  // 👆👆👆 HASTA AQUÍ 👆👆👆
+  
     
     const st = clone(state);
     st.products.push(product);
