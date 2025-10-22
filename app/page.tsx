@@ -1538,16 +1538,7 @@ const [gabiSpent, setGabiSpent] = useState("");
   const totalVentas = invoices.reduce((s: number, f: any) => s + parseNum(f.total), 0);
   // 👇👇👇 CÁLCULOS GABI - AGREGAR JUSTO AQUÍ 👇👇👇
 
-// Gastos de Gabi del día
-const gastosGabi = gastosPeriodo.filter((g: any) => g.tipo === "Gabi");
-const totalGastosGabi = gastosGabi.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
 
-// Fondos de Gabi
-const gabiFundsByDate = (state?.meta?.gabiFundsByDate ?? {}) as Record<string, number>;
-const gabiInitialTarget = periodo === "dia" ? parseNum(gabiFundsByDate[diaClave] ?? 0) : 0;
-const fondosGabiRestantes = Math.max(0, gabiInitialTarget - totalGastosGabi);
-
-// 👆👆👆 HASTA AQUÍ 👆👆👆
 
   // Pagos
   const totalVuelto  = invoices.reduce((s: number, f: any) => s + parseNum(f?.payments?.change), 0);
@@ -1566,6 +1557,16 @@ const fondosGabiRestantes = Math.max(0, gabiInitialTarget - totalGastosGabi);
     const t = new Date(g.date_iso).getTime();
     return t >= start && t <= end;
   });
+  // Gastos de Gabi del día
+const gastosGabi = gastosPeriodo.filter((g: any) => g.tipo === "Gabi");
+const totalGastosGabi = gastosGabi.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
+
+// Fondos de Gabi
+const gabiFundsByDate = (state?.meta?.gabiFundsByDate ?? {}) as Record<string, number>;
+const gabiInitialTarget = periodo === "dia" ? parseNum(gabiFundsByDate[diaClave] ?? 0) : 0;
+const fondosGabiRestantes = Math.max(0, gabiInitialTarget - totalGastosGabi);
+
+// 👆👆👆 HASTA AQUÍ 👆👆👆
   
   const totalGastos = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
   const totalGastosEfectivo = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo), 0);
