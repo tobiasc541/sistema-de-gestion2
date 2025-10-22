@@ -1957,8 +1957,7 @@ async function updateGabiSpentForDay(gastado: number) {
         </div>
       </Card>
     </div>
-  );
-})()}
+ 
 
 <Card title="Gastos y Devoluciones">
   <div className="space-y-3 text-sm">
