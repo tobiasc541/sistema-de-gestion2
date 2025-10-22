@@ -1884,23 +1884,81 @@ async function updateGabiSpentForDay(gastado: number) {
   </Card>
 </div>
 
-<div className="grid md:grid-cols-3 gap-3">
-  <Card title="Efectivo (neto)">
-    <div className="text-xs text-slate-400 mt-1">
-  Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante + Fondos Gabi restantes
-</div>
-  </Card>
-  <Card title="Ganancia estimada">
-    <div className="text-2xl font-bold">{money(ganancia)}</div>
-    <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
-  </Card>
-  <Card title="Flujo final de caja (efectivo)">
-  <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
-  <div className="text-xs text-slate-400 mt-1">
-    Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante + Fondos Gabi restantes
-  </div>
-</Card>
-</div>
+{/* === TOP CLIENTES === */}
+{(() => {
+  const ventasPorCliente = invoices.reduce((acc: any, f: any) => {
+    const clienteId = f.client_id;
+    const clienteNombre = f.client_name;
+    const totalFactura = parseNum(f.total);
+    
+    if (!acc[clienteId]) {
+      acc[clienteId] = {
+        nombre: clienteNombre,
+        total: 0,
+        cantidadFacturas: 0
+      };
+    }
+    
+    acc[clienteId].total += totalFactura;
+    acc[clienteId].cantidadFacturas += 1;
+    
+    return acc;
+  }, {});
+
+  const clientesTop = Object.entries(ventasPorCliente)
+    .map(([id, data]: [string, any]) => ({
+      id,
+      nombre: data.nombre,
+      total: data.total,
+      cantidadFacturas: data.cantidadFacturas
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 3); // Top 3 clientes
+
+  return (
+    <div className="grid md:grid-cols-3 gap-3">
+      {/* Top Clientes */}
+      <Card title="🏆 Top Clientes">
+        {clientesTop.length > 0 ? (
+          <div className="space-y-2">
+            {clientesTop.map((cliente, index) => (
+              <div key={cliente.id} className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs bg-emerald-600 rounded-full w-5 h-5 flex items-center justify-center">
+                    {index + 1}
+                  </span>
+                  <div className="text-sm truncate max-w-[120px]" title={cliente.nombre}>
+                    {cliente.nombre}
+                  </div>
+                </div>
+                <div className="text-sm font-semibold">
+                  {money(cliente.total)}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-sm text-slate-400">
+            Sin ventas en el período
+          </div>
+        )}
+      </div>
+
+      {/* Las otras dos cards se mantienen igual */}
+      <Card title="Ganancia estimada">
+        <div className="text-2xl font-bold">{money(ganancia)}</div>
+        <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
+      </Card>
+
+      <Card title="Flujo final de caja (efectivo)">
+        <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
+        <div className="text-xs text-slate-400 mt-1">
+          Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante + Fondos Gabi restantes
+        </div>
+      </Card>
+    </div>
+  );
+})()}
 
 <Card title="Gastos y Devoluciones">
   <div className="space-y-3 text-sm">
