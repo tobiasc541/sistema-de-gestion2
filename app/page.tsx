@@ -1591,13 +1591,14 @@ const fondosGabiRestantes = Math.max(0, gabiInitialTarget - totalGastosGabi);
 
   // Flujo final de caja (efectivo) incluyendo el vuelto restante del día
 // Flujo final de caja (efectivo) incluyendo el vuelto restante del día Y fondos de Gabi
+// Flujo final de caja (efectivo) incluyendo el vuelto restante del día Y fondos de Gabi
 const flujoCajaEfectivoFinal =
-  totalEfectivoNeto
-  - totalGastosEfectivo
-  - devolucionesMontoEfectivo
-  - commissionsPeriodo
-  + vueltoRestante
-  + fondosGabiRestantes; // 👈 NUEVO: Sumar fondos restantes de Gabi
+  totalEfectivoNeto                    // Efectivo neto de ventas (cobrado - vuelto)
+  - totalGastosEfectivo                // Gastos en efectivo
+  - devolucionesMontoEfectivo          // Devoluciones en efectivo
+  - commissionsPeriodo                 // Comisiones pagadas
+  + vueltoRestante                     // Vuelto que queda en caja
+  + fondosGabiRestantes;               // Fondos restantes de Gabi que vuelven a caja
   // Agrupados
   const porVendedor = Object.values(
     invoices.reduce((acc: any, f: any) => {
@@ -1885,21 +1886,20 @@ async function updateGabiSpentForDay(gastado: number) {
 
 <div className="grid md:grid-cols-3 gap-3">
   <Card title="Efectivo (neto)">
-    <div className="text-2xl font-bold">{money(totalEfectivoNeto)}</div>
     <div className="text-xs text-slate-400 mt-1">
-      Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante
-    </div>
+  Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante + Fondos Gabi restantes
+</div>
   </Card>
   <Card title="Ganancia estimada">
     <div className="text-2xl font-bold">{money(ganancia)}</div>
     <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
   </Card>
   <Card title="Flujo final de caja (efectivo)">
-    <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
-    <div className="text-xs text-slate-400 mt-1">
-      Efectivo neto - Gastos (ef.) - Devoluciones (ef.) + Vuelto restante
-    </div>
-  </Card>
+  <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
+  <div className="text-xs text-slate-400 mt-1">
+    Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante + Fondos Gabi restantes
+  </div>
+</Card>
 </div>
 
 <Card title="Gastos y Devoluciones">
