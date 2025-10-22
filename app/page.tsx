@@ -3072,15 +3072,23 @@ if (inv?.type === "Devolucion") {
             </tr>
           </thead>
           <tbody>
-            {inv.items.map((it: any, i: number) => (
-              <tr key={i}>
-                <td style={{ textAlign: "right" }}>{i + 1}</td>
-                <td>{it.name}</td>
-                <td style={{ textAlign: "right" }}>{parseNum(it.qtyDevuelta)}</td>
-                <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
-                <td style={{ textAlign: "right" }}>
-                  {money(parseNum(it.qtyDevuelta) * parseNum(it.unitPrice))}
-                </td>
+          {inv.items.map((it: any, i: number) => (
+  <tr key={i}>
+    <td style={{ textAlign: "right" }}>{i + 1}</td>
+    
+    <td>
+      {it.name}
+      {/* 👇 AQUÍ ESTÁ EL CAMBIO - Agregar la sección */}
+      <div style={{ fontSize: "10px", color: "#666", fontStyle: "italic" }}>
+        {it.section || "General"}
+      </div>
+    </td>
+    
+    <td style={{ textAlign: "right" }}>{parseNum(it.qtyDevuelta)}</td>
+    <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
+    <td style={{ textAlign: "right" }}>
+      {money(parseNum(it.qtyDevuelta) * parseNum(it.unitPrice))}
+    </td>
               </tr>
             ))}
           </tbody>
