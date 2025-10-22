@@ -947,7 +947,13 @@ function ProductosTab({ state, setState, role }: any) {
 
 /* Deudores */
 function DeudoresTab({ state, setState }: any) {
-  const clients = state.clients.filter((c: any) => parseNum(c.debt) > 0);
+  // Filtrar clientes que tengan deuda NETO mayor a 0 (deuda - saldo a favor > 0)
+  const clients = state.clients.filter((c: any) => {
+    const deuda = parseNum(c.debt);
+    const saldoFavor = parseNum(c.saldo_favor || 0);
+    return (deuda - saldoFavor) > 0;
+  });
+  
   const [active, setActive] = useState<string | null>(null);
   const [cash, setCash] = useState("");
   const [transf, setTransf] = useState("");
@@ -962,8 +968,31 @@ function DeudoresTab({ state, setState }: any) {
     const st = clone(state);
     const client = st.clients.find((c: any) => c.id === active)!;
 
-    const aplicado = Math.min(totalPago, client.debt);
-    client.debt = Math.max(0, parseNum(client.debt) - aplicado);
+    // CALCULAR DEUDA NETA (considerando saldo a favor)
+    const deudaBruta = parseNum(client.debt);
+    const saldoFavor = parseNum(client.saldo_favor || 0);
+    const deudaNeta = Math.max(0, deudaBruta - saldoFavor);
+
+    const aplicado = Math.min(totalPago, deudaNeta);
+    
+    // Aplicar el pago PRIMERO al saldo a favor si existe, luego a la deuda
+    let saldoRestante = saldoFavor;
+    let deudaRestante = deudaBruta;
+    
+    if (saldoFavor > 0) {
+      // El pago reduce primero el saldo a favor que estaba compensando la deuda
+      const saldoUsado = Math.min(aplicado, saldoFavor);
+      saldoRestante = saldoFavor - saldoUsado;
+      deudaRestante = deudaBruta - saldoUsado;
+    }
+    
+    // Aplicar el resto del pago directamente a la deuda
+    const pagoRestante = aplicado - (saldoFavor - saldoRestante);
+    deudaRestante = Math.max(0, deudaRestante - pagoRestante);
+
+    // Actualizar el cliente
+    client.debt = deudaRestante;
+    client.saldo_favor = saldoRestante;
 
     const number = st.meta.invoiceCounter++;
     const id = "inv_" + number;
@@ -976,13 +1005,26 @@ function DeudoresTab({ state, setState }: any) {
       client_name: client.name,
       vendor_id: "admin",
       vendor_name: "Admin",
-      items: [{ productId: "pago", name: "Cancelación de deuda", section: "Deudas", qty: 1, unitPrice: aplicado, cost: 0 }],
+      items: [{ 
+        productId: "pago", 
+        name: "Cancelación de deuda", 
+        section: "Deudas", 
+        qty: 1, 
+        unitPrice: aplicado, 
+        cost: 0 
+      }],
       total: aplicado,
       cost: 0,
-      payments: { cash: parseNum(cash), transfer: parseNum(transf), alias: alias.trim() },
+      payments: { 
+        cash: parseNum(cash), 
+        transfer: parseNum(transf), 
+        alias: alias.trim(),
+        saldo_aplicado: (saldoFavor - saldoRestante) // Para tracking
+      },
       status: "Pago",
       type: "Recibo",
       client_debt_total: client.debt,
+      client_saldo_favor: client.saldo_favor,
     };
 
     st.invoices.push(invoice);
@@ -996,10 +1038,11 @@ function DeudoresTab({ state, setState }: any) {
 
     if (hasSupabase) {
       await supabase.from("invoices").insert(invoice);
-      await supabase.from("clients").update({ debt: client.debt }).eq("id", client.id);
+      await supabase.from("clients").update({ 
+        debt: client.debt, 
+        saldo_favor: client.saldo_favor 
+      }).eq("id", client.id);
       await saveCountersSupabase(st.meta);
-
-
     }
 
     window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
@@ -1010,20 +1053,34 @@ function DeudoresTab({ state, setState }: any) {
   return (
     <div className="max-w-4xl mx-auto p-4 space-y-4">
       <Card title="Deudores">
-        {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas.</div>}
+        {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas netas.</div>}
         <div className="divide-y divide-slate-800">
-          {clients.map((c: any) => (
-            <div key={c.id} className="flex items-center justify-between py-2">
-              <div className="text-sm">
-                <span className="font-medium">{c.name}</span> — <span className="text-slate-300">{money(c.debt)}</span>
+          {clients.map((c: any) => {
+            const deudaBruta = parseNum(c.debt);
+            const saldoFavor = parseNum(c.saldo_favor || 0);
+            const deudaNeta = Math.max(0, deudaBruta - saldoFavor);
+            
+            return (
+              <div key={c.id} className="flex items-center justify-between py-3">
+                <div className="text-sm">
+                  <div className="font-medium">{c.name}</div>
+                  <div className="text-xs text-slate-400 mt-1">
+                    Deuda neta: <span className="text-slate-300">{money(deudaNeta)}</span>
+                    {saldoFavor > 0 && (
+                      <span className="ml-2">
+                        (Deuda: {money(deudaBruta)} - Saldo a favor: {money(saldoFavor)})
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <Button tone="slate" onClick={() => setActive(c.id)}>
+                    Registrar pago
+                  </Button>
+                </div>
               </div>
-              <div>
-                <Button tone="slate" onClick={() => setActive(c.id)}>
-                  Registrar pago
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
 
