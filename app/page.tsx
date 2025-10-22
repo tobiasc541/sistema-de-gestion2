@@ -1917,6 +1917,39 @@ async function updateGabiSpentForDay(gastado: number) {
 
   return (
     <div className="grid md:grid-cols-3 gap-3">
+   {/* === TOP CLIENTES === */}
+{(() => {
+  const ventasPorCliente = invoices.reduce((acc: any, f: any) => {
+    const clienteId = f.client_id;
+    const clienteNombre = f.client_name;
+    const totalFactura = parseNum(f.total);
+    
+    if (!acc[clienteId]) {
+      acc[clienteId] = {
+        nombre: clienteNombre,
+        total: 0,
+        cantidadFacturas: 0
+      };
+    }
+    
+    acc[clienteId].total += totalFactura;
+    acc[clienteId].cantidadFacturas += 1;
+    
+    return acc;
+  }, {});
+
+  const clientesTop = Object.entries(ventasPorCliente)
+    .map(([id, data]: [string, any]) => ({
+      id,
+      nombre: data.nombre,
+      total: data.total,
+      cantidadFacturas: data.cantidadFacturas
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 3); // Top 3 clientes
+
+  return (
+    <div className="grid md:grid-cols-3 gap-3">
       {/* Top Clientes */}
       <Card title="🏆 Top Clientes">
         {clientesTop.length > 0 ? (
@@ -1942,7 +1975,7 @@ async function updateGabiSpentForDay(gastado: number) {
             Sin ventas en el período
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Las otras dos cards se mantienen igual */}
       <Card title="Ganancia estimada">
@@ -1957,7 +1990,8 @@ async function updateGabiSpentForDay(gastado: number) {
         </div>
       </Card>
     </div>
- 
+  );
+})()}
 
 <Card title="Gastos y Devoluciones">
   <div className="space-y-3 text-sm">
