@@ -2193,17 +2193,36 @@ function PresupuestosTab({ state, setState, session }: any) {
   const [clientId, setClientId] = useState(state.clients[0]?.id || "");
   const [vendorId, setVendorId] = useState(session.role === "admin" ? state.vendors[0]?.id : session.id);
   const [priceList, setPriceList] = useState("1");
+  const [sectionFilter, setSectionFilter] = useState("Todas"); // 👈 NUEVO
+  const [listFilter, setListFilter] = useState("Todas"); // 👈 NUEVO
   const [items, setItems] = useState<any[]>([]);
   const [query, setQuery] = useState("");
   const client = state.clients.find((c: any) => c.id === clientId);
   const vendor = state.vendors.find((v: any) => v.id === vendorId);
-  const filteredProducts = state.products.filter((p: any) => !query || p.name.toLowerCase().includes(query.toLowerCase()));
+  
+  // 👇👇👇 AGREGAR ESTAS LÍNEAS PARA LOS FILTROS
+  const sections = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "Otros")))];
+  const lists = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.list_label || "General")))];
+  
+  // 👇👇👇 MODIFICAR ESTA LÍNEA PARA INCLUIR LOS NUEVOS FILTROS
+  const filteredProducts = state.products.filter((p: any) => {
+    const okS = sectionFilter === "Todas" || p.section === sectionFilter;
+    const okL = listFilter === "Todas" || p.list_label === listFilter;
+    const okQ = !query || p.name.toLowerCase().includes(query.toLowerCase());
+    return okS && okL && okQ;
+  });
+  
+  // 👇👇👇 AGREGAR ESTA LÍNEA PARA AGRUPAR POR SECCIÓN
+  const grouped = groupBy(filteredProducts, "section");
+
   function addItem(p: any) {
     const existing = items.find((it: any) => it.productId === p.id);
     const unit = priceList === "1" ? p.price1 : p.price2;
     if (existing) setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it)));
     else setItems([...items, { productId: p.id, name: p.name, section: p.section, qty: 1, unitPrice: unit, cost: p.cost }]);
   }
+  
+  // ... el resto de tus funciones permanecen EXACTAMENTE igual ...
   async function guardarPresupuesto() {
     if (!client || !vendor || items.length === 0) return;
     const st = clone(state);
@@ -2231,6 +2250,7 @@ function PresupuestosTab({ state, setState, session }: any) {
     alert("Presupuesto guardado.");
     setItems([]);
   }
+
 async function convertirAFactura(b: any) {
   const efectivoStr = prompt("¿Cuánto paga en EFECTIVO?", "0") ?? "0";
   const transferenciaStr = prompt("¿Cuánto paga por TRANSFERENCIA?", "0") ?? "0";
@@ -2305,23 +2325,58 @@ async function convertirAFactura(b: any) {
           <Select label="Lista de precios" value={priceList} onChange={setPriceList} options={[{ value: "1", label: "Mitobicel" }, { value: "2", label: "ElshoppingDlc" }]} />
           <Input label="Buscar producto" value={query} onChange={setQuery} placeholder="Nombre..." />
         </div>
+        
+        {/* 👇👇👇 AGREGAR ESTOS NUEVOS FILTROS */}
+        <div className="grid md:grid-cols-4 gap-2 mt-3">
+          <Select 
+            label="Sección" 
+            value={sectionFilter} 
+            onChange={setSectionFilter} 
+            options={sections.map((s: any) => ({ value: s, label: s }))} 
+          />
+          <Select 
+            label="Lista" 
+            value={listFilter} 
+            onChange={setListFilter} 
+            options={lists.map((s: any) => ({ value: s, label: s }))} 
+          />
+          <div className="md:col-span-2 pt-6">
+            <Chip tone="emerald">Total productos: {filteredProducts.length}</Chip>
+          </div>
+        </div>
+
         <div className="grid md:grid-cols-2 gap-4 mt-3">
           <div className="space-y-2">
             <div className="text-sm font-semibold">Productos</div>
-            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
-              {filteredProducts.map((p: any) => (
-                <div key={p.id} className="px-3 py-2 flex items-center justify-between">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{p.name}</div>
-                    <div className="text-xs text-slate-400">L1: {money(p.price1)} L2: {money(p.price2)}</div>
+            
+            {/* 👇👇👇 MODIFICAR LA LISTA DE PRODUCTOS PARA MOSTRAR POR SECCIÓN */}
+            <div className="space-y-3">
+              {Object.entries(grouped).map(([sec, arr]: any) => (
+                <div key={sec} className="border border-slate-800 rounded-xl">
+                  <div className="px-3 py-2 text-xs font-semibold bg-slate-800/70">{sec}</div>
+                  <div className="divide-y divide-slate-800">
+                    {arr.map((p: any) => (
+                      <div key={p.id} className="flex items-center justify-between px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate">{p.name}</div>
+                          <div className="text-xs text-slate-400">
+                            L1: {money(p.price1)} L2: {money(p.price2)} 
+                            <span className="text-[10px] text-slate-500 ml-1">{p.list_label}</span>
+                          </div>
+                        </div>
+                        <Button tone="slate" onClick={() => addItem(p)}>
+                          Añadir
+                        </Button>
+                      </div>
+                    ))}
                   </div>
-                  <Button tone="slate" onClick={() => addItem(p)}>
-                    Añadir
-                  </Button>
                 </div>
               ))}
             </div>
           </div>
+          
+          {/* 👆👆👆 HASTA AQUÍ LOS CAMBIOS EN LA LISTA DE PRODUCTOS */}
+          
           <div className="space-y-2">
             <div className="text-sm font-semibold">Ítems</div>
             <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
@@ -2377,18 +2432,19 @@ async function convertirAFactura(b: any) {
         </div>
       </Card>
 
-    <Card 
-  title="Presupuestos guardados"
-  actions={
-    <Button tone="slate" onClick={async () => {
-      const refreshedState = await loadFromSupabase(seedState());
-      setState(refreshedState);
-      alert("Presupuestos actualizados");
-    }}>
-      Actualizar
-    </Button>
-  }
->
+      {/* EL RESTO DE TU CÓDIGO PERMANECE EXACTAMENTE IGUAL */}
+      <Card 
+        title="Presupuestos guardados"
+        actions={
+          <Button tone="slate" onClick={async () => {
+            const refreshedState = await loadFromSupabase(seedState());
+            setState(refreshedState);
+            alert("Presupuestos actualizados");
+          }}>
+            Actualizar
+          </Button>
+        }
+      >
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-slate-400">
