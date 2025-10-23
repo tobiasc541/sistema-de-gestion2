@@ -39,18 +39,15 @@ const clone = (obj: any) => JSON.parse(JSON.stringify(obj));
 /* ===== seed inicial (solo UI mientras carga Supabase) ===== */
 function seedState() {
   return {
-   meta: {
-  invoiceCounter: 1,
-  budgetCounter: 1,
-  lastSavedInvoiceId: null as null | string,
-  cashFloat: 0,
-  cashFloatByDate: {} as Record<string, number>,
-  commissionsByDate: {} as Record<string, number>,   // 👈 NUEVO
-      gabiFundsByDate: {} as Record<string, number>, // 👈 NUEVO
-},
-
-
-
+    meta: {
+      invoiceCounter: 1,
+      budgetCounter: 1,
+      lastSavedInvoiceId: null as null | string,
+      cashFloat: 0,
+      cashFloatByDate: {} as Record<string, number>,
+      commissionsByDate: {} as Record<string, number>,
+      gabiFundsByDate: {} as Record<string, number>,
+    },
     auth: { adminKey: "46892389" },
     vendors: [] as any[],
     clients: [] as any[],
@@ -58,11 +55,11 @@ function seedState() {
     invoices: [] as any[],
     budgets: [] as any[],
     gastos: [] as any[],
-    devoluciones: [] as any[],  // <--- AGREGAR ESTO
+    devoluciones: [] as any[],
+    debt_payments: [] as any[], // 👈 NUEVA LÍNEA - AGREGAR ESTO
     queue: [] as any[],
-     gabiFunds: [] as any[], // 👈 NUEVO
-        pedidos: [] as Pedido[], // 👈 NUEVA LÍNEA - AGREGAR ESTO
-
+    gabiFunds: [] as any[],
+    pedidos: [] as Pedido[],
   };
 }
 
@@ -156,6 +153,18 @@ if (gabiErr) {
     alert("No pude leer 'devoluciones' de Supabase."); 
   }
   if (devoluciones) out.devoluciones = devoluciones;
+  // 👆👆👆 HASTA AQUÍ
+    // 👇👇👇 AGREGAR AQUÍ - Cargar debt_payments
+  const { data: debtPayments, error: dpErr } = await supabase
+    .from("debt_payments")
+    .select("*")
+    .order("date_iso", { ascending: false });
+
+  if (dpErr) { 
+    console.error("SELECT debt_payments:", dpErr); 
+    alert("No pude leer 'debt_payments' de Supabase."); 
+  }
+  if (debtPayments) out.debt_payments = debtPayments;
   // 👆👆👆 HASTA AQUÍ
 
   // budgets
@@ -1011,96 +1020,151 @@ function DeudoresTab({ state, setState }: any) {
   const [transf, setTransf] = useState("");
   const [alias, setAlias] = useState("");
 
-  async function registrarPago() {
-    const cl = state.clients.find((c: any) => c.id === active);
-    if (!cl) return;
-    const totalPago = parseNum(cash) + parseNum(transf);
-    if (totalPago <= 0) return alert("Importe inválido.");
+ async function registrarPago() {
+  const cl = state.clients.find((c: any) => c.id === active);
+  if (!cl) return;
+  const totalPago = parseNum(cash) + parseNum(transf);
+  if (totalPago <= 0) return alert("Importe inválido.");
 
-    const st = clone(state);
-    const client = st.clients.find((c: any) => c.id === active)!;
+  const st = clone(state);
+  const client = st.clients.find((c: any) => c.id === active)!;
 
-    // CALCULAR DEUDA NETA (considerando saldo a favor)
-    const deudaBruta = parseNum(client.debt);
-    const saldoFavor = parseNum(client.saldo_favor || 0);
-    const deudaNeta = Math.max(0, deudaBruta - saldoFavor);
+  // CALCULAR DEUDA NETA (considerando saldo a favor)
+  const deudaBruta = parseNum(client.debt);
+  const saldoFavor = parseNum(client.saldo_favor || 0);
+  const deudaNeta = Math.max(0, deudaBruta - saldoFavor);
 
-    const aplicado = Math.min(totalPago, deudaNeta);
-    
-    // Aplicar el pago PRIMERO al saldo a favor si existe, luego a la deuda
-    let saldoRestante = saldoFavor;
-    let deudaRestante = deudaBruta;
-    
-    if (saldoFavor > 0) {
-      // El pago reduce primero el saldo a favor que estaba compensando la deuda
-      const saldoUsado = Math.min(aplicado, saldoFavor);
-      saldoRestante = saldoFavor - saldoUsado;
-      deudaRestante = deudaBruta - saldoUsado;
+  const aplicado = Math.min(totalPago, deudaNeta);
+  
+  // Aplicar el pago PRIMERO al saldo a favor si existe, luego a la deuda
+  let saldoRestante = saldoFavor;
+  let deudaRestante = deudaBruta;
+  
+  if (saldoFavor > 0) {
+    const saldoUsado = Math.min(aplicado, saldoFavor);
+    saldoRestante = saldoFavor - saldoUsado;
+    deudaRestante = deudaBruta - saldoUsado;
+  }
+  
+  // Aplicar el resto del pago directamente a la deuda
+  const pagoRestante = aplicado - (saldoFavor - saldoRestante);
+  deudaRestante = Math.max(0, deudaRestante - pagoRestante);
+
+  // Actualizar el cliente
+  client.debt = deudaRestante;
+  client.saldo_favor = saldoRestante;
+
+  // ⭐⭐ NUEVO: Usar la tabla debt_payments en lugar de invoices
+  const number = st.meta.invoiceCounter++; // Seguimos usando el mismo contador
+  const id = "dp_" + number;
+
+  const debtPayment = {
+    id,
+    number,
+    date_iso: todayISO(),
+    client_id: client.id,
+    client_name: client.name,
+    vendor_id: "admin",
+    vendor_name: "Admin",
+    cash_amount: parseNum(cash),
+    transfer_amount: parseNum(transf),
+    total_amount: aplicado,
+    alias: alias.trim(),
+    saldo_aplicado: (saldoFavor - saldoRestante),
+    debt_before: deudaBruta,
+    debt_after: deudaRestante,
+  };
+
+  console.log("💾 Guardando pago de deudor en debt_payments:", debtPayment);
+
+  // ⭐⭐ NUEVO: Guardar en debt_payments en lugar de invoices
+  st.debt_payments = st.debt_payments || [];
+  st.debt_payments.push(debtPayment);
+  st.meta.lastSavedInvoiceId = id;
+  setState(st);
+
+  // ⭐⭐ NUEVO: Persistencia en la tabla debt_payments
+  if (hasSupabase) {
+    try {
+      console.log("📦 Intentando guardar en debt_payments...");
+      
+      // 1. Guardar en debt_payments
+      const { data, error } = await supabase
+        .from("debt_payments")
+        .insert(debtPayment)
+        .select();
+
+      if (error) {
+        console.error("❌ ERROR guardando en debt_payments:", error);
+        alert("Error al guardar el pago: " + error.message);
+        return;
+      }
+      console.log("✅ Pago guardado en debt_payments:", data);
+
+      // 2. Actualizar cliente en Supabase
+      const { error: clientError } = await supabase.from("clients")
+        .update({ 
+          debt: client.debt, 
+          saldo_favor: client.saldo_favor 
+        })
+        .eq("id", client.id);
+
+      if (clientError) {
+        console.error("❌ Error actualizando cliente:", clientError);
+      }
+
+      // 3. Actualizar contadores
+      await saveCountersSupabase(st.meta);
+
+      console.log("✅ Todo guardado correctamente en debt_payments");
+
+    } catch (error) {
+      console.error("💥 Error crítico:", error);
+      alert("Error completo: " + error.message);
     }
-    
-    // Aplicar el resto del pago directamente a la deuda
-    const pagoRestante = aplicado - (saldoFavor - saldoRestante);
-    deudaRestante = Math.max(0, deudaRestante - pagoRestante);
+  }
 
-    // Actualizar el cliente
-    client.debt = deudaRestante;
-    client.saldo_favor = saldoRestante;
+  setCash("");
+  setTransf("");
+  setAlias("");
+  setActive(null);
 
-    const number = st.meta.invoiceCounter++;
-    const id = "inv_" + number;
+  // Recargar datos para sincronizar
+  if (hasSupabase) {
+    setTimeout(async () => {
+      const refreshedState = await loadFromSupabase(seedState());
+      setState(refreshedState);
+      console.log("🔄 Datos recargados desde Supabase");
+    }, 1500);
+  }
 
-    const invoice = {
-      id,
-      number,
-      date_iso: todayISO(),
-      client_id: client.id,
-      client_name: client.name,
-      vendor_id: "admin",
-      vendor_name: "Admin",
+  // ⭐⭐ NUEVO: Imprimir comprobante de pago de deuda
+  window.dispatchEvent(new CustomEvent("print-invoice", { 
+    detail: { 
+      ...debtPayment, 
+      type: "Pago de Deuda",
       items: [{ 
-        productId: "pago", 
-        name: "Cancelación de deuda", 
-        section: "Deudas", 
+        productId: "pago_deuda", 
+        name: "Pago de deuda", 
+        section: "Finanzas", 
         qty: 1, 
         unitPrice: aplicado, 
         cost: 0 
       }],
       total: aplicado,
-      cost: 0,
       payments: { 
         cash: parseNum(cash), 
         transfer: parseNum(transf), 
+        change: 0,
         alias: alias.trim(),
-        saldo_aplicado: (saldoFavor - saldoRestante) // Para tracking
+        saldo_aplicado: (saldoFavor - saldoRestante)
       },
-      status: "Pago",
-      type: "Recibo",
-      client_debt_total: client.debt,
-      client_saldo_favor: client.saldo_favor,
-    };
-
-    st.invoices.push(invoice);
-    st.meta.lastSavedInvoiceId = id;
-    setState(st);
-
-    setCash("");
-    setTransf("");
-    setAlias("");
-    setActive(null);
-
-    if (hasSupabase) {
-      await supabase.from("invoices").insert(invoice);
-      await supabase.from("clients").update({ 
-        debt: client.debt, 
-        saldo_favor: client.saldo_favor 
-      }).eq("id", client.id);
-      await saveCountersSupabase(st.meta);
-    }
-
-    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
-    await nextPaint();
-    window.print();
-  }
+      status: "Pagado"
+    } 
+  } as any));
+  await nextPaint();
+  window.print();
+}
 
   return (
     <div className="max-w-4xl mx-auto p-4 space-y-4">
@@ -1571,8 +1635,11 @@ const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]
 const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
 const totalVentas = invoices.reduce((s: number, f: any) => s + parseNum(f.total), 0);
 
-// 👇👇👇 PAGOS DE DEUDORES (Recibos) - SIN DUPLICADOS
-const pagosDeudores = docsEnRango.filter((f: any) => f.type === "Recibo" && f.status === "Pago");
+// 👇👇👇 PAGOS DE DEUDORES - AHORA desde debt_payments
+const pagosDeudores = (state.debt_payments || []).filter((p: any) => {
+  const pagoDate = new Date(p.date_iso).getTime();
+  return pagoDate >= start && pagoDate <= end;
+});
 
 // 👇👇👇 CÁLCULOS DE PAGOS PARA INCLUIR RECIBOS
 const totalVuelto = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.change || 0), 0);
@@ -2303,7 +2370,7 @@ async function updateGabiSpentForDay(gastado: number) {
           </table>
         </div>
       </Card>
-      <Card title="Listado de Pagos de Deudores">
+  <Card title="Listado de Pagos de Deudores">
   <div className="overflow-x-auto">
     <table className="min-w-full text-sm">
       <thead className="text-left text-slate-400">
@@ -2311,7 +2378,8 @@ async function updateGabiSpentForDay(gastado: number) {
           <th className="py-2 pr-3">Fecha y Hora</th>
           <th className="py-2 pr-3">Cliente</th>
           <th className="py-2 pr-3">Monto Pagado</th>
-          <th className="py-2 pr-3">Deuda Restante</th>
+          <th className="py-2 pr-3">Deuda Antes</th>
+          <th className="py-2 pr-3">Deuda Después</th>
           <th className="py-2 pr-3">Método</th>
         </tr>
       </thead>
@@ -2319,10 +2387,8 @@ async function updateGabiSpentForDay(gastado: number) {
         {pagosDeudores
           .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
           .map((pago: any) => {
-            const cliente = state.clients.find((c: any) => c.id === pago.client_id);
-            const deudaRestante = cliente ? parseNum(cliente.debt) : 0;
-            const efectivo = parseNum(pago?.payments?.cash || 0);
-            const transferencia = parseNum(pago?.payments?.transfer || 0);
+            const efectivo = parseNum(pago?.cash_amount || 0);
+            const transferencia = parseNum(pago?.transfer_amount || 0);
             const montoTotal = efectivo + transferencia;
             const metodo = efectivo > 0 && transferencia > 0 
               ? "Mixto" 
@@ -2342,8 +2408,13 @@ async function updateGabiSpentForDay(gastado: number) {
                   </span>
                 </td>
                 <td className="py-2 pr-3">
-                  <span className={deudaRestante > 0 ? "text-amber-400" : "text-emerald-400"}>
-                    {money(deudaRestante)}
+                  <span className="text-amber-400">
+                    {money(parseNum(pago.debt_before))}
+                  </span>
+                </td>
+                <td className="py-2 pr-3">
+                  <span className={parseNum(pago.debt_after) > 0 ? "text-amber-400" : "text-emerald-400"}>
+                    {money(parseNum(pago.debt_after))}
                   </span>
                 </td>
                 <td className="py-2 pr-3">
@@ -2356,7 +2427,7 @@ async function updateGabiSpentForDay(gastado: number) {
           })}
         {pagosDeudores.length === 0 && (
           <tr>
-            <td className="py-3 text-slate-400" colSpan={5}>
+            <td className="py-3 text-slate-400" colSpan={6}>
               No hay pagos registrados en el período.
             </td>
           </tr>
