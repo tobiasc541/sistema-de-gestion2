@@ -3946,7 +3946,7 @@ function GestionPedidosTab({ state, setState, session }: any) {
       </Card>
     </div>
   );
-} // 👈 ESTE ES EL CIERRE CORRECTO DE LA FUNCIÓN GestionPedidosTab
+} // 👈 ESTE ES EL CIERRE CORRECTO DE LA FUNCIÓN GestionPedidosTab // 👈 ESTE ES EL CIERRE CORRECTO DE LA FUNCIÓN GestionPedidosTab
 /* ===== Control de Costos ===== */
 function ControlCostosTab({ state, setState, session }: any) {
   const [productosSeleccionados, setProductosSeleccionados] = useState<any[]>([]);
