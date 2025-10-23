@@ -1073,7 +1073,8 @@ async function registrarPago() {
     saldo_aplicado: (saldoFavor - saldoRestante),
     debt_before: deudaBruta,
     debt_after: deudaRestante,
-    // 👇👇👇 ELIMINAR completamente la propiedad 'type'
+    // 👇👇👇 AGREGAR ESTA LÍNEA PARA QUE EL COMPROBANTE TENGA LA DEUDA ACTUAL
+    client_debt_total: deudaRestante, // 👈 NUEVA LÍNEA
   };
 
   console.log("💾 Guardando pago de deudor en debt_payments:", debtPayment);
@@ -1107,7 +1108,8 @@ async function registrarPago() {
           saldo_aplicado: debtPayment.saldo_aplicado,
           debt_before: debtPayment.debt_before,
           debt_after: debtPayment.debt_after,
-          // 👇👇👇 NO incluir 'type' aquí
+          // 👇👇👇 AGREGAR client_debt_total si existe en tu tabla
+          client_debt_total: debtPayment.client_debt_total,
         })
         .select();
 
@@ -1155,7 +1157,7 @@ async function registrarPago() {
     }, 1500);
   }
 
-  // ⭐⭐ NUEVO: Imprimir comprobante de pago de deuda
+  // ⭐⭐ NUEVO: Imprimir comprobante de pago de deuda - ACTUALIZADO
   window.dispatchEvent(new CustomEvent("print-invoice", { 
     detail: { 
       ...debtPayment, 
@@ -1176,7 +1178,9 @@ async function registrarPago() {
         alias: alias.trim(),
         saldo_aplicado: (saldoFavor - saldoRestante)
       },
-      status: "Pagado"
+      status: "Pagado",
+      // 👇👇👇 AGREGAR ESTA LÍNEA CLAVE
+      client_debt_total: deudaRestante // 👈 Esto hará que aparezca en el comprobante
     } 
   } as any));
   await nextPaint();
