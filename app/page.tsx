@@ -1020,7 +1020,7 @@ function DeudoresTab({ state, setState }: any) {
   const [transf, setTransf] = useState("");
   const [alias, setAlias] = useState("");
 
- async function registrarPago() {
+async function registrarPago() {
   const cl = state.clients.find((c: any) => c.id === active);
   if (!cl) return;
   const totalPago = parseNum(cash) + parseNum(transf);
@@ -1073,6 +1073,16 @@ function DeudoresTab({ state, setState }: any) {
     saldo_aplicado: (saldoFavor - saldoRestante),
     debt_before: deudaBruta,
     debt_after: deudaRestante,
+    // 👇👇👇 AGREGAR ESTOS CAMPOS PARA COMPATIBILIDAD
+    payments: {
+      cash: parseNum(cash),
+      transfer: parseNum(transf),
+      change: 0,
+      alias: alias.trim(),
+      saldo_aplicado: (saldoFavor - saldoRestante)
+    },
+    type: "PagoDeuda", // 👈 PARA IDENTIFICAR EN REPORTES
+    total: aplicado,   // 👈 PARA COMPATIBILIDAD
   };
 
   console.log("💾 Guardando pago de deudor en debt_payments:", debtPayment);
@@ -1165,7 +1175,6 @@ function DeudoresTab({ state, setState }: any) {
   await nextPaint();
   window.print();
 }
-
   return (
     <div className="max-w-4xl mx-auto p-4 space-y-4">
       <Card title="Deudores">
@@ -1641,23 +1650,28 @@ const pagosDeudores = (state.debt_payments || []).filter((p: any) => {
   return pagoDate >= start && pagoDate <= end;
 });
 
-// 👇👇👇 CÁLCULOS DE PAGOS PARA INCLUIR RECIBOS
+// 👇👇👇 CÁLCULOS DE PAGOS PARA INCLUIR RECIBOS - ACTUALIZADO
 const totalVuelto = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.change || 0), 0);
 const totalEfectivo = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.cash || 0), 0);
 const totalEfectivoNeto = totalEfectivo - totalVuelto;
 const totalTransf = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.transfer || 0), 0);
 
-// 👇👇👇 CÁLCULO ESPECÍFICO PARA PAGOS DE DEUDORES
+// 👇👇👇 CÁLCULO ESPECÍFICO PARA PAGOS DE DEUDORES - ACTUALIZADO
 const totalPagosDeudores = pagosDeudores.reduce((s: number, p: any) => {
-  const efectivo = parseNum(p?.payments?.cash || 0);
-  const transferencia = parseNum(p?.payments?.transfer || 0);
+  const efectivo = parseNum(p?.cash_amount || p?.payments?.cash || 0);
+  const transferencia = parseNum(p?.transfer_amount || p?.payments?.transfer || 0);
   return s + efectivo + transferencia;
 }, 0);
 
 const cantidadPagos = pagosDeudores.length;
 
-// 👇👇👇 EFECTIVO DE PAGOS DE DEUDORES (PARA FLUJO DE CAJA)
-const efectivoPagosDeudores = pagosDeudores.reduce((s: number, p: any) => s + parseNum(p?.payments?.cash || 0), 0);
+// 👇👇👇 EFECTIVO DE PAGOS DE DEUDORES (PARA FLUJO DE CAJA) - ACTUALIZADO
+const efectivoPagosDeudores = pagosDeudores.reduce((s: number, p: any) => 
+  s + parseNum(p?.cash_amount || p?.payments?.cash || 0), 0);
+  // 👇👇👇 TRANSFERENCIAS DE PAGOS DE DEUDORES - NUEVO
+const transferenciasPagosDeudores = pagosDeudores.reduce((s: number, p: any) => 
+  s + parseNum(p?.transfer_amount || p?.payments?.transfer || 0), 0);
+
 
 // Vuelto restante para el día (solo aplica si periodo === "dia")
 const vueltoRestante = periodo === "dia" ? Math.max(0, cashFloatTarget - totalVuelto) : 0;
@@ -1702,16 +1716,17 @@ const devolucionesMontoEfectivo = devolucionesPeriodo.reduce((s: number, d: any)
 const devolucionesMontoTransfer = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.transferencia), 0);
 const devolucionesMontoTotal = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
 
-// 👇👇👇 FLUJO DE CAJA CORREGIDO - INCLUYE PAGOS DE DEUDORES EN EFECTIVO
+// 👇👇👇 FLUJO DE CAJA CORREGIDO - INCLUYE PAGOS DE DEUDORES
 const flujoCajaEfectivoFinal =
-  totalEfectivoNeto                    // Efectivo neto de TODOS los documentos (ventas + pagos de deudas)
-  + efectivoPagosDeudores              // 👈 NUEVO: Sumar efectivo de pagos de deudores específicamente
+  totalEfectivoNeto                    // Efectivo neto de TODOS los documentos (ventas + pagos de deudas)          
   - totalGastosEfectivo                // Gastos en efectivo
   - devolucionesMontoEfectivo          // Devoluciones en efectivo
   - commissionsPeriodo                 // Comisiones pagadas
   + vueltoRestante                     // Vuelto que queda en caja
   + fondosGabiRestantes;               // Fondos restantes de Gabi que vuelven a caja
 
+// 👇👇👇 TRANSFERENCIAS TOTALES INCLUYENDO PAGOS DE DEUDORES - NUEVO
+const transferenciasTotales = totalTransf + transferenciasPagosDeudores;
 // Agrupados
 const porVendedor = Object.values(
   invoices.reduce((acc: any, f: any) => {
@@ -1732,9 +1747,11 @@ const porSeccion = (() => {
   return Object.entries(m).map(([section, total]) => ({ section, total })).sort((a, b) => b.total - a.total);
 })();
 
-// Transferencias por alias (ventas)
+// Transferencias por alias (ventas + pagos de deudores)
 const porAlias = (() => {
   const m: Record<string, number> = {};
+  
+  // Transferencias de ventas
   docsEnRango.forEach((f: any) => {
     const tr = parseNum(f?.payments?.transfer);
     if (tr > 0) {
@@ -1742,6 +1759,16 @@ const porAlias = (() => {
       m[alias] = (m[alias] || 0) + tr;
     }
   });
+  
+  // 👇👇👇 AGREGAR TRANSFERENCIAS DE PAGOS DE DEUDORES
+  pagosDeudores.forEach((p: any) => {
+    const tr = parseNum(p?.transfer_amount || p?.payments?.transfer || 0);
+    if (tr > 0) {
+      const alias = String(p?.alias || "Sin alias").trim() || "Sin alias";
+      m[alias] = (m[alias] || 0) + tr;
+    }
+  });
+  
   return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
 })();
 
@@ -1986,14 +2013,19 @@ async function updateGabiSpentForDay(gastado: number) {
 <div className="grid md:grid-cols-4 gap-3">
   <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
   <Card title="Efectivo (cobrado)">
-    <div className="text-2xl font-bold">{money(totalEfectivo)}</div>
-    <div className="text-xs text-slate-400 mt-1">Sin descontar vuelto</div>
+    <div className="text-2xl font-bold">{money(totalEfectivo + efectivoPagosDeudores)}</div>
+    <div className="text-xs text-slate-400 mt-1">
+      Ventas: {money(totalEfectivo)} + Deudores: {money(efectivoPagosDeudores)}
+    </div>
   </Card>
   <Card title="Vuelto entregado">
     <div className="text-2xl font-bold">{money(totalVuelto)}</div>
   </Card>
   <Card title="Transferencias">
-    <div className="text-2xl font-bold">{money(totalTransf)}</div>
+    <div className="text-2xl font-bold">{money(transferenciasTotales)}</div>
+    <div className="text-xs text-slate-400 mt-1">
+      Ventas: {money(totalTransf)} + Deudores: {money(transferenciasPagosDeudores)}
+    </div>
   </Card>
   <Card title="Pagos de Deudores">
     <div className="text-2xl font-bold">{money(totalPagosDeudores)}</div>
@@ -2370,7 +2402,7 @@ async function updateGabiSpentForDay(gastado: number) {
           </table>
         </div>
       </Card>
-  <Card title="Listado de Pagos de Deudores">
+ <Card title="Listado de Pagos de Deudores">
   <div className="overflow-x-auto">
     <table className="min-w-full text-sm">
       <thead className="text-left text-slate-400">
@@ -2381,14 +2413,15 @@ async function updateGabiSpentForDay(gastado: number) {
           <th className="py-2 pr-3">Deuda Antes</th>
           <th className="py-2 pr-3">Deuda Después</th>
           <th className="py-2 pr-3">Método</th>
+          <th className="py-2 pr-3">Acciones</th> {/* 👈 NUEVA COLUMNA */}
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-800">
         {pagosDeudores
           .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
           .map((pago: any) => {
-            const efectivo = parseNum(pago?.cash_amount || 0);
-            const transferencia = parseNum(pago?.transfer_amount || 0);
+            const efectivo = parseNum(pago?.cash_amount || pago?.payments?.cash || 0);
+            const transferencia = parseNum(pago?.transfer_amount || pago?.payments?.transfer || 0);
             const montoTotal = efectivo + transferencia;
             const metodo = efectivo > 0 && transferencia > 0 
               ? "Mixto" 
@@ -2422,12 +2455,46 @@ async function updateGabiSpentForDay(gastado: number) {
                     {metodo}
                   </Chip>
                 </td>
+                <td className="py-2 pr-3">
+                  {/* 👇👇👇 BOTÓN VER RECIBO */}
+                  <button
+                    onClick={() => {
+                      const reciboData = {
+                        ...pago,
+                        type: "Pago de Deuda",
+                        items: [{ 
+                          productId: "pago_deuda", 
+                          name: "Pago de deuda", 
+                          section: "Finanzas", 
+                          qty: 1, 
+                          unitPrice: montoTotal, 
+                          cost: 0 
+                        }],
+                        total: montoTotal,
+                        payments: { 
+                          cash: efectivo, 
+                          transfer: transferencia, 
+                          change: 0,
+                          alias: pago.alias || "",
+                          saldo_aplicado: pago.saldo_aplicado || 0
+                        },
+                        status: "Pagado"
+                      };
+                      window.dispatchEvent(new CustomEvent("print-invoice", { detail: reciboData } as any));
+                      setTimeout(() => window.print(), 0);
+                    }}
+                    className="text-blue-400 hover:text-blue-300 text-sm"
+                    title="Ver Recibo"
+                  >
+                    📄 Ver Recibo
+                  </button>
+                </td>
               </tr>
             );
           })}
         {pagosDeudores.length === 0 && (
           <tr>
-            <td className="py-3 text-slate-400" colSpan={6}>
+            <td className="py-3 text-slate-400" colSpan={7}>
               No hay pagos registrados en el período.
             </td>
           </tr>
