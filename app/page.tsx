@@ -398,17 +398,18 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     "Gastos y Devoluciones",
     "Cola",
     "Pedidos Online", // 👈 NUEVA PESTAÑA
+      "Ingresar Stock", // 👈 NUEVA PESTAÑA
+
   ];
 
-  const visibleTabs =
-    role === "admin"
-      ? TABS
-      : role === "vendedor"
-      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online"] // 👈 AGREGAR
-      : role === "pedido-online"
-      ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
-      : ["Panel"];
-
+ const visibleTabs =
+  role === "admin"
+    ? TABS
+    : role === "vendedor"
+    ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online", "Ingresar Stock"] // 👈 AGREGAR
+    : role === "pedido-online"
+    ? ["Hacer Pedido"]
+    : ["Panel"];
   return (
     <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
@@ -4194,6 +4195,7 @@ const vendedorOnline = obtenerVendedorOnline(st);
     </div>
   );
 }
+
 /* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 function nextPaint() {
@@ -4983,6 +4985,224 @@ export default function Page() {
   function onLogout() {
     setSession(null);
   }
+  /* ===== Ingresar Stock ===== */
+function IngresarStockTab({ state, setState, session }: any) {
+  const [productoSeleccionado, setProductoSeleccionado] = useState("");
+  const [cantidadIngresar, setCantidadIngresar] = useState("");
+  const [precioCosto, setPrecioCosto] = useState("");
+  const [mensajeAlerta, setMensajeAlerta] = useState("");
+
+  // Obtener el producto seleccionado
+  const producto = state.products.find((p: any) => p.id === productoSeleccionado);
+
+  // Cuando se selecciona un producto, cargar su precio de costo actual
+  useEffect(() => {
+    if (producto) {
+      setPrecioCosto(String(producto.cost || ""));
+    } else {
+      setPrecioCosto("");
+    }
+    setMensajeAlerta("");
+  }, [productoSeleccionado]);
+
+  // Verificar si el precio es mayor al actual
+  useEffect(() => {
+    if (producto && precioCosto) {
+      const costoActual = parseNum(producto.cost || 0);
+      const costoNuevo = parseNum(precioCosto);
+      
+      if (costoNuevo > costoActual && costoActual > 0) {
+        const diferencia = costoNuevo - costoActual;
+        const porcentaje = ((diferencia / costoActual) * 100).toFixed(1);
+        setMensajeAlerta(`⚠️ ATENCIÓN: El nuevo costo es ${porcentaje}% MAYOR al actual (${money(costoActual)} → ${money(costoNuevo)})`);
+      } else if (costoNuevo < costoActual && costoActual > 0) {
+        const diferencia = costoActual - costoNuevo;
+        const porcentaje = ((diferencia / costoActual) * 100).toFixed(1);
+        setMensajeAlerta(`✅ El nuevo costo es ${porcentaje}% MENOR al actual (${money(costoActual)} → ${money(costoNuevo)})`);
+      } else {
+        setMensajeAlerta("");
+      }
+    }
+  }, [precioCosto, producto]);
+
+  async function ingresarStock() {
+    if (!productoSeleccionado) {
+      alert("Seleccioná un producto.");
+      return;
+    }
+    
+    const cantidad = parseNum(cantidadIngresar);
+    const costo = parseNum(precioCosto);
+    
+    if (cantidad <= 0) {
+      alert("La cantidad debe ser mayor a 0.");
+      return;
+    }
+    
+    if (costo <= 0) {
+      alert("El precio de costo debe ser mayor a 0.");
+      return;
+    }
+
+    // Confirmar si el costo es mucho mayor
+    const costoActual = parseNum(producto.cost || 0);
+    if (costo > costoActual * 1.5 && costoActual > 0) { // 50% más caro
+      const confirmar = confirm(
+        `¿Estás seguro? El costo nuevo es más del 50% mayor:\n\n` +
+        `Costo actual: ${money(costoActual)}\n` +
+        `Costo nuevo: ${money(costo)}\n\n` +
+        `¿Ingresar igualmente?`
+      );
+      if (!confirmar) return;
+    }
+
+    const st = clone(state);
+    const productoActualizado = st.products.find((p: any) => p.id === productoSeleccionado);
+    
+    if (productoActualizado) {
+      // Actualizar stock
+      productoActualizado.stock = parseNum(productoActualizado.stock) + cantidad;
+      // Actualizar costo
+      productoActualizado.cost = costo;
+      
+      setState(st);
+
+      // Persistir en Supabase
+      if (hasSupabase) {
+        await supabase
+          .from("products")
+          .update({
+            stock: productoActualizado.stock,
+            cost: productoActualizado.cost
+          })
+          .eq("id", productoSeleccionado);
+      }
+
+      alert(`✅ Stock actualizado:\n${producto.name}\nStock: +${cantidad} unidades\nNuevo costo: ${money(costo)}`);
+
+      // Limpiar formulario
+      setCantidadIngresar("");
+      setPrecioCosto("");
+      setProductoSeleccionado("");
+      setMensajeAlerta("");
+    }
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto p-4 space-y-4">
+      <Card title="Ingresar Stock">
+        <div className="space-y-4">
+          {/* Selección de producto */}
+          <Select
+            label="Seleccionar Producto"
+            value={productoSeleccionado}
+            onChange={setProductoSeleccionado}
+            options={[
+              { value: "", label: "— Seleccionar producto —" },
+              ...state.products.map((p: any) => ({
+                value: p.id,
+                label: `${p.name} - Stock actual: ${p.stock || 0} - Costo: ${money(p.cost || 0)}`
+              }))
+            ]}
+          />
+
+          {/* Información del producto seleccionado */}
+          {producto && (
+            <div className="p-3 bg-slate-800/30 rounded-lg">
+              <div className="text-sm font-semibold">Información del Producto</div>
+              <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+                <div>Nombre: <span className="font-medium">{producto.name}</span></div>
+                <div>Sección: <span className="font-medium">{producto.section}</span></div>
+                <div>Stock actual: <span className="font-medium">{producto.stock || 0} unidades</span></div>
+                <div>Costo actual: <span className="font-medium">{money(producto.cost || 0)}</span></div>
+              </div>
+            </div>
+          )}
+
+          {/* Campos para ingresar datos */}
+          <div className="grid md:grid-cols-2 gap-3">
+            <NumberInput
+              label="Cantidad a Ingresar"
+              value={cantidadIngresar}
+              onChange={setCantidadIngresar}
+              placeholder="Ej: 100"
+            />
+            <NumberInput
+              label="Precio de Costo Unitario"
+              value={precioCosto}
+              onChange={setPrecioCosto}
+              placeholder="Ej: 150.50"
+            />
+          </div>
+
+          {/* Alerta de precio */}
+          {mensajeAlerta && (
+            <div className={`p-3 rounded-lg text-sm ${
+              mensajeAlerta.includes("MAYOR") 
+                ? "bg-yellow-500/20 border border-yellow-500/50 text-yellow-200" 
+                : "bg-green-500/20 border border-green-500/50 text-green-200"
+            }`}>
+              {mensajeAlerta}
+            </div>
+          )}
+
+          {/* Resumen */}
+          {producto && cantidadIngresar && precioCosto && (
+            <div className="p-3 bg-slate-700/30 rounded-lg">
+              <div className="text-sm font-semibold">Resumen del Ingreso</div>
+              <div className="text-sm mt-2 space-y-1">
+                <div>Stock actual: <span className="font-medium">{producto.stock || 0}</span></div>
+                <div>+ Cantidad a ingresar: <span className="font-medium">{parseNum(cantidadIngresar)}</span></div>
+                <div>= Stock final: <span className="font-medium text-emerald-400">
+                  {(producto.stock || 0) + parseNum(cantidadIngresar)}
+                </span></div>
+                <div className="mt-2">Inversión total: <span className="font-medium text-amber-400">
+                  {money(parseNum(cantidadIngresar) * parseNum(precioCosto))}
+                </span></div>
+              </div>
+            </div>
+          )}
+
+          {/* Botón de acción */}
+          <div className="flex justify-end">
+            <Button 
+              onClick={ingresarStock}
+              disabled={!productoSeleccionado || !cantidadIngresar || !precioCosto}
+            >
+              ✅ Ingresar Stock y Actualizar Costo
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Lista de productos con bajo stock */}
+      <Card title="Productos con Bajo Stock">
+        <div className="space-y-2">
+          {state.products
+            .filter((p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 10))
+            .map((p: any) => (
+              <div key={p.id} className="flex justify-between items-center p-2 bg-red-500/10 border border-red-500/30 rounded">
+                <div className="text-sm">
+                  <span className="font-medium">{p.name}</span>
+                  <span className="text-slate-400 ml-2">({p.section})</span>
+                </div>
+                <div className="text-sm text-red-300">
+                  Stock: {p.stock || 0} / Mínimo: {p.stock_minimo || 10}
+                </div>
+              </div>
+            ))}
+          
+          {state.products.filter((p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 10)).length === 0 && (
+            <div className="text-center text-slate-400 py-4">
+              No hay productos con bajo stock ✅
+            </div>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 
   return (
     <>
@@ -5044,6 +5264,11 @@ export default function Page() {
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Pedidos Online" && (
               <GestionPedidosTab state={state} setState={setState} session={session} />
             )}
+           {/* 👇👇👇 NUEVA PESTAÑA: Ingresar Stock */}
+{session.role !== "cliente" && session.role !== "pedido-online" && tab === "Ingresar Stock" && (
+  <IngresarStockTab state={state} setState={setState} session={session} />
+)}
+
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
               {hasSupabase ? "Supabase activo" : "Datos en navegador"}
@@ -5051,9 +5276,11 @@ export default function Page() {
           </>
         )}
       </div>
+      
 
       {/* Plantillas que sí se imprimen */}
       <PrintArea />
     </>
   );
 }
+
