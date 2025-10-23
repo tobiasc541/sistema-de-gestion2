@@ -3479,7 +3479,7 @@ function GestionPedidosTab({ state, setState, session }: any) {
   }
 
   async function convertirAFactura(pedido: Pedido) {
-  // 1. Preguntar por los datos de pago (igual que en presupuestos)
+  // 1. Preguntar por los datos de pago
   const efectivoStr = prompt("¿Cuánto paga en EFECTIVO?", "0") ?? "0";
   const transferenciaStr = prompt("¿Cuánto paga por TRANSFERENCIA?", "0") ?? "0";
   const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
@@ -3503,7 +3503,7 @@ function GestionPedidosTab({ state, setState, session }: any) {
     }
   }
 
-  // 2. Usar la misma lógica que FacturacionTab y PresupuestosTab
+  // 2. Usar la misma lógica que FacturacionTab
   const st = clone(state);
   const number = st.meta.invoiceCounter++;
   const id = "inv_" + number;
@@ -3514,25 +3514,26 @@ function GestionPedidosTab({ state, setState, session }: any) {
     return alert("Error: Cliente no encontrado.");
   }
 
-  // Calcular saldo a favor aplicado
+  // Calcular saldo a favor aplicado (IGUAL QUE EN FACTURACIÓN)
   const saldoActual = parseNum(cliente.saldo_favor || 0);
   const saldoAplicado = Math.min(totalPedido, saldoActual);
   const totalTrasSaldo = totalPedido - saldoAplicado;
 
-  // Calcular pagos aplicados
+  // Calcular pagos aplicados (IGUAL QUE EN FACTURACIÓN)
   const vueltoSugerido = Math.max(0, efectivo - Math.max(0, totalTrasSaldo - transferencia));
   const vuelto = vueltoSugerido;
   const applied = Math.max(0, efectivo + transferencia - vuelto);
 
-  // Calcular deuda resultante
+  // Calcular deuda resultante (IGUAL QUE EN FACTURACIÓN)
   const debtDelta = Math.max(0, totalTrasSaldo - applied);
   const status = debtDelta > 0 ? "No Pagada" : "Pagada";
 
-  // Actualizar cliente (saldo a favor y deuda)
+  // ⭐⭐ ACTUALIZAR CLIENTE CORRECTAMENTE (ESTO ES LO MÁS IMPORTANTE)
+  const deudaAnterior = parseNum(cliente.debt);
   cliente.saldo_favor = saldoActual - saldoAplicado;
-  cliente.debt = parseNum(cliente.debt) + debtDelta;
+  cliente.debt = deudaAnterior + debtDelta;
 
-  // ⭐ DESCONTAR STOCK (muy importante para pedidos online)
+  // ⭐ DESCONTAR STOCK
   pedido.items.forEach((item: any) => {
     const product = st.products.find((p: any) => p.id === item.productId);
     if (product) {
@@ -3540,7 +3541,7 @@ function GestionPedidosTab({ state, setState, session }: any) {
     }
   });
 
-  // Crear la factura con la misma estructura
+  // Crear la factura con la MISMA ESTRUCTURA que FacturacionTab
   const invoice = {
     id,
     number,
@@ -3562,57 +3563,64 @@ function GestionPedidosTab({ state, setState, session }: any) {
     },
     status,
     type: "Factura",
-    client_debt_total: cliente.debt,
+    client_debt_total: cliente.debt, // ⭐ ESTO ES CLAVE PARA REPORTES
     // Agregar referencia al pedido online original
     pedido_origen: pedido.id,
     pedido_observaciones: pedido.observaciones
   };
 
-  // Actualizar estado local
+  // ⭐⭐ ACTUALIZAR ESTADO LOCAL COMPLETAMENTE
   st.invoices.push(invoice);
   
-  // Marcar pedido como completado (si no lo está ya)
+  // Marcar pedido como completado
   const pedidoObj = st.pedidos.find((p: Pedido) => p.id === pedido.id);
   if (pedidoObj) {
     pedidoObj.status = "listo";
     pedidoObj.completed_at = todayISO();
   }
   
+  // ⭐⭐ ACTUALIZAR EL ESTADO GLOBAL (ESTO FALTABA)
   setState(st);
 
   // Persistir en Supabase
   if (hasSupabase) {
     try {
       // Insertar factura
-      await supabase.from("invoices").insert(invoice);
+      const { error: invoiceError } = await supabase.from("invoices").insert(invoice);
+      if (invoiceError) throw invoiceError;
       
       // Actualizar pedido
-      await supabase.from("pedidos").update({ 
+      const { error: pedidoError } = await supabase.from("pedidos").update({ 
         status: "listo",
         completed_at: todayISO()
       }).eq("id", pedido.id);
+      if (pedidoError) throw pedidoError;
       
-      // Actualizar cliente
-      await supabase.from("clients").update({ 
+      // ⭐⭐ ACTUALIZAR CLIENTE EN SUPABASE (DEUDA Y SALDO)
+      const { error: clientError } = await supabase.from("clients").update({ 
         debt: cliente.debt, 
         saldo_favor: cliente.saldo_favor 
       }).eq("id", pedido.client_id);
+      if (clientError) throw clientError;
       
       // Actualizar stock de productos
       for (const item of pedido.items) {
         const product = st.products.find((p: any) => p.id === item.productId);
         if (product) {
-          await supabase.from("products")
+          const { error: stockError } = await supabase.from("products")
             .update({ stock: product.stock })
             .eq("id", item.productId);
+          if (stockError) throw stockError;
         }
       }
       
       // Actualizar contadores
       await saveCountersSupabase(st.meta);
+      
     } catch (error) {
       console.error("Error al guardar en Supabase:", error);
       alert("Error al guardar los datos. Revisa la consola.");
+      return; // No continuar si hay error
     }
   }
 
@@ -3621,17 +3629,35 @@ function GestionPedidosTab({ state, setState, session }: any) {
   await nextPaint();
   window.print();
 
-  // Mostrar resumen
+  // ⭐⭐ FORZAR ACTUALIZACIÓN DE DATOS PARA REPORTES
+  if (hasSupabase) {
+    setTimeout(async () => {
+      const refreshedState = await loadFromSupabase(seedState());
+      setState(refreshedState);
+    }, 1000);
+  }
+
+  // Mostrar resumen detallado
   alert(`✅ Pedido online convertido a Factura Nº ${number}
   
 Cliente: ${pedido.client_name}
 Total: ${money(totalPedido)}
 Efectivo: ${money(efectivo)}
 Transferencia: ${money(transferencia)}
+Vuelto: ${money(vuelto)}
 ${alias ? `Alias: ${alias}` : ''}
 ${saldoAplicado > 0 ? `Saldo aplicado: ${money(saldoAplicado)}` : ''}
 Estado: ${status}
-${pedido.observaciones ? `Observaciones: ${pedido.observaciones}` : ''}`);
+
+⭐ La factura ahora aparecerá en:
+- Reportes del día/mes
+- Historial del cliente
+- Gasto mensual del cliente
+- Estado de deuda del cliente
+
+Deuda anterior: ${money(deudaAnterior)}
+Deuda actual: ${money(cliente.debt)}
+${debtDelta > 0 ? `Nueva deuda agregada: ${money(debtDelta)}` : 'Sin nueva deuda'}`);
 }
 
   return (
