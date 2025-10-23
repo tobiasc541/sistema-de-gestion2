@@ -300,11 +300,49 @@ function ensureUniqueNumber(clients: any[]) {
   const max = clients.reduce((m, c) => Math.max(m, c.number || 0), 1000);
   return max + 1;
 }
+
 function calcInvoiceTotal(items: any[]) {
   return items.reduce((s, it) => s + parseNum(it.qty) * parseNum(it.unitPrice), 0);
 }
+
 function calcInvoiceCost(items: any[]) {
   return items.reduce((s, it) => s + parseNum(it.qty) * parseNum(it.cost || 0), 0);
+}
+
+// ✅ NUEVA FUNCIÓN: Validar stock disponible
+function validarStockDisponible(products: any[], items: any[]): { valido: boolean; productosSinStock: string[] } {
+  const productosSinStock: string[] = [];
+  
+  for (const item of items) {
+    const producto = products.find((p: any) => p.id === item.productId);
+    if (producto) {
+      const stockActual = parseNum(producto.stock);
+      const cantidadRequerida = parseNum(item.qty);
+      
+      if (stockActual < cantidadRequerida) {
+        productosSinStock.push(`${producto.name} (Stock: ${stockActual}, Necesario: ${cantidadRequerida})`);
+      }
+    }
+  }
+  
+  return {
+    valido: productosSinStock.length === 0,
+    productosSinStock
+  };
+}
+
+function groupBy(arr: any[], key: string) {
+  return arr.reduce((acc: any, it: any) => {
+    const k = it[key] || "Otros";
+    (acc[k] = acc[k] || []).push(it);
+    return acc;
+  }, {} as any);
+}
+  
+  return {
+    valido: productosSinStock.length === 0,
+    productosSinStock
+  };
 }
 function groupBy(arr: any[], key: string) {
   return arr.reduce((acc: any, it: any) => {
@@ -514,7 +552,12 @@ const [alias, setAlias] = useState("");
  async function saveAndPrint() {
   if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
   if (items.length === 0) return alert("Agregá productos al carrito.");
-  
+   // ✅ VALIDAR STOCK ANTES DE CONTINUAR
+  const validacionStock = validarStockDisponible(state.products, items);
+  if (!validacionStock.valido) {
+    const mensajeError = `No hay suficiente stock para los siguientes productos:\n\n${validacionStock.productosSinStock.join('\n')}`;
+    return alert(mensajeError);
+  }
   const total = calcInvoiceTotal(items);
   const cash  = parseNum(payCash);
   const transf = parseNum(payTransf);
@@ -2584,6 +2627,13 @@ function PresupuestosTab({ state, setState, session }: any) {
   }
 
 async function convertirAFactura(b: any) {
+    // ✅ VALIDAR STOCK ANTES DE CONVERTIR
+  const validacionStock = validarStockDisponible(state.products, b.items);
+  if (!validacionStock.valido) {
+    const mensajeError = `No hay suficiente stock para convertir el presupuesto:\n\n${validacionStock.productosSinStock.join('\n')}`;
+    return alert(mensajeError);
+  }
+  
   const efectivoStr = prompt("¿Cuánto paga en EFECTIVO?", "0") ?? "0";
   const transferenciaStr = prompt("¿Cuánto paga por TRANSFERENCIA?", "0") ?? "0";
   const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
@@ -3505,25 +3555,27 @@ function PedidosOnlineTab({ state, setState, session }: any) {
 
   const grouped = groupBy(filteredProducts, "section");
 
-  function addItem(p: any) {
-    const existing = items.find((it: any) => it.productId === p.id);
-    const unit = priceList === "1" ? p.price1 : p.price2;
-    
-    if (existing) {
-      setItems(items.map((it) => 
-        it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it
-      ));
-    } else {
-      setItems([...items, { 
-        productId: p.id, 
-        name: p.name, 
-        section: p.section, 
-        qty: 1, 
-        unitPrice: unit, 
-        cost: p.cost 
-      }]);
-    }
+function addItem(p: any) {
+  // ✅ VERIFICAR STOCK ANTES DE AGREGAR
+  const stockActual = parseNum(p.stock);
+  if (stockActual <= 0) {
+    return alert(`No hay stock disponible de ${p.name}. Stock actual: ${stockActual}`);
   }
+  
+  const existing = items.find((it: any) => it.productId === p.id);
+  const unit = priceList === "1" ? p.price1 : p.price2;
+  
+  if (existing) {
+    // Verificar si al agregar una unidad más supera el stock
+    const nuevaCantidad = parseNum(existing.qty) + 1;
+    if (nuevaCantidad > stockActual) {
+      return alert(`No hay suficiente stock de ${p.name}. Stock disponible: ${stockActual}`);
+    }
+    setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: nuevaCantidad } : it)));
+  } else {
+    setItems([...items, { productId: p.id, name: p.name, section: p.section, qty: 1, unitPrice: unit, cost: p.cost }]);
+  }
+}
 
   async function hacerPedido() {
     if (items.length === 0) return alert("Agregá productos al pedido.");
