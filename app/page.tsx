@@ -4280,13 +4280,7 @@ function ControlCostosTab({ state, setState, session }: any) {
   );
 }
 
-/* ===== helpers para impresión ===== */
-const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
-function nextPaint() {
-  return new Promise<void>((res) =>
-    requestAnimationFrame(() => requestAnimationFrame(() => res()))
-  );
-}
+
 
 async function convertirAFactura(pedido: Pedido) {
   try {
