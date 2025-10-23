@@ -5,6 +5,27 @@ export const fetchCache = "force-no-store";
 import React, { useEffect, useState } from "react";
 import "./globals.css";
 import { supabase, hasSupabase } from "../lib/supabaseClient";
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+
+import React, { useEffect, useState } from "react";
+import "./globals.css";
+import { supabase, hasSupabase } from "../lib/supabaseClient";
+/* ===== TIPOS NUEVOS ===== */
+type Pedido = {
+  id: string;
+  client_id: string;
+  client_name: string;
+  client_number: number;
+  items: any[];
+  total: number;
+  status: "pendiente" | "aceptado" | "listo" | "cancelado";
+  date_iso: string;
+  observaciones?: string;
+  accepted_by?: string;
+  accepted_at?: string;
+  completed_at?: string;
+};
 
 /* ===== helpers ===== */
 const pad = (n: number, width = 8) => String(n).padStart(width, "0");
@@ -44,6 +65,8 @@ function seedState() {
     devoluciones: [] as any[],  // <--- AGREGAR ESTO
     queue: [] as any[],
      gabiFunds: [] as any[], // 👈 NUEVO
+        pedidos: [] as Pedido[], // 👈 NUEVA LÍNEA - AGREGAR ESTO
+
   };
 }
 
@@ -143,6 +166,18 @@ if (gabiErr) {
   const { data: budgets, error: budErr } = await supabase.from("budgets").select("*").order("number");
   if (budErr) { console.error("SELECT budgets:", budErr); alert("No pude leer 'budgets' de Supabase."); }
   if (budgets) out.budgets = budgets;
+    // 👇👇👇 AGREGAR AQUÍ - Cargar pedidos
+  const { data: pedidos, error: pedidosErr } = await supabase
+    .from("pedidos")
+    .select("*")
+    .order("date_iso", { ascending: false });
+
+  if (pedidosErr) {
+    console.error("SELECT pedidos:", pedidosErr);
+  } else if (pedidos) {
+    out.pedidos = pedidos;
+  }
+  // 👆👆👆 HASTA AQUÍ
 
   // Si está vacío, NO sembrar datos de ejemplo (nada de demo).
   if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
@@ -319,41 +354,44 @@ function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
   return Math.max(0, factMes - devRestables + extrasIntercambio);
 }
 
-
-/* ===== Navbar ===== */
 function Navbar({ current, setCurrent, role, onLogout }: any) {
- const TABS = [
-  "Facturación",
-  "Clientes",
-  "Productos",
-  "Deudores",
-  "Vendedores",
-  "Reportes",
-  "Presupuestos",
-  "Gastos y Devoluciones", // <-- AGREGAR ESTA
-  "Cola"
-];
+  const TABS = [
+    "Facturación",
+    "Clientes", 
+    "Productos",
+    "Deudores",
+    "Vendedores",
+    "Reportes",
+    "Presupuestos",
+    "Gastos y Devoluciones",
+    "Cola",
+    "Pedidos Online", // 👈 NUEVA PESTAÑA
+  ];
 
-
-   const visibleTabs =
+  const visibleTabs =
     role === "admin"
       ? TABS
       : role === "vendedor"
-     ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola"]
+      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online"] // 👈 AGREGAR
+      : role === "pedido-online"
+      ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
       : ["Panel"];
-
 
   return (
     <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
-        <div className="text-sm font-bold tracking-wide">💼 Facturación — {hasSupabase ? "By : Tobias carrizo" : "Local"}</div>
+        <div className="text-sm font-bold tracking-wide">
+          💼 Facturación — {hasSupabase ? "By : Tobias carrizo" : "Local"}
+        </div>
         <nav className="flex-1 flex gap-1 flex-wrap">
           {visibleTabs.map((t) => (
             <button
               key={t}
               onClick={() => setCurrent(t)}
               className={`px-3 py-1.5 rounded-xl text-sm border ${
-                current === t ? "bg-emerald-600 border-emerald-700" : "bg-slate-900/60 border-slate-800 hover:bg-slate-800"
+                current === t 
+                  ? "bg-emerald-600 border-emerald-700" 
+                  : "bg-slate-900/60 border-slate-800 hover:bg-slate-800"
               }`}
             >
               {t}
@@ -3152,7 +3190,478 @@ ${cli.debt > 0 ? `Se aplicó saldo a favor a la deuda existente. Deuda actual: $
   );
 }
 
+// 👇👇👇 NUEVO COMPONENTE: Panel de Pedidos Online
+function PedidosOnlineTab({ state, setState, session }: any) {
+  const [priceList, setPriceList] = useState("1");
+  const [sectionFilter, setSectionFilter] = useState("Todas");
+  const [listFilter, setListFilter] = useState("Todas");
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<any[]>([]);
+  const [observaciones, setObservaciones] = useState("");
 
+  const sections = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "Otros")))];
+  const lists = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.list_label || "General")))];
+
+  const filteredProducts = state.products.filter((p: any) => {
+    const okS = sectionFilter === "Todas" || p.section === sectionFilter;
+    const okL = listFilter === "Todas" || p.list_label === listFilter;
+    const okQ = !query || p.name.toLowerCase().includes(query.toLowerCase());
+    return okS && okL && okQ;
+  });
+
+  const grouped = groupBy(filteredProducts, "section");
+
+  function addItem(p: any) {
+    const existing = items.find((it: any) => it.productId === p.id);
+    const unit = priceList === "1" ? p.price1 : p.price2;
+    
+    if (existing) {
+      setItems(items.map((it) => 
+        it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it
+      ));
+    } else {
+      setItems([...items, { 
+        productId: p.id, 
+        name: p.name, 
+        section: p.section, 
+        qty: 1, 
+        unitPrice: unit, 
+        cost: p.cost 
+      }]);
+    }
+  }
+
+  async function hacerPedido() {
+    if (items.length === 0) return alert("Agregá productos al pedido.");
+    
+    const st = clone(state);
+    const pedidoId = "ped_" + Math.random().toString(36).slice(2, 9);
+    const total = calcInvoiceTotal(items);
+
+    const pedido: Pedido = {
+      id: pedidoId,
+      client_id: session.id,
+      client_name: session.name,
+      client_number: session.number,
+      items: clone(items),
+      total,
+      status: "pendiente",
+      date_iso: todayISO(),
+      observaciones: observaciones.trim() || undefined,
+    };
+
+    st.pedidos.push(pedido);
+    setState(st);
+
+    if (hasSupabase) {
+      await supabase.from("pedidos").insert(pedido);
+    }
+
+    // Limpiar el carrito
+    setItems([]);
+    setObservaciones("");
+    
+    alert("✅ Pedido enviado correctamente. Te contactaremos cuando esté listo.");
+  }
+
+  const total = calcInvoiceTotal(items);
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card title={`Hacer Pedido Online - Cliente: ${session.name} (N° ${session.number})`}>
+        <div className="grid md:grid-cols-4 gap-3 mb-4">
+          <Select
+            label="Lista de precios"
+            value={priceList}
+            onChange={setPriceList}
+            options={[
+              { value: "1", label: "Mitobicel" },
+              { value: "2", label: "ElshoppingDlc" },
+            ]}
+          />
+          <Select 
+            label="Sección" 
+            value={sectionFilter} 
+            onChange={setSectionFilter} 
+            options={sections.map((s: any) => ({ value: s, label: s }))} 
+          />
+          <Select 
+            label="Lista" 
+            value={listFilter} 
+            onChange={setListFilter} 
+            options={lists.map((s: any) => ({ value: s, label: s }))} 
+          />
+          <Input label="Buscar" value={query} onChange={setQuery} placeholder="Nombre del producto..." />
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Lista de productos */}
+          <div className="space-y-4">
+            <div className="text-sm font-semibold">Productos Disponibles</div>
+            <div className="space-y-3 max-h-[600px] overflow-y-auto">
+              {Object.entries(grouped).map(([sec, arr]: any) => (
+                <div key={sec} className="border border-slate-800 rounded-xl">
+                  <div className="px-3 py-2 text-xs font-semibold bg-slate-800/70">{sec}</div>
+                  <div className="divide-y divide-slate-800">
+                    {arr.map((p: any) => (
+                      <div key={p.id} className="flex items-center justify-between px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">{p.name}</div>
+                          <div className="text-xs text-slate-400">
+                            Precio: {money(priceList === "1" ? p.price1 : p.price2)} · 
+                            Stock: {p.stock || 0}
+                          </div>
+                        </div>
+                        <Button onClick={() => addItem(p)} tone="slate" className="shrink-0">
+                          Agregar
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Carrito del pedido */}
+          <div className="space-y-4">
+            <div className="text-sm font-semibold">Tu Pedido</div>
+            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800 max-h-[400px] overflow-y-auto">
+              {items.length === 0 && (
+                <div className="p-4 text-sm text-slate-400 text-center">
+                  Tu carrito está vacío. Agregá productos del listado.
+                </div>
+              )}
+              {items.map((it, idx) => (
+                <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-7">
+                    <div className="text-sm font-medium">{it.name}</div>
+                    <div className="text-xs text-slate-400">{it.section}</div>
+                  </div>
+                  <div className="col-span-3">
+                    <NumberInput
+                      label="Cant."
+                      value={it.qty}
+                      onChange={(v: any) => {
+                        const q = Math.max(0, parseNum(v));
+                        setItems(items.map((x, i) => (i === idx ? { ...x, qty: q } : x)));
+                      }}
+                    />
+                  </div>
+                  <div className="col-span-2 flex justify-end">
+                    <button 
+                      onClick={() => setItems(items.filter((_, i) => i !== idx))}
+                      className="text-red-400 hover:text-red-300 text-lg"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="col-span-12 text-right text-xs text-slate-300 pt-1">
+                    Subtotal: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Observaciones y total */}
+            <div className="space-y-3">
+              <Input
+                label="Observaciones (opcional)"
+                value={observaciones}
+                onChange={setObservaciones}
+                placeholder="Ej: Urgente, color específico, etc."
+              />
+              
+              <div className="flex items-center justify-between text-lg font-bold border-t border-slate-700 pt-3">
+                <span>Total del Pedido:</span>
+                <span>{money(total)}</span>
+              </div>
+
+              <Button 
+                onClick={hacerPedido} 
+                disabled={items.length === 0}
+                className="w-full py-3 text-base"
+              >
+                🚀 Hacer Pedido
+              </Button>
+
+              <div className="text-xs text-slate-400 text-center">
+                Tu pedido será revisado y te contactaremos para coordinar el pago y entrega.
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Pedidos anteriores del cliente */}
+      <Card title="Tus Pedidos Anteriores">
+        <div className="space-y-3">
+          {state.pedidos
+            .filter((p: Pedido) => p.client_id === session.id)
+            .slice(0, 5) // Mostrar solo los últimos 5
+            .map((pedido: Pedido) => (
+              <div key={pedido.id} className="border border-slate-800 rounded-lg p-3">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="font-medium">Pedido #{pedido.id.slice(-6)}</div>
+                    <div className="text-xs text-slate-400">
+                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
+                    </div>
+                    <div className="text-sm mt-1">
+                      {pedido.items.length} producto(s) - Total: {money(pedido.total)}
+                    </div>
+                    {pedido.observaciones && (
+                      <div className="text-xs text-slate-400 mt-1">
+                        Observaciones: {pedido.observaciones}
+                      </div>
+                    )}
+                  </div>
+                  <Chip tone={
+                    pedido.status === "pendiente" ? "slate" :
+                    pedido.status === "aceptado" ? "emerald" :
+                    pedido.status === "listo" ? "emerald" : "red"
+                  }>
+                    {pedido.status === "pendiente" && "⏳ Pendiente"}
+                    {pedido.status === "aceptado" && "✅ Aceptado"}
+                    {pedido.status === "listo" && "🚀 Listo para retirar"}
+                    {pedido.status === "cancelado" && "❌ Cancelado"}
+                  </Chip>
+                </div>
+              </div>
+            ))}
+          
+          {state.pedidos.filter((p: Pedido) => p.client_id === session.id).length === 0 && (
+            <div className="text-center text-slate-400 py-4">
+              No tenés pedidos anteriores.
+            </div>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// 👇👇👇 NUEVO COMPONENTE: Gestión de Pedidos (para admin/vendedores)
+function GestionPedidosTab({ state, setState, session }: any) {
+  const [filtroEstado, setFiltroEstado] = useState<string>("todos");
+
+  const pedidosFiltrados = state.pedidos.filter((pedido: Pedido) => {
+    if (filtroEstado === "todos") return true;
+    return pedido.status === filtroEstado;
+  });
+
+  async function cambiarEstado(pedidoId: string, nuevoEstado: Pedido["status"]) {
+    const st = clone(state);
+    const pedido = st.pedidos.find((p: Pedido) => p.id === pedidoId);
+    
+    if (pedido) {
+      pedido.status = nuevoEstado;
+      
+      if (nuevoEstado === "aceptado") {
+        pedido.accepted_by = session.name;
+        pedido.accepted_at = todayISO();
+      } else if (nuevoEstado === "listo") {
+        pedido.completed_at = todayISO();
+      }
+      
+      setState(st);
+
+      if (hasSupabase) {
+        await supabase
+          .from("pedidos")
+          .update({
+            status: nuevoEstado,
+            accepted_by: pedido.accepted_by,
+            accepted_at: pedido.accepted_at,
+            completed_at: pedido.completed_at
+          })
+          .eq("id", pedidoId);
+      }
+
+      alert(`Pedido ${pedidoId} actualizado a: ${nuevoEstado}`);
+    }
+  }
+
+  async function convertirAFactura(pedido: Pedido) {
+    if (!confirm(`¿Convertir pedido ${pedido.id} a factura?`)) return;
+
+    const st = clone(state);
+    const number = st.meta.invoiceCounter++;
+    const id = "inv_" + number;
+
+    const invoice = {
+      id,
+      number,
+      date_iso: todayISO(),
+      client_id: pedido.client_id,
+      client_name: pedido.client_name,
+      vendor_id: session.id,
+      vendor_name: session.name,
+      items: clone(pedido.items),
+      total: pedido.total,
+      cost: calcInvoiceCost(pedido.items),
+      payments: { cash: 0, transfer: 0, change: 0, saldo_aplicado: 0 },
+      status: "No Pagada",
+      type: "Factura",
+      origen_pedido: pedido.id, // Para tracking
+    };
+
+    st.invoices.push(invoice);
+    
+    // Marcar pedido como completado
+    const pedidoObj = st.pedidos.find((p: Pedido) => p.id === pedido.id);
+    if (pedidoObj) {
+      pedidoObj.status = "listo";
+      pedidoObj.completed_at = todayISO();
+    }
+    
+    setState(st);
+
+    if (hasSupabase) {
+      await supabase.from("invoices").insert(invoice);
+      await supabase
+        .from("pedidos")
+        .update({ 
+          status: "listo",
+          completed_at: todayISO()
+        })
+        .eq("id", pedido.id);
+      await saveCountersSupabase(st.meta);
+    }
+
+    alert(`✅ Pedido convertido a factura Nº ${number}`);
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card 
+        title="Gestión de Pedidos Online"
+        actions={
+          <div className="flex gap-2">
+            <Select
+              value={filtroEstado}
+              onChange={setFiltroEstado}
+              options={[
+                { value: "todos", label: "Todos los estados" },
+                { value: "pendiente", label: "Pendientes" },
+                { value: "aceptado", label: "Aceptados" },
+                { value: "listo", label: "Listos" },
+                { value: "cancelado", label: "Cancelados" },
+              ]}
+            />
+            <Button tone="slate" onClick={async () => {
+              const refreshedState = await loadFromSupabase(seedState());
+              setState(refreshedState);
+            }}>
+              Actualizar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {pedidosFiltrados.length === 0 ? (
+            <div className="text-center text-slate-400 py-8">
+              No hay pedidos {filtroEstado !== "todos" ? `con estado "${filtroEstado}"` : ""}.
+            </div>
+          ) : (
+            pedidosFiltrados.map((pedido: Pedido) => (
+              <div key={pedido.id} className="border border-slate-800 rounded-xl p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <div className="font-semibold">
+                      Pedido #{pedido.id.slice(-6)} - {pedido.client_name} (N° {pedido.client_number})
+                    </div>
+                    <div className="text-sm text-slate-400">
+                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
+                    </div>
+                    {pedido.observaciones && (
+                      <div className="text-sm text-slate-300 mt-1">
+                        <strong>Observaciones:</strong> {pedido.observaciones}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold">{money(pedido.total)}</div>
+                    <Chip tone={
+                      pedido.status === "pendiente" ? "slate" :
+                      pedido.status === "aceptado" ? "emerald" :
+                      pedido.status === "listo" ? "emerald" : "red"
+                    }>
+                      {pedido.status === "pendiente" && "⏳ Pendiente"}
+                      {pedido.status === "aceptado" && "✅ Aceptado"}
+                      {pedido.status === "listo" && "🚀 Listo para retirar"}
+                      {pedido.status === "cancelado" && "❌ Cancelado"}
+                    </Chip>
+                  </div>
+                </div>
+
+                {/* Items del pedido */}
+                <div className="mb-4">
+                  <div className="text-sm font-semibold mb-2">Productos:</div>
+                  <div className="grid gap-2">
+                    {pedido.items.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span>{item.name} × {item.qty}</span>
+                        <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Acciones */}
+                <div className="flex gap-2 flex-wrap">
+                  {pedido.status === "pendiente" && (
+                    <>
+                      <Button onClick={() => cambiarEstado(pedido.id, "aceptado")}>
+                        ✅ Aceptar Pedido
+                      </Button>
+                      <Button tone="red" onClick={() => cambiarEstado(pedido.id, "cancelado")}>
+                        ❌ Cancelar
+                      </Button>
+                    </>
+                  )}
+                  
+                  {pedido.status === "aceptado" && (
+                    <>
+                      <Button onClick={() => cambiarEstado(pedido.id, "listo")}>
+                        🚀 Marcar como Listo
+                      </Button>
+                      <Button onClick={() => convertirAFactura(pedido)}>
+                        📄 Convertir a Factura
+                      </Button>
+                    </>
+                  )}
+                  
+                  {pedido.status === "listo" && (
+                    <Button onClick={() => convertirAFactura(pedido)}>
+                      📄 Convertir a Factura
+                    </Button>
+                  )}
+                  
+                  <Button tone="slate" onClick={() => {
+                    // Ver detalles del pedido
+                    alert(`Detalles del pedido ${pedido.id}\nCliente: ${pedido.client_name}\nTotal: ${money(pedido.total)}\nProductos: ${pedido.items.length}`);
+                  }}>
+                    👁️ Ver Detalles
+                  </Button>
+                </div>
+
+                {/* Información de procesamiento */}
+                {(pedido.accepted_by || pedido.completed_at) && (
+                  <div className="text-xs text-slate-400 mt-3">
+                    {pedido.accepted_by && `Aceptado por: ${pedido.accepted_by} · `}
+                    {pedido.accepted_at && `el ${new Date(pedido.accepted_at).toLocaleString("es-AR")}`}
+                    {pedido.completed_at && ` · Listo: ${new Date(pedido.completed_at).toLocaleString("es-AR")}`}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
 /* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 function nextPaint() {
@@ -3714,7 +4223,6 @@ const fullyPaid = balance <= 0.009;
 );
   } 
 
-/* ===== Login ===== */
 function Login({ onLogin, vendors, adminKey, clients }: any) {
   const [role, setRole] = useState("vendedor");
   const [name, setName] = useState("");
@@ -3743,7 +4251,7 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
       return;
     }
 
-    // CLIENTE
+    // CLIENTE - Panel normal
     if (role === "cliente") {
       const num = parseInt(String(clientNumber), 10);
       if (!num) {
@@ -3758,6 +4266,27 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
       onLogin({ role: "cliente", name: cl.name, id: cl.id, number: cl.number });
       return;
     }
+
+    // 👇👇👇 NUEVO: PEDIDO ONLINE
+    if (role === "pedido-online") {
+      const num = parseInt(String(clientNumber), 10);
+      if (!num) {
+        alert("Ingrese un número de cliente válido.");
+        return;
+      }
+      const cl = clients.find((c: any) => parseInt(String(c.number), 10) === num);
+      if (!cl) {
+        alert("N° de cliente no encontrado.");
+        return;
+      }
+      onLogin({ 
+        role: "pedido-online", 
+        name: cl.name, 
+        id: cl.id, 
+        number: cl.number 
+      });
+      return;
+    }
   }
 
   return (
@@ -3766,7 +4295,7 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
         <div className="text-center">
           <h1 className="text-xl font-bold">{APP_TITLE}</h1>
           <p className="text-slate-400 text-sm">
-            {hasSupabase ? "Conectado a Supabase" : "Sin base de datos"}
+            {hasSupabase ? "Conectado a Supabase" : "Datos en navegador"}
           </p>
         </div>
 
@@ -3779,7 +4308,8 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
               options={[
                 { value: "vendedor", label: "Vendedor" },
                 { value: "admin", label: "Admin" },
-                { value: "cliente", label: "Cliente" },
+                { value: "cliente", label: "Cliente - Panel Presencial" },
+                { value: "pedido-online", label: "Hacer Pedido Online" }, // 👈 NUEVA OPCIÓN
               ]}
             />
 
@@ -3811,7 +4341,7 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
               />
             )}
 
-            {role === "cliente" && (
+            {(role === "cliente" || role === "pedido-online") && (
               <NumberInput
                 label="N° de cliente"
                 value={clientNumber}
@@ -3881,18 +4411,42 @@ export default function Page() {
         )
         .subscribe();
 
+      // 👇👇👇 NUEVA SUSCRIPCIÓN PARA PEDIDOS ONLINE
+      const pedidosSubscription = supabase
+        .channel('pedidos-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'pedidos'
+          },
+          async () => {
+            // Recargar los pedidos cuando haya cambios
+            const refreshedState = await loadFromSupabase(seedState());
+            setState(refreshedState);
+          }
+        )
+        .subscribe();
+
       return () => {
         supabase.removeChannel(budgetSubscription);
-        supabase.removeChannel(invoicesSubscription); // 👈 AGREGAR ESTA LÍNEA
+        supabase.removeChannel(invoicesSubscription);
+        supabase.removeChannel(pedidosSubscription); // 👈 AGREGAR ESTA LÍNEA
       };
     }
   }, []);
 
-
   function onLogin(user: any) {
     setSession(user);
-    setTab(user.role === "cliente" ? "Panel" : "Facturación");
+    // 👇👇👇 MODIFICAR ESTA LÍNEA para manejar el nuevo rol
+    if (user.role === "pedido-online") {
+      setTab("Hacer Pedido");
+    } else {
+      setTab(user.role === "cliente" ? "Panel" : "Facturación");
+    }
   }
+
   function onLogout() {
     setSession(null);
   }
@@ -3919,37 +4473,44 @@ export default function Page() {
               <ClientePanel state={state} setState={setState} session={session} />
             )}
 
+            {/* 👇👇👇 NUEVO: Panel de Pedidos Online */}
+            {session.role === "pedido-online" && tab === "Hacer Pedido" && (
+              <PedidosOnlineTab state={state} setState={setState} session={session} />
+            )}
+
             {/* Vendedor / Admin */}
-            {session.role !== "cliente" && tab === "Facturación" && (
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Facturación" && (
               <FacturacionTab state={state} setState={setState} session={session} />
             )}
-            {session.role !== "cliente" && tab === "Clientes" && (
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Clientes" && (
               <ClientesTab state={state} setState={setState} />
             )}
-            {session.role !== "cliente" && tab === "Productos" && (
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Productos" && (
               <ProductosTab state={state} setState={setState} role={session.role} />
             )}
-            {session.role !== "cliente" && tab === "Deudores" && (
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Deudores" && (
               <DeudoresTab state={state} setState={setState} />
             )}
             {/* Cola */}
-            {session.role !== "cliente" && tab === "Cola" && (
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Cola" && (
               <ColaTab state={state} setState={setState} session={session} />
             )}
-            {session.role === "admin" && tab === "Vendedores" && (
+            {session.role === "admin" && session.role !== "pedido-online" && tab === "Vendedores" && (
               <VendedoresTab state={state} setState={setState} />
             )}
-           {session.role === "admin" && tab === "Reportes" && (
-  <ReportesTab state={state} setState={setState} session={session} />
-)}
-                       {session.role !== "cliente" && tab === "Presupuestos" && (
+            {session.role === "admin" && session.role !== "pedido-online" && tab === "Reportes" && (
+              <ReportesTab state={state} setState={setState} session={session} />
+            )}
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Presupuestos" && (
               <PresupuestosTab state={state} setState={setState} session={session} />
             )}
-            {session.role !== "cliente" && tab === "Gastos y Devoluciones" && (
-  <GastosDevolucionesTab state={state} setState={setState} session={session} />
-)}
-
-
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Gastos y Devoluciones" && (
+              <GastosDevolucionesTab state={state} setState={setState} session={session} />
+            )}
+            {/* 👇👇👇 NUEVA PESTAÑA: Gestión de Pedidos Online */}
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Pedidos Online" && (
+              <GestionPedidosTab state={state} setState={setState} session={session} />
+            )}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
               {hasSupabase ? "Supabase activo" : "Datos en navegador"}
