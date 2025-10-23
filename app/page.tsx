@@ -1073,16 +1073,8 @@ async function registrarPago() {
     saldo_aplicado: (saldoFavor - saldoRestante),
     debt_before: deudaBruta,
     debt_after: deudaRestante,
-    // 👇👇👇 AGREGAR ESTOS CAMPOS PARA COMPATIBILIDAD
-    payments: {
-      cash: parseNum(cash),
-      transfer: parseNum(transf),
-      change: 0,
-      alias: alias.trim(),
-      saldo_aplicado: (saldoFavor - saldoRestante)
-    },
-    type: "PagoDeuda", // 👈 PARA IDENTIFICAR EN REPORTES
-    total: aplicado,   // 👈 PARA COMPATIBILIDAD
+    // 👇👇👇 ELIMINAR el objeto payments y usar columnas individuales
+    type: "PagoDeuda",
   };
 
   console.log("💾 Guardando pago de deudor en debt_payments:", debtPayment);
@@ -1098,10 +1090,26 @@ async function registrarPago() {
     try {
       console.log("📦 Intentando guardar en debt_payments...");
       
-      // 1. Guardar en debt_payments
+      // 1. Guardar en debt_payments (SOLO con columnas existentes)
       const { data, error } = await supabase
         .from("debt_payments")
-        .insert(debtPayment)
+        .insert({
+          id: debtPayment.id,
+          number: debtPayment.number,
+          date_iso: debtPayment.date_iso,
+          client_id: debtPayment.client_id,
+          client_name: debtPayment.client_name,
+          vendor_id: debtPayment.vendor_id,
+          vendor_name: debtPayment.vendor_name,
+          cash_amount: debtPayment.cash_amount,
+          transfer_amount: debtPayment.transfer_amount,
+          total_amount: debtPayment.total_amount,
+          alias: debtPayment.alias,
+          saldo_aplicado: debtPayment.saldo_aplicado,
+          debt_before: debtPayment.debt_before,
+          debt_after: debtPayment.debt_after,
+          type: debtPayment.type,
+        })
         .select();
 
       if (error) {
@@ -1162,6 +1170,7 @@ async function registrarPago() {
         cost: 0 
       }],
       total: aplicado,
+      // 👇👇👇 Para la impresión, podemos usar payments como objeto
       payments: { 
         cash: parseNum(cash), 
         transfer: parseNum(transf), 
