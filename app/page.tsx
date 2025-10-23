@@ -3579,61 +3579,85 @@ function GestionPedidosTab({ state, setState, session }: any) {
     pedidoObj.completed_at = todayISO();
   }
   
-  // ⭐⭐ ACTUALIZAR EL ESTADO GLOBAL (ESTO FALTABA)
-  setState(st);
+  // ⭐⭐ CORRECCIÓN: AGREGAR AWAIT AQUÍ ⭐⭐
+  await setState(st); // ← ESTA ES LA CORRECCIÓN PRINCIPAL
 
   // Persistir en Supabase
   if (hasSupabase) {
     try {
+      console.log("🔍 Guardando factura en Supabase...", invoice);
+      
       // Insertar factura
       const { error: invoiceError } = await supabase.from("invoices").insert(invoice);
-      if (invoiceError) throw invoiceError;
+      if (invoiceError) {
+        console.error("❌ Error guardando factura:", invoiceError);
+        throw invoiceError;
+      }
+      console.log("✅ Factura guardada en Supabase");
       
       // Actualizar pedido
       const { error: pedidoError } = await supabase.from("pedidos").update({ 
         status: "listo",
         completed_at: todayISO()
       }).eq("id", pedido.id);
-      if (pedidoError) throw pedidoError;
+      if (pedidoError) {
+        console.error("❌ Error actualizando pedido:", pedidoError);
+        throw pedidoError;
+      }
+      console.log("✅ Pedido actualizado en Supabase");
       
       // ⭐⭐ ACTUALIZAR CLIENTE EN SUPABASE (DEUDA Y SALDO)
       const { error: clientError } = await supabase.from("clients").update({ 
         debt: cliente.debt, 
         saldo_favor: cliente.saldo_favor 
       }).eq("id", pedido.client_id);
-      if (clientError) throw clientError;
-      
+      if (clientError) {
+        console.error("❌ Error actualizando cliente:", clientError);
+        throw clientError;
+      }
+      console.log("✅ Cliente actualizado en Supabase");
+
       // Actualizar stock de productos
+      console.log("🔄 Actualizando stock de productos...");
       for (const item of pedido.items) {
         const product = st.products.find((p: any) => p.id === item.productId);
         if (product) {
           const { error: stockError } = await supabase.from("products")
             .update({ stock: product.stock })
             .eq("id", item.productId);
-          if (stockError) throw stockError;
+          if (stockError) {
+            console.error(`❌ Error actualizando stock de ${item.name}:`, stockError);
+            // No throw aquí para no bloquear todo por un producto
+          } else {
+            console.log(`✅ Stock actualizado para: ${item.name}`);
+          }
         }
       }
       
       // Actualizar contadores
       await saveCountersSupabase(st.meta);
+      console.log("✅ Contadores actualizados");
       
     } catch (error) {
-      console.error("Error al guardar en Supabase:", error);
-      alert("Error al guardar los datos. Revisa la consola.");
+      console.error("💥 Error completo al guardar en Supabase:", error);
+      alert("Error al guardar los datos. Revisa la consola para más detalles.");
       return; // No continuar si hay error
     }
   }
 
   // Imprimir factura
+  console.log("🖨️ Imprimiendo factura...");
   window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
   await nextPaint();
   window.print();
 
   // ⭐⭐ FORZAR ACTUALIZACIÓN DE DATOS PARA REPORTES
   if (hasSupabase) {
+    console.log("🔄 Forzando actualización de datos...");
     setTimeout(async () => {
       const refreshedState = await loadFromSupabase(seedState());
       setState(refreshedState);
+      console.log("✅ Datos actualizados para reportes");
     }, 1000);
   }
 
