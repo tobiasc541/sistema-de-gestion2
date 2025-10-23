@@ -5509,7 +5509,7 @@ export default function Page() {
               <GestionPedidosTab state={state} setState={setState} session={session} />
             )}
             
-// 👇👇👇 Y JUSTO DESPUÉS, AGREGA ESTO:
+
 {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Control de Costos" && (
   <ControlCostosTab state={state} setState={setState} session={session} />
 )}
