@@ -3478,7 +3478,7 @@ function GestionPedidosTab({ state, setState, session }: any) {
     }
   }
 
- async function convertirAFactura(pedido: Pedido) {
+async function convertirAFactura(pedido: Pedido) {
   try {
     // 1. Preguntar por los datos de pago
     const efectivoStr = prompt("¿Cuánto paga en EFECTIVO?", "0") ?? "0";
@@ -3515,25 +3515,34 @@ function GestionPedidosTab({ state, setState, session }: any) {
       return alert("Error: Cliente no encontrado.");
     }
 
-    // ⭐⭐ SOLUCIÓN: ASIGNAR VENDEDOR POR DEFECTO PARA PEDIDOS ONLINE ⭐⭐
-    let vendorId = session.id;
-    let vendorName = session.name;
+    // ⭐⭐ SOLUCIÓN: USAR SIEMPRE "Vendedor Online" ⭐⭐
+    let vendorId = "";
+    let vendorName = "Vendedor Online";
 
-    // Si no hay vendedor en la sesión (pedido online), usar uno por defecto
-    if (!vendorId || vendorId === pedido.client_id) {
-      // Buscar un vendedor admin o el primero disponible
-      const vendedorPorDefecto = st.vendors.find((v: any) => v.name.includes("admin") || v.name.includes("Admin")) || st.vendors[0];
-      
-      if (vendedorPorDefecto) {
-        vendorId = vendedorPorDefecto.id;
-        vendorName = vendedorPorDefecto.name;
-        console.log("🔄 Usando vendedor por defecto:", vendorId, vendorName);
+  // Buscar el vendedor "Vendedor Online" en la lista usando la función auxiliar
+const vendedorOnline = obtenerVendedorOnline(st);
+
+    if (vendedorOnline) {
+      vendorId = vendedorOnline.id;
+      vendorName = vendedorOnline.name;
+      console.log("🔄 Usando Vendedor Online:", vendorId, vendorName);
+    } else {
+      // Fallback: usar el primer vendedor disponible
+      const primerVendedor = st.vendors[0];
+      if (primerVendedor) {
+        vendorId = primerVendedor.id;
+        vendorName = primerVendedor.name;
+        console.warn("⚠️ Vendedor Online no encontrado, usando:", vendorId, vendorName);
       } else {
-        // Si no hay vendedores, crear uno temporal
-        vendorId = "vendor_online";
-        vendorName = "Pedidos Online";
-        console.warn("⚠️ No hay vendedores, usando temporal:", vendorId);
+        throw new Error("No hay vendedores disponibles en el sistema");
       }
+    }
+
+    // Validar que el vendor_id existe
+    const vendorExiste = st.vendors.find((v: any) => v.id === vendorId);
+    if (!vendorExiste) {
+      console.error("❌ Vendor ID no válido:", vendorId);
+      throw new Error(`Vendedor con ID ${vendorId} no existe`);
     }
 
     // Calcular saldo a favor aplicado
@@ -3607,23 +3616,6 @@ function GestionPedidosTab({ state, setState, session }: any) {
     if (hasSupabase) {
       console.log("📦 Intentando guardar en Supabase...");
       
-      // ⭐ VERIFICAR/CREAR VENDEDOR EN SUPABASE SI ES NECESARIO
-      if (vendorId === "vendor_online") {
-        const { error: vendorError } = await supabase
-          .from("vendors")
-          .upsert({
-            id: "vendor_online",
-            name: "Pedidos Online",
-            key: "online123"
-          }, { onConflict: "id" });
-          
-        if (vendorError) {
-          console.warn("⚠️ No se pudo crear vendedor temporal:", vendorError);
-        } else {
-          console.log("✅ Vendedor temporal creado en Supabase");
-        }
-      }
-
       // 1. Guardar factura
       const { data: facturaData, error: invoiceError } = await supabase
         .from("invoices")
@@ -3708,6 +3700,30 @@ function GestionPedidosTab({ state, setState, session }: any) {
     console.error("💥 ERROR CRÍTICO:", error);
     alert(`❌ Error al guardar: ${error.message}\n\nRevisa la consola para más detalles.`);
   }
+}
+  function obtenerVendedorOnline(state: any) {
+  // Buscar por nombre exacto o similar
+  const vendedores = state.vendors || [];
+  
+  // Primero buscar por nombre exacto
+  let vendedor = vendedores.find((v: any) => 
+    v.name.toLowerCase() === "vendedor online"
+  );
+  
+  // Si no existe, buscar por coincidencia parcial
+  if (!vendedor) {
+    vendedor = vendedores.find((v: any) => 
+      v.name.toLowerCase().includes("online") || 
+      v.name.toLowerCase().includes("vendedor")
+    );
+  }
+  
+  // Si aún no existe, usar el primer vendedor
+  if (!vendedor && vendedores.length > 0) {
+    vendedor = vendedores[0];
+  }
+  
+  return vendedor;
 }
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
