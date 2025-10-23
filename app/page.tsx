@@ -4286,15 +4286,7 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
   }
 
   return (
-    <div className="min-h-screen grid place-items-center p-6">
-      <div className="max-w-md w-full space-y-5">
-        <div className="text-center">
-          <h1 className="text-xl font-bold">{APP_TITLE}</h1>
-          <p className="text-slate-400 text-sm">
-            {hasSupabase ? "Conectado a Supabase" : "Datos en navegador"}
-          </p>
-        </div>
-
+    
         <Card title="Ingreso">
           <form className="space-y-3" onSubmit={handleSubmit}>
             <Select
