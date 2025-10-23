@@ -5,12 +5,8 @@ export const fetchCache = "force-no-store";
 import React, { useEffect, useState } from "react";
 import "./globals.css";
 import { supabase, hasSupabase } from "../lib/supabaseClient";
-export const dynamic = "force-dynamic";
-export const fetchCache = "force-no-store";
 
-import React, { useEffect, useState } from "react";
-import "./globals.css";
-import { supabase, hasSupabase } from "../lib/supabaseClient";
+
 /* ===== TIPOS NUEVOS ===== */
 type Pedido = {
   id: string;
