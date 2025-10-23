@@ -3817,6 +3817,7 @@ function GestionPedidosTab({ state, setState, session }: any) {
     }
   }
 
+  // 👇 ESTA ES LA PARTE QUE FALTABA - EL RETURN PRINCIPAL DE LA FUNCIÓN
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       <Card 
@@ -3945,7 +3946,7 @@ function GestionPedidosTab({ state, setState, session }: any) {
       </Card>
     </div>
   );
-}
+} // 👈 ESTE ES EL CIERRE CORRECTO DE LA FUNCIÓN GestionPedidosTab
 /* ===== Control de Costos ===== */
 function ControlCostosTab({ state, setState, session }: any) {
   const [productosSeleccionados, setProductosSeleccionados] = useState<any[]>([]);
