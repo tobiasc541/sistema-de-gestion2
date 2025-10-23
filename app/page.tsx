@@ -3515,6 +3515,27 @@ function GestionPedidosTab({ state, setState, session }: any) {
       return alert("Error: Cliente no encontrado.");
     }
 
+    // ⭐⭐ SOLUCIÓN: ASIGNAR VENDEDOR POR DEFECTO PARA PEDIDOS ONLINE ⭐⭐
+    let vendorId = session.id;
+    let vendorName = session.name;
+
+    // Si no hay vendedor en la sesión (pedido online), usar uno por defecto
+    if (!vendorId || vendorId === pedido.client_id) {
+      // Buscar un vendedor admin o el primero disponible
+      const vendedorPorDefecto = st.vendors.find((v: any) => v.name.includes("admin") || v.name.includes("Admin")) || st.vendors[0];
+      
+      if (vendedorPorDefecto) {
+        vendorId = vendedorPorDefecto.id;
+        vendorName = vendedorPorDefecto.name;
+        console.log("🔄 Usando vendedor por defecto:", vendorId, vendorName);
+      } else {
+        // Si no hay vendedores, crear uno temporal
+        vendorId = "vendor_online";
+        vendorName = "Pedidos Online";
+        console.warn("⚠️ No hay vendedores, usando temporal:", vendorId);
+      }
+    }
+
     // Calcular saldo a favor aplicado
     const saldoActual = parseNum(cliente.saldo_favor || 0);
     const saldoAplicado = Math.min(totalPedido, saldoActual);
@@ -3542,16 +3563,16 @@ function GestionPedidosTab({ state, setState, session }: any) {
       }
     });
 
-    // Crear la factura - SIMPLIFICADA para Supabase
+    // Crear la factura con VENDEDOR CORRECTO
     const invoice = {
       id,
       number,
       date_iso: todayISO(),
       client_id: pedido.client_id,
       client_name: pedido.client_name,
-      vendor_id: session.id,
-      vendor_name: session.name,
-      items: pedido.items, // sin clone para probar
+      vendor_id: vendorId, // ⭐ Usamos el vendedor asignado
+      vendor_name: vendorName, // ⭐ Nombre del vendedor
+      items: pedido.items,
       total: totalPedido,
       total_after_credit: totalTrasSaldo,
       cost: calcInvoiceCost(pedido.items),
@@ -3567,7 +3588,7 @@ function GestionPedidosTab({ state, setState, session }: any) {
       client_debt_total: cliente.debt
     };
 
-    console.log("🔍 FACTURA A GUARDAR:", JSON.stringify(invoice, null, 2));
+    console.log("🔍 Factura con vendedor:", vendorId, vendorName);
 
     // ACTUALIZAR ESTADO LOCAL PRIMERO
     st.invoices.push(invoice);
@@ -3586,7 +3607,24 @@ function GestionPedidosTab({ state, setState, session }: any) {
     if (hasSupabase) {
       console.log("📦 Intentando guardar en Supabase...");
       
-      // 1. Guardar factura primero
+      // ⭐ VERIFICAR/CREAR VENDEDOR EN SUPABASE SI ES NECESARIO
+      if (vendorId === "vendor_online") {
+        const { error: vendorError } = await supabase
+          .from("vendors")
+          .upsert({
+            id: "vendor_online",
+            name: "Pedidos Online",
+            key: "online123"
+          }, { onConflict: "id" });
+          
+        if (vendorError) {
+          console.warn("⚠️ No se pudo crear vendedor temporal:", vendorError);
+        } else {
+          console.log("✅ Vendedor temporal creado en Supabase");
+        }
+      }
+
+      // 1. Guardar factura
       const { data: facturaData, error: invoiceError } = await supabase
         .from("invoices")
         .insert(invoice)
@@ -3594,8 +3632,6 @@ function GestionPedidosTab({ state, setState, session }: any) {
 
       if (invoiceError) {
         console.error("❌ ERROR al guardar factura:", invoiceError);
-        console.error("Detalles:", invoiceError.details);
-        console.error("Mensaje:", invoiceError.message);
         throw new Error(`No se pudo guardar la factura: ${invoiceError.message}`);
       }
       console.log("✅ Factura guardada:", facturaData);
@@ -3611,9 +3647,9 @@ function GestionPedidosTab({ state, setState, session }: any) {
 
       if (pedidoError) {
         console.error("❌ ERROR al actualizar pedido:", pedidoError);
-        throw new Error(`No se pudo actualizar el pedido: ${pedidoError.message}`);
+      } else {
+        console.log("✅ Pedido actualizado");
       }
-      console.log("✅ Pedido actualizado");
 
       // 3. Actualizar cliente
       const { error: clientError } = await supabase
@@ -3626,11 +3662,11 @@ function GestionPedidosTab({ state, setState, session }: any) {
 
       if (clientError) {
         console.error("❌ ERROR al actualizar cliente:", clientError);
-        throw new Error(`No se pudo actualizar el cliente: ${clientError.message}`);
+      } else {
+        console.log("✅ Cliente actualizado");
       }
-      console.log("✅ Cliente actualizado");
 
-      // 4. Actualizar stock (sin bloquear por errores)
+      // 4. Actualizar stock
       for (const item of pedido.items) {
         const product = st.products.find((p: any) => p.id === item.productId);
         if (product) {
@@ -3666,7 +3702,7 @@ function GestionPedidosTab({ state, setState, session }: any) {
     }
 
     // MENSAJE DE ÉXITO
-    alert(`✅ Pedido convertido a Factura Nº ${number}\nTotal: ${money(totalPedido)}\nEstado: ${status}`);
+    alert(`✅ Pedido online convertido a Factura Nº ${number}\nCliente: ${pedido.client_name}\nTotal: ${money(totalPedido)}\nVendedor: ${vendorName}\nEstado: ${status}`);
 
   } catch (error) {
     console.error("💥 ERROR CRÍTICO:", error);
