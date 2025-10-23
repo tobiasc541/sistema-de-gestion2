@@ -1073,8 +1073,7 @@ async function registrarPago() {
     saldo_aplicado: (saldoFavor - saldoRestante),
     debt_before: deudaBruta,
     debt_after: deudaRestante,
-    // 👇👇👇 ELIMINAR el objeto payments y usar columnas individuales
-    type: "PagoDeuda",
+    // 👇👇👇 ELIMINAR completamente la propiedad 'type'
   };
 
   console.log("💾 Guardando pago de deudor en debt_payments:", debtPayment);
@@ -1108,7 +1107,7 @@ async function registrarPago() {
           saldo_aplicado: debtPayment.saldo_aplicado,
           debt_before: debtPayment.debt_before,
           debt_after: debtPayment.debt_after,
-          type: debtPayment.type,
+          // 👇👇👇 NO incluir 'type' aquí
         })
         .select();
 
@@ -1160,7 +1159,7 @@ async function registrarPago() {
   window.dispatchEvent(new CustomEvent("print-invoice", { 
     detail: { 
       ...debtPayment, 
-      type: "Pago de Deuda",
+      type: "Pago de Deuda", // 👈 Esto es solo para la impresión (frontend)
       items: [{ 
         productId: "pago_deuda", 
         name: "Pago de deuda", 
@@ -1170,7 +1169,6 @@ async function registrarPago() {
         cost: 0 
       }],
       total: aplicado,
-      // 👇👇👇 Para la impresión, podemos usar payments como objeto
       payments: { 
         cash: parseNum(cash), 
         transfer: parseNum(transf), 
