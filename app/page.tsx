@@ -3479,54 +3479,160 @@ function GestionPedidosTab({ state, setState, session }: any) {
   }
 
   async function convertirAFactura(pedido: Pedido) {
-    if (!confirm(`¿Convertir pedido ${pedido.id} a factura?`)) return;
+  // 1. Preguntar por los datos de pago (igual que en presupuestos)
+  const efectivoStr = prompt("¿Cuánto paga en EFECTIVO?", "0") ?? "0";
+  const transferenciaStr = prompt("¿Cuánto paga por TRANSFERENCIA?", "0") ?? "0";
+  const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
 
-    const st = clone(state);
-    const number = st.meta.invoiceCounter++;
-    const id = "inv_" + number;
+  const efectivo = parseNum(efectivoStr);
+  const transferencia = parseNum(transferenciaStr);
+  const alias = aliasStr.trim();
 
-    const invoice = {
-      id,
-      number,
-      date_iso: todayISO(),
-      client_id: pedido.client_id,
-      client_name: pedido.client_name,
-      vendor_id: session.id,
-      vendor_name: session.name,
-      items: clone(pedido.items),
-      total: pedido.total,
-      cost: calcInvoiceCost(pedido.items),
-      payments: { cash: 0, transfer: 0, change: 0, saldo_aplicado: 0 },
-      status: "No Pagada",
-      type: "Factura",
-      origen_pedido: pedido.id, // Para tracking
-    };
-
-    st.invoices.push(invoice);
-    
-    // Marcar pedido como completado
-    const pedidoObj = st.pedidos.find((p: Pedido) => p.id === pedido.id);
-    if (pedidoObj) {
-      pedidoObj.status = "listo";
-      pedidoObj.completed_at = todayISO();
-    }
-    
-    setState(st);
-
-    if (hasSupabase) {
-      await supabase.from("invoices").insert(invoice);
-      await supabase
-        .from("pedidos")
-        .update({ 
-          status: "listo",
-          completed_at: todayISO()
-        })
-        .eq("id", pedido.id);
-      await saveCountersSupabase(st.meta);
-    }
-
-    alert(`✅ Pedido convertido a factura Nº ${number}`);
+  // Validaciones básicas
+  if (efectivo < 0 || transferencia < 0) {
+    return alert("Los montos no pueden ser negativos.");
   }
+
+  const totalPagos = efectivo + transferencia;
+  const totalPedido = parseNum(pedido.total);
+
+  if (totalPagos > totalPedido) {
+    const vuelto = totalPagos - totalPedido;
+    if (!confirm(`El cliente pagó de más. ¿Dar vuelto de ${money(vuelto)}?`)) {
+      return;
+    }
+  }
+
+  // 2. Usar la misma lógica que FacturacionTab y PresupuestosTab
+  const st = clone(state);
+  const number = st.meta.invoiceCounter++;
+  const id = "inv_" + number;
+
+  // Obtener el cliente para manejar saldo a favor y deuda
+  const cliente = st.clients.find((c: any) => c.id === pedido.client_id);
+  if (!cliente) {
+    return alert("Error: Cliente no encontrado.");
+  }
+
+  // Calcular saldo a favor aplicado
+  const saldoActual = parseNum(cliente.saldo_favor || 0);
+  const saldoAplicado = Math.min(totalPedido, saldoActual);
+  const totalTrasSaldo = totalPedido - saldoAplicado;
+
+  // Calcular pagos aplicados
+  const vueltoSugerido = Math.max(0, efectivo - Math.max(0, totalTrasSaldo - transferencia));
+  const vuelto = vueltoSugerido;
+  const applied = Math.max(0, efectivo + transferencia - vuelto);
+
+  // Calcular deuda resultante
+  const debtDelta = Math.max(0, totalTrasSaldo - applied);
+  const status = debtDelta > 0 ? "No Pagada" : "Pagada";
+
+  // Actualizar cliente (saldo a favor y deuda)
+  cliente.saldo_favor = saldoActual - saldoAplicado;
+  cliente.debt = parseNum(cliente.debt) + debtDelta;
+
+  // ⭐ DESCONTAR STOCK (muy importante para pedidos online)
+  pedido.items.forEach((item: any) => {
+    const product = st.products.find((p: any) => p.id === item.productId);
+    if (product) {
+      product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
+    }
+  });
+
+  // Crear la factura con la misma estructura
+  const invoice = {
+    id,
+    number,
+    date_iso: todayISO(),
+    client_id: pedido.client_id,
+    client_name: pedido.client_name,
+    vendor_id: session.id,
+    vendor_name: session.name,
+    items: clone(pedido.items),
+    total: totalPedido,
+    total_after_credit: totalTrasSaldo,
+    cost: calcInvoiceCost(pedido.items),
+    payments: { 
+      cash: efectivo, 
+      transfer: transferencia, 
+      change: vuelto, 
+      alias: alias,
+      saldo_aplicado: saldoAplicado 
+    },
+    status,
+    type: "Factura",
+    client_debt_total: cliente.debt,
+    // Agregar referencia al pedido online original
+    pedido_origen: pedido.id,
+    pedido_observaciones: pedido.observaciones
+  };
+
+  // Actualizar estado local
+  st.invoices.push(invoice);
+  
+  // Marcar pedido como completado (si no lo está ya)
+  const pedidoObj = st.pedidos.find((p: Pedido) => p.id === pedido.id);
+  if (pedidoObj) {
+    pedidoObj.status = "listo";
+    pedidoObj.completed_at = todayISO();
+  }
+  
+  setState(st);
+
+  // Persistir en Supabase
+  if (hasSupabase) {
+    try {
+      // Insertar factura
+      await supabase.from("invoices").insert(invoice);
+      
+      // Actualizar pedido
+      await supabase.from("pedidos").update({ 
+        status: "listo",
+        completed_at: todayISO()
+      }).eq("id", pedido.id);
+      
+      // Actualizar cliente
+      await supabase.from("clients").update({ 
+        debt: cliente.debt, 
+        saldo_favor: cliente.saldo_favor 
+      }).eq("id", pedido.client_id);
+      
+      // Actualizar stock de productos
+      for (const item of pedido.items) {
+        const product = st.products.find((p: any) => p.id === item.productId);
+        if (product) {
+          await supabase.from("products")
+            .update({ stock: product.stock })
+            .eq("id", item.productId);
+        }
+      }
+      
+      // Actualizar contadores
+      await saveCountersSupabase(st.meta);
+    } catch (error) {
+      console.error("Error al guardar en Supabase:", error);
+      alert("Error al guardar los datos. Revisa la consola.");
+    }
+  }
+
+  // Imprimir factura
+  window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+  await nextPaint();
+  window.print();
+
+  // Mostrar resumen
+  alert(`✅ Pedido online convertido a Factura Nº ${number}
+  
+Cliente: ${pedido.client_name}
+Total: ${money(totalPedido)}
+Efectivo: ${money(efectivo)}
+Transferencia: ${money(transferencia)}
+${alias ? `Alias: ${alias}` : ''}
+${saldoAplicado > 0 ? `Saldo aplicado: ${money(saldoAplicado)}` : ''}
+Estado: ${status}
+${pedido.observaciones ? `Observaciones: ${pedido.observaciones}` : ''}`);
+}
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
