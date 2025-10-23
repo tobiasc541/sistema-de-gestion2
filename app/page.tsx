@@ -2127,28 +2127,99 @@ async function updateGabiSpentForDay(gastado: number) {
                           📄
                         </button>
 
-                        {/* Botón eliminar (solo admin) */}
-                        {session?.role === "admin" && (
-                          <button
-                            onClick={async () => {
-                              if (!confirm(`¿Seguro que deseas eliminar la factura Nº ${pad(f.number)}?`)) return;
-                              
-                              const st = clone(state);
-                              st.invoices = st.invoices.filter((x: any) => x.id !== f.id);
-                              setState(st);
-                              
-                              if (hasSupabase) {
-                                await supabase.from("invoices").delete().eq("id", f.id);
-                              }
-                              
-                              alert(`Factura Nº ${pad(f.number)} eliminada.`);
-                            }}
-                            className="text-red-500 hover:text-red-700"
-                            title="Eliminar"
-                          >
-                            🗑️
-                          </button>
-                        )}
+{/* Botón eliminar (solo admin) */}
+{session?.role === "admin" && (
+  <button
+    onClick={async () => {
+      if (!confirm(`¿Seguro que deseas eliminar la factura Nº ${pad(f.number)}? Esta acción REVERTIRÁ la deuda del cliente y el stock.`)) return;
+      
+      // 1. Encontrar el cliente afectado
+      const cliente = state.clients.find((c: any) => c.id === f.client_id);
+      if (!cliente) {
+        alert("Error: Cliente no encontrado.");
+        return;
+      }
+
+      const st = clone(state);
+      
+      // 2. Cálculo PRECISO de la deuda a revertir
+      const totalFactura = parseNum(f.total);
+      const pagosEfectivo = parseNum(f?.payments?.cash || 0);
+      const pagosTransferencia = parseNum(f?.payments?.transfer || 0);
+      const saldoAplicado = parseNum(f?.payments?.saldo_aplicado || 0);
+      const totalPagos = pagosEfectivo + pagosTransferencia;
+      
+      // La deuda que generó esta factura es el total menos lo que ya pagó y el saldo aplicado
+      const deudaGeneradaPorFactura = Math.max(0, totalFactura - totalPagos - saldoAplicado);
+      
+      // Nueva deuda = deuda actual - deuda que generó esta factura
+      const deudaActual = parseNum(cliente.debt);
+      const nuevaDeuda = Math.max(0, deudaActual - deudaGeneradaPorFactura);
+      
+      // 3. Restaurar saldo a favor si se usó
+      const saldoActual = parseNum(cliente.saldo_favor);
+      const nuevoSaldo = saldoActual + saldoAplicado;
+      
+      // 4. Actualizar cliente
+      cliente.debt = nuevaDeuda;
+      cliente.saldo_favor = nuevoSaldo;
+      
+      // 5. Restaurar stock de productos
+      f.items.forEach((item: any) => {
+        const product = st.products.find((p: any) => p.id === item.productId);
+        if (product) {
+          product.stock = parseNum(product.stock) + parseNum(item.qty);
+        }
+      });
+
+      // 6. Eliminar factura del estado local
+      st.invoices = st.invoices.filter((x: any) => x.id !== f.id);
+      setState(st);
+      
+      // 7. Persistir en Supabase
+      if (hasSupabase) {
+        try {
+          // Eliminar factura
+          await supabase.from("invoices").delete().eq("id", f.id);
+          
+          // Actualizar cliente
+          await supabase.from("clients")
+            .update({ 
+              debt: nuevaDeuda,
+              saldo_favor: nuevoSaldo
+            })
+            .eq("id", f.client_id);
+          
+          // Actualizar stock de productos
+          for (const item of f.items) {
+            const product = st.products.find((p: any) => p.id === item.productId);
+            if (product) {
+              await supabase.from("products")
+                .update({ stock: product.stock })
+                .eq("id", item.productId);
+            }
+          }
+          
+          alert(`✅ Factura Nº ${pad(f.number)} eliminada.\nDeuda: ${money(deudaActual)} → ${money(nuevaDeuda)}\nStock restaurado.`);
+          
+        } catch (error) {
+          console.error("Error al eliminar factura:", error);
+          alert("Error al eliminar la factura. Los datos pueden estar inconsistentes.");
+          
+          // Recargar para evitar inconsistencias
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+        }
+      } else {
+        alert(`✅ Factura Nº ${pad(f.number)} eliminada.\nDeuda: ${money(deudaActual)} → ${money(nuevaDeuda)}\nStock restaurado.`);
+      }
+    }}
+    className="text-red-500 hover:text-red-700"
+    title="Eliminar"
+  >
+    🗑️
+  </button>
+)}
                       </td>
                     </tr>
                   );
