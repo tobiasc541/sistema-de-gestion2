@@ -1633,6 +1633,15 @@ const flujoCajaEfectivoFinal =
   - commissionsPeriodo                 // Comisiones pagadas
   + vueltoRestante                     // Vuelto que queda en caja
   + fondosGabiRestantes;               // Fondos restantes de Gabi que vuelven a caja
+  // Agrega esto junto con los otros cálculos en ReportesTab
+const pagosDeudores = docsEnRango.filter((f: any) => f.type === "Recibo" && f.status === "Pago");
+const totalPagosDeudores = pagosDeudores.reduce((s: number, p: any) => {
+  const efectivo = parseNum(p?.payments?.cash || 0);
+  const transferencia = parseNum(p?.payments?.transfer || 0);
+  return s + efectivo + transferencia;
+}, 0);
+
+const cantidadPagos = pagosDeudores.length;
   // Agrupados
   const porVendedor = Object.values(
     invoices.reduce((acc: any, f: any) => {
@@ -1915,6 +1924,10 @@ async function updateGabiSpentForDay(gastado: number) {
   </Card>
   <Card title="Transferencias">
     <div className="text-2xl font-bold">{money(totalTransf)}</div>
+  </Card>
+  <Card title="Pagos de Deudores">
+    <div className="text-2xl font-bold">{money(totalPagosDeudores)}</div>
+    <div className="text-xs text-slate-400 mt-1">{cantidadPagos} pago(s)</div>
   </Card>
 </div>
 
@@ -2287,8 +2300,71 @@ async function updateGabiSpentForDay(gastado: number) {
           </table>
         </div>
       </Card>
+      <Card title="Listado de Pagos de Deudores">
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="text-left text-slate-400">
+        <tr>
+          <th className="py-2 pr-3">Fecha y Hora</th>
+          <th className="py-2 pr-3">Cliente</th>
+          <th className="py-2 pr-3">Monto Pagado</th>
+          <th className="py-2 pr-3">Deuda Restante</th>
+          <th className="py-2 pr-3">Método</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-800">
+        {pagosDeudores
+          .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+          .map((pago: any) => {
+            const cliente = state.clients.find((c: any) => c.id === pago.client_id);
+            const deudaRestante = cliente ? parseNum(cliente.debt) : 0;
+            const efectivo = parseNum(pago?.payments?.cash || 0);
+            const transferencia = parseNum(pago?.payments?.transfer || 0);
+            const montoTotal = efectivo + transferencia;
+            const metodo = efectivo > 0 && transferencia > 0 
+              ? "Mixto" 
+              : efectivo > 0 
+                ? "Efectivo" 
+                : "Transferencia";
+
+            return (
+              <tr key={pago.id}>
+                <td className="py-2 pr-3">
+                  {new Date(pago.date_iso).toLocaleString("es-AR")}
+                </td>
+                <td className="py-2 pr-3">{pago.client_name}</td>
+                <td className="py-2 pr-3">
+                  <span className="font-medium text-emerald-400">
+                    {money(montoTotal)}
+                  </span>
+                </td>
+                <td className="py-2 pr-3">
+                  <span className={deudaRestante > 0 ? "text-amber-400" : "text-emerald-400"}>
+                    {money(deudaRestante)}
+                  </span>
+                </td>
+                <td className="py-2 pr-3">
+                  <Chip tone={metodo === "Efectivo" ? "emerald" : "slate"}>
+                    {metodo}
+                  </Chip>
+                </td>
+              </tr>
+            );
+          })}
+        {pagosDeudores.length === 0 && (
+          <tr>
+            <td className="py-3 text-slate-400" colSpan={5}>
+              No hay pagos registrados en el período.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</Card>
     </div>
   );
+  
 } // ← ESTE CIERRA EL COMPONENTE ReportesTab
 
      
