@@ -1562,36 +1562,50 @@ const [gabiSpent, setGabiSpent] = useState("");
   }, [periodo, dia, mes, anio, state.meta?.lastSavedInvoiceId, state.gastos?.length]);
 
   // ✅ Ahora sí: comisiones del período usando start/end
-  const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]) => {
-    const t = new Date(`${k}T00:00:00`).getTime();
-    return t >= start && t <= end ? sum + parseNum(v) : sum;
-  }, 0);
+const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]) => {
+  const t = new Date(`${k}T00:00:00`).getTime();
+  return t >= start && t <= end ? sum + parseNum(v) : sum;
+}, 0);
 
-  // Ventas (solo Facturas)
-  const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
-  const totalVentas = invoices.reduce((s: number, f: any) => s + parseNum(f.total), 0);
-  // 👇👇👇 CÁLCULOS GABI - AGREGAR JUSTO AQUÍ 👇👇👇
+// Ventas (solo Facturas)
+const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
+const totalVentas = invoices.reduce((s: number, f: any) => s + parseNum(f.total), 0);
 
+// 👇👇👇 PAGOS DE DEUDORES (Recibos) - SIN DUPLICADOS
+const pagosDeudores = docsEnRango.filter((f: any) => f.type === "Recibo" && f.status === "Pago");
 
+// 👇👇👇 CÁLCULOS DE PAGOS PARA INCLUIR RECIBOS
+const totalVuelto = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.change || 0), 0);
+const totalEfectivo = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.cash || 0), 0);
+const totalEfectivoNeto = totalEfectivo - totalVuelto;
+const totalTransf = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.transfer || 0), 0);
 
-  // Pagos
-  const totalVuelto  = invoices.reduce((s: number, f: any) => s + parseNum(f?.payments?.change), 0);
-  const totalEfectivo = invoices.reduce((s: number, f: any) => s + parseNum(f?.payments?.cash), 0);
-  const totalEfectivoNeto = totalEfectivo - totalVuelto; // flujo real de caja
-  const totalTransf = invoices.reduce((s: number, f: any) => s + parseNum(f?.payments?.transfer), 0);
-  // Vuelto restante para el día (solo aplica si periodo === "dia")
-  const vueltoRestante = periodo === "dia" ? Math.max(0, cashFloatTarget - totalVuelto) : 0;
+// 👇👇👇 CÁLCULO ESPECÍFICO PARA PAGOS DE DEUDORES
+const totalPagosDeudores = pagosDeudores.reduce((s: number, p: any) => {
+  const efectivo = parseNum(p?.payments?.cash || 0);
+  const transferencia = parseNum(p?.payments?.transfer || 0);
+  return s + efectivo + transferencia;
+}, 0);
 
-  // Ganancia estimada
-  const ganancia = invoices.reduce((s: number, f: any) => s + (parseNum(f.total) - parseNum(f.cost)), 0);
+const cantidadPagos = pagosDeudores.length;
 
-  // GASTOS del período
-  const gastosPeriodo = (state.gastos || []).filter((g: any) => {
-    if (!g || !g.date_iso) return false;
-    const t = new Date(g.date_iso).getTime();
-    return t >= start && t <= end;
-  });
-  // Gastos de Gabi del día
+// 👇👇👇 EFECTIVO DE PAGOS DE DEUDORES (PARA FLUJO DE CAJA)
+const efectivoPagosDeudores = pagosDeudores.reduce((s: number, p: any) => s + parseNum(p?.payments?.cash || 0), 0);
+
+// Vuelto restante para el día (solo aplica si periodo === "dia")
+const vueltoRestante = periodo === "dia" ? Math.max(0, cashFloatTarget - totalVuelto) : 0;
+
+// Ganancia estimada
+const ganancia = invoices.reduce((s: number, f: any) => s + (parseNum(f.total) - parseNum(f.cost)), 0);
+
+// GASTOS del período
+const gastosPeriodo = (state.gastos || []).filter((g: any) => {
+  if (!g || !g.date_iso) return false;
+  const t = new Date(g.date_iso).getTime();
+  return t >= start && t <= end;
+});
+
+// Gastos de Gabi del día
 const gastosGabi = gastosPeriodo.filter((g: any) => g.tipo === "Gabi");
 const totalGastosGabi = gastosGabi.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
 
@@ -1600,80 +1614,69 @@ const gabiFundsByDate = (state?.meta?.gabiFundsByDate ?? {}) as Record<string, n
 const gabiInitialTarget = periodo === "dia" ? parseNum(gabiFundsByDate[diaClave] ?? 0) : 0;
 const fondosGabiRestantes = Math.max(0, gabiInitialTarget - totalGastosGabi);
 
+const totalGastos = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
+const totalGastosEfectivo = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo), 0);
+const totalGastosTransferencia = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.transferencia), 0);
 
-  
-  const totalGastos = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
-  const totalGastosEfectivo = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo), 0);
-  const totalGastosTransferencia = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.transferencia), 0);
+// Transferencias de GASTOS agrupadas por alias
+const transferenciasPorAlias = (() => {
+  const m: Record<string, number> = {};
+  gastosPeriodo.forEach((g: any) => {
+    const tr = parseNum(g.transferencia);
+    if (tr > 0) {
+      const a = String(g.alias ?? "Sin alias");
+      m[a] = (m[a] ?? 0) + tr;
+    }
+  });
+  return Object.entries(m).map(([alias, total]) => ({ alias, total }));
+})();
 
-  // Transferencias de GASTOS agrupadas por alias
-  const transferenciasPorAlias = (() => {
-    const m: Record<string, number> = {};
-    gastosPeriodo.forEach((g: any) => {
-      const tr = parseNum(g.transferencia);
-      if (tr > 0) {
-        const a = String(g.alias ?? "Sin alias");
-        m[a] = (m[a] ?? 0) + tr;
-      }
-    });
-    return Object.entries(m).map(([alias, total]) => ({ alias, total }));
-  })();
+const devolucionesMontoEfectivo = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.efectivo), 0);
+const devolucionesMontoTransfer = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.transferencia), 0);
+const devolucionesMontoTotal = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
 
-  const devolucionesMontoEfectivo = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.efectivo), 0);
-  const devolucionesMontoTransfer = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.transferencia), 0);
-  const devolucionesMontoTotal    = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
-
-  // Flujo final de caja (efectivo) incluyendo el vuelto restante del día
-// Flujo final de caja (efectivo) incluyendo el vuelto restante del día Y fondos de Gabi
-// Flujo final de caja (efectivo) incluyendo el vuelto restante del día Y fondos de Gabi
+// 👇👇👇 FLUJO DE CAJA CORREGIDO - INCLUYE PAGOS DE DEUDORES EN EFECTIVO
 const flujoCajaEfectivoFinal =
-  totalEfectivoNeto                    // Efectivo neto de ventas (cobrado - vuelto)
+  totalEfectivoNeto                    // Efectivo neto de TODOS los documentos (ventas + pagos de deudas)
+  + efectivoPagosDeudores              // 👈 NUEVO: Sumar efectivo de pagos de deudores específicamente
   - totalGastosEfectivo                // Gastos en efectivo
   - devolucionesMontoEfectivo          // Devoluciones en efectivo
   - commissionsPeriodo                 // Comisiones pagadas
   + vueltoRestante                     // Vuelto que queda en caja
   + fondosGabiRestantes;               // Fondos restantes de Gabi que vuelven a caja
-  // Agrega esto junto con los otros cálculos en ReportesTab
-const pagosDeudores = docsEnRango.filter((f: any) => f.type === "Recibo" && f.status === "Pago");
-const totalPagosDeudores = pagosDeudores.reduce((s: number, p: any) => {
-  const efectivo = parseNum(p?.payments?.cash || 0);
-  const transferencia = parseNum(p?.payments?.transfer || 0);
-  return s + efectivo + transferencia;
-}, 0);
 
-const cantidadPagos = pagosDeudores.length;
-  // Agrupados
-  const porVendedor = Object.values(
-    invoices.reduce((acc: any, f: any) => {
-      const k = f.vendor_name || "Sin vendedor";
-      acc[k] = acc[k] || { vendedor: k, total: 0 };
-      acc[k].total += parseNum(f.total);
-      return acc;
-    }, {})
-  ).sort((a: any, b: any) => b.total - a.total);
+// Agrupados
+const porVendedor = Object.values(
+  invoices.reduce((acc: any, f: any) => {
+    const k = f.vendor_name || "Sin vendedor";
+    acc[k] = acc[k] || { vendedor: k, total: 0 };
+    acc[k].total += parseNum(f.total);
+    return acc;
+  }, {})
+).sort((a: any, b: any) => b.total - a.total);
 
-  const porSeccion = (() => {
-    const m: Record<string, number> = {};
-    invoices.forEach((f: any) =>
-      (f.items || []).forEach((it: any) => {
-        m[it.section] = (m[it.section] || 0) + parseNum(it.qty) * parseNum(it.unitPrice);
-      })
-    );
-    return Object.entries(m).map(([section, total]) => ({ section, total })).sort((a, b) => b.total - a.total);
-  })();
+const porSeccion = (() => {
+  const m: Record<string, number> = {};
+  invoices.forEach((f: any) =>
+    (f.items || []).forEach((it: any) => {
+      m[it.section] = (m[it.section] || 0) + parseNum(it.qty) * parseNum(it.unitPrice);
+    })
+  );
+  return Object.entries(m).map(([section, total]) => ({ section, total })).sort((a, b) => b.total - a.total);
+})();
 
-  // Transferencias por alias (ventas)
-  const porAlias = (() => {
-    const m: Record<string, number> = {};
-    docsEnRango.forEach((f: any) => {
-      const tr = parseNum(f?.payments?.transfer);
-      if (tr > 0) {
-        const alias = String(f?.payments?.alias || "Sin alias").trim() || "Sin alias";
-        m[alias] = (m[alias] || 0) + tr;
-      }
-    });
-    return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
-  })();
+// Transferencias por alias (ventas)
+const porAlias = (() => {
+  const m: Record<string, number> = {};
+  docsEnRango.forEach((f: any) => {
+    const tr = parseNum(f?.payments?.transfer);
+    if (tr > 0) {
+      const alias = String(f?.payments?.alias || "Sin alias").trim() || "Sin alias";
+      m[alias] = (m[alias] || 0) + tr;
+    }
+  });
+  return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
+})();
 
   async function imprimirReporte() {
     const data = {
@@ -2000,7 +2003,7 @@ async function updateGabiSpentForDay(gastado: number) {
       <Card title="Flujo final de caja (efectivo)">
         <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
         <div className="text-xs text-slate-400 mt-1">
-          Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante + Fondos Gabi restantes
+          Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante + Fondos Gabi restantes + Pago Deudores (ef.)
         </div>
       </Card>
     </div>
