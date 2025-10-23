@@ -3817,6 +3817,8 @@ function GestionPedidosTab({ state, setState, session }: any) {
     }
   }
 
+
+
   // 👇 ESTA ES LA PARTE QUE FALTABA - EL RETURN PRINCIPAL DE LA FUNCIÓN
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
