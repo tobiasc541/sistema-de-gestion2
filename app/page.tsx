@@ -414,7 +414,7 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
         <div className="text-sm font-bold tracking-wide">
-          💼 Facturación — {hasSupabase ? "By : Tobias carrizo" : "Local"}
+           Facturación — {hasSupabase ? "By : Tobias carrizo" : "Local"}
         </div>
         <nav className="flex-1 flex gap-1 flex-wrap">
           {visibleTabs.map((t) => (
@@ -4985,12 +4985,27 @@ export default function Page() {
   function onLogout() {
     setSession(null);
   }
-  /* ===== Ingresar Stock ===== */
+ /* ===== Ingresar Stock ===== */
 function IngresarStockTab({ state, setState, session }: any) {
   const [productoSeleccionado, setProductoSeleccionado] = useState("");
   const [cantidadIngresar, setCantidadIngresar] = useState("");
   const [precioCosto, setPrecioCosto] = useState("");
   const [mensajeAlerta, setMensajeAlerta] = useState("");
+  const [filtroSeccion, setFiltroSeccion] = useState("Todas"); // 👈 NUEVO FILTRO
+  const [busqueda, setBusqueda] = useState(""); // 👈 NUEVA BÚSQUEDA
+
+  // Obtener todas las secciones únicas
+  const secciones = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))];
+
+  // Filtrar productos por sección y búsqueda
+  const productosFiltrados = state.products.filter((p: any) => {
+    const coincideSeccion = filtroSeccion === "Todas" || p.section === filtroSeccion;
+    const coincideBusqueda = !busqueda || 
+      p.name.toLowerCase().includes(busqueda.toLowerCase()) ||
+      (p.section && p.section.toLowerCase().includes(busqueda.toLowerCase()));
+    
+    return coincideSeccion && coincideBusqueda;
+  });
 
   // Obtener el producto seleccionado
   const producto = state.products.find((p: any) => p.id === productoSeleccionado);
@@ -5089,9 +5104,30 @@ function IngresarStockTab({ state, setState, session }: any) {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-4 space-y-4">
+    <div className="max-w-6xl mx-auto p-4 space-y-4"> {/* 👈 Aumenté el max-width */}
       <Card title="Ingresar Stock">
         <div className="space-y-4">
+          {/* Filtros de búsqueda */}
+          <div className="grid md:grid-cols-3 gap-3"> {/* 👈 NUEVOS FILTROS */}
+            <Select
+              label="Filtrar por Sección"
+              value={filtroSeccion}
+              onChange={setFiltroSeccion}
+              options={secciones.map((sec: any) => ({ value: sec, label: sec }))}
+            />
+            <Input
+              label="Buscar Producto"
+              value={busqueda}
+              onChange={setBusqueda}
+              placeholder="Nombre o sección..."
+            />
+            <div className="pt-6">
+              <Chip tone="emerald">
+                {productosFiltrados.length} producto(s)
+              </Chip>
+            </div>
+          </div>
+
           {/* Selección de producto */}
           <Select
             label="Seleccionar Producto"
@@ -5099,9 +5135,9 @@ function IngresarStockTab({ state, setState, session }: any) {
             onChange={setProductoSeleccionado}
             options={[
               { value: "", label: "— Seleccionar producto —" },
-              ...state.products.map((p: any) => ({
+              ...productosFiltrados.map((p: any) => ({
                 value: p.id,
-                label: `${p.name} - Stock actual: ${p.stock || 0} - Costo: ${money(p.cost || 0)}`
+                label: `${p.name} - ${p.section} - Stock: ${p.stock || 0} - Costo: ${money(p.cost || 0)}`
               }))
             ]}
           />
@@ -5175,10 +5211,26 @@ function IngresarStockTab({ state, setState, session }: any) {
         </div>
       </Card>
 
-      {/* Lista de productos con bajo stock */}
+      {/* Lista de productos con bajo stock - TAMBIÉN CON FILTROS */}
       <Card title="Productos con Bajo Stock">
+        {/* Filtros para productos con bajo stock */}
+        <div className="grid md:grid-cols-3 gap-3 mb-4">
+          <Select
+            label="Filtrar por Sección"
+            value={filtroSeccion}
+            onChange={setFiltroSeccion}
+            options={secciones.map((sec: any) => ({ value: sec, label: sec }))}
+          />
+          <Input
+            label="Buscar Producto"
+            value={busqueda}
+            onChange={setBusqueda}
+            placeholder="Nombre o sección..."
+          />
+        </div>
+
         <div className="space-y-2">
-          {state.products
+          {productosFiltrados
             .filter((p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 10))
             .map((p: any) => (
               <div key={p.id} className="flex justify-between items-center p-2 bg-red-500/10 border border-red-500/30 rounded">
@@ -5192,7 +5244,7 @@ function IngresarStockTab({ state, setState, session }: any) {
               </div>
             ))}
           
-          {state.products.filter((p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 10)).length === 0 && (
+          {productosFiltrados.filter((p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 10)).length === 0 && (
             <div className="text-center text-slate-400 py-4">
               No hay productos con bajo stock ✅
             </div>
@@ -5202,7 +5254,6 @@ function IngresarStockTab({ state, setState, session }: any) {
     </div>
   );
 }
-
 
   return (
     <>
