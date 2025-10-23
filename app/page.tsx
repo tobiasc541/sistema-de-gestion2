@@ -339,18 +339,7 @@ function groupBy(arr: any[], key: string) {
   }, {} as any);
 }
   
-  return {
-    valido: productosSinStock.length === 0,
-    productosSinStock
-  };
-}
-function groupBy(arr: any[], key: string) {
-  return arr.reduce((acc: any, it: any) => {
-    const k = it[key] || "Otros";
-    (acc[k] = acc[k] || []).push(it);
-    return acc;
-  }, {} as any);
-}
+
 // === Gasto del mes por cliente ===
 // === Gasto del mes por cliente ===
 function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
