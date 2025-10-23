@@ -1725,12 +1725,13 @@ const devolucionesMontoTotal = devolucionesPeriodo.reduce((s: number, d: any) =>
 
 // 👇👇👇 FLUJO DE CAJA CORREGIDO - INCLUYE PAGOS DE DEUDORES
 const flujoCajaEfectivoFinal =
-  totalEfectivoNeto                    // Efectivo neto de TODOS los documentos (ventas + pagos de deudas)          
-  - totalGastosEfectivo                // Gastos en efectivo
-  - devolucionesMontoEfectivo          // Devoluciones en efectivo
-  - commissionsPeriodo                 // Comisiones pagadas
-  + vueltoRestante                     // Vuelto que queda en caja
-  + fondosGabiRestantes;               // Fondos restantes de Gabi que vuelven a caja
+  totalEfectivoNeto +                    // Efectivo neto de VENTAS (efectivo - vuelto)
+  efectivoPagosDeudores -                // Efectivo de PAGOS DE DEUDORES (NUEVO)
+  totalGastosEfectivo -                  // Gastos en efectivo
+  devolucionesMontoEfectivo -            // Devoluciones en efectivo
+  commissionsPeriodo +                   // Comisiones pagadas (se restan)
+  vueltoRestante +                       // Vuelto que queda en caja
+  fondosGabiRestantes;                   // Fondos restantes de Gabi que vuelven a caja
 
 // 👇👇👇 TRANSFERENCIAS TOTALES INCLUYENDO PAGOS DE DEUDORES - NUEVO
 const transferenciasTotales = totalTransf + transferenciasPagosDeudores;
