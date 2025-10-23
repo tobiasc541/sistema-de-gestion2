@@ -398,14 +398,13 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     "Gastos y Devoluciones",
     "Cola",
     "Pedidos Online", // 👈 NUEVA PESTAÑA
-      "Control de Costos", // 👈 NUEVA PESTAÑA
   ];
 
   const visibleTabs =
     role === "admin"
       ? TABS
       : role === "vendedor"
-      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online", "Control de Costos"] // 👈 AGREGAR
+      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online"] // 👈 AGREGAR
       : role === "pedido-online"
       ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
       : ["Panel"];
@@ -3777,6 +3776,7 @@ function addItem(p: any) {
   );
 }
 
+// 👇👇👇 NUEVO COMPONENTE: Gestión de Pedidos (para admin/vendedores)
 function GestionPedidosTab({ state, setState, session }: any) {
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
 
@@ -3817,602 +3817,6 @@ function GestionPedidosTab({ state, setState, session }: any) {
     }
   }
 
-
-
-  // 👇 ESTA ES LA PARTE QUE FALTABA - EL RETURN PRINCIPAL DE LA FUNCIÓN
-  return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card 
-        title="Gestión de Pedidos Online"
-        actions={
-          <div className="flex gap-2">
-            <Select
-              value={filtroEstado}
-              onChange={setFiltroEstado}
-              options={[
-                { value: "todos", label: "Todos los estados" },
-                { value: "pendiente", label: "Pendientes" },
-                { value: "aceptado", label: "Aceptados" },
-                { value: "listo", label: "Listos" },
-                { value: "cancelado", label: "Cancelados" },
-              ]}
-            />
-            <Button tone="slate" onClick={async () => {
-              const refreshedState = await loadFromSupabase(seedState());
-              setState(refreshedState);
-            }}>
-              Actualizar
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          {pedidosFiltrados.length === 0 ? (
-            <div className="text-center text-slate-400 py-8">
-              No hay pedidos {filtroEstado !== "todos" ? `con estado "${filtroEstado}"` : ""}.
-            </div>
-          ) : (
-            pedidosFiltrados.map((pedido: Pedido) => (
-              <div key={pedido.id} className="border border-slate-800 rounded-xl p-4">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <div className="font-semibold">
-                      Pedido #{pedido.id.slice(-6)} - {pedido.client_name} (N° {pedido.client_number})
-                    </div>
-                    <div className="text-sm text-slate-400">
-                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
-                    </div>
-                    {pedido.observaciones && (
-                      <div className="text-sm text-slate-300 mt-1">
-                        <strong>Observaciones:</strong> {pedido.observaciones}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold">{money(pedido.total)}</div>
-                    <Chip tone={
-                      pedido.status === "pendiente" ? "slate" :
-                      pedido.status === "aceptado" ? "emerald" :
-                      pedido.status === "listo" ? "emerald" : "red"
-                    }>
-                      {pedido.status === "pendiente" && "⏳ Pendiente"}
-                      {pedido.status === "aceptado" && "✅ Aceptado"}
-                      {pedido.status === "listo" && "🚀 Listo para retirar"}
-                      {pedido.status === "cancelado" && "❌ Cancelado"}
-                    </Chip>
-                  </div>
-                </div>
-
-                {/* Items del pedido */}
-                <div className="mb-4">
-                  <div className="text-sm font-semibold mb-2">Productos:</div>
-                  <div className="grid gap-2">
-                    {pedido.items.map((item: any, idx: number) => (
-                      <div key={idx} className="flex justify-between text-sm">
-                        <span>{item.name} × {item.qty}</span>
-                        <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Acciones */}
-                <div className="flex gap-2 flex-wrap">
-                  {pedido.status === "pendiente" && (
-                    <>
-                      <Button onClick={() => cambiarEstado(pedido.id, "aceptado")}>
-                        ✅ Aceptar Pedido
-                      </Button>
-                      <Button tone="red" onClick={() => cambiarEstado(pedido.id, "cancelado")}>
-                        ❌ Cancelar
-                      </Button>
-                    </>
-                  )}
-                  
-                  {pedido.status === "aceptado" && (
-                    <>
-                      <Button onClick={() => cambiarEstado(pedido.id, "listo")}>
-                        🚀 Marcar como Listo
-                      </Button>
-                      <Button onClick={() => convertirAFactura(pedido)}>
-                        📄 Convertir a Factura
-                      </Button>
-                    </>
-                  )}
-                  
-                  {pedido.status === "listo" && (
-                    <Button onClick={() => convertirAFactura(pedido)}>
-                      📄 Convertir a Factura
-                    </Button>
-                  )}
-                  
-                  <Button tone="slate" onClick={() => {
-                    alert(`Detalles del pedido ${pedido.id}\nCliente: ${pedido.client_name}\nTotal: ${money(pedido.total)}\nProductos: ${pedido.items.length}`);
-                  }}>
-                    👁️ Ver Detalles
-                  </Button>
-                </div>
-
-                {/* Información de procesamiento */}
-                {(pedido.accepted_by || pedido.completed_at) && (
-                  <div className="text-xs text-slate-400 mt-3">
-                    {pedido.accepted_by && `Aceptado por: ${pedido.accepted_by} · `}
-                    {pedido.accepted_at && `el ${new Date(pedido.accepted_at).toLocaleString("es-AR")}`}
-                    {pedido.completed_at && ` · Listo: ${new Date(pedido.completed_at).toLocaleString("es-AR")}`}
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      </Card>
-    </div>
-  );
-} // 👈 ESTE ES EL CIERRE CORRECTO DE LA FUNCIÓN GestionPedidosTab // 👈 ESTE ES EL CIERRE CORRECTO DE LA FUNCIÓN GestionPedidosTab
-/* ===== Control de Costos ===== */
-function ControlCostosTab({ state, setState, session }: any) {
-  const [productosSeleccionados, setProductosSeleccionados] = useState<any[]>([]);
-  const [filtroSeccion, setFiltroSeccion] = useState("Todas");
-  const [busqueda, setBusqueda] = useState("");
-
-  // Obtener secciones únicas
-  const secciones = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "Otros")))];
-
-  // Filtrar productos
-  const productosFiltrados = state.products.filter((p: any) => {
-    const okSeccion = filtroSeccion === "Todas" || p.section === filtroSeccion;
-    const okBusqueda = !busqueda || p.name.toLowerCase().includes(busqueda.toLowerCase());
-    return okSeccion && okBusqueda;
-  });
-
-  // Agrupar por sección
-  const productosAgrupados = groupBy(productosFiltrados, "section");
-
-  // Función para agregar producto a la lista de control
-  function agregarProductoControl(p: any) {
-    const yaExiste = productosSeleccionados.find(prod => prod.id === p.id);
-    if (!yaExiste) {
-      setProductosSeleccionados(prev => [...prev, {
-        ...p,
-        precioCompraActual: "", // Precio que estamos pagando ahora
-        costoAnterior: p.cost || 0, // Costo configurado en el sistema
-        diferencia: 0,
-        alerta: false
-      }]);
-    }
-  }
-
-  // Función para quitar producto del control
-  function quitarProductoControl(productoId: string) {
-    setProductosSeleccionados(prev => prev.filter(p => p.id !== productoId));
-  }
-
-  // Función para actualizar precio de compra
-  function actualizarPrecioCompra(productoId: string, nuevoPrecio: string) {
-    const precioNum = parseNum(nuevoPrecio);
-    
-    setProductosSeleccionados(prev => 
-      prev.map(p => {
-        if (p.id === productoId) {
-          const costoAnterior = parseNum(p.costoAnterior);
-          const diferencia = precioNum - costoAnterior;
-          const alerta = Math.abs(diferencia) > 0.01; // Si hay diferencia mayor a 1 centavo
-          
-          return {
-            ...p,
-            precioCompraActual: nuevoPrecio,
-            diferencia,
-            alerta
-          };
-        }
-        return p;
-      })
-    );
-  }
-
-  // Función para actualizar costos en el sistema
-  async function actualizarCostosSistema() {
-    const productosConAlerta = productosSeleccionados.filter(p => p.alerta);
-    
-    if (productosConAlerta.length === 0) {
-      alert("No hay productos con diferencias de costo para actualizar.");
-      return;
-    }
-
-    if (!confirm(`¿Estás seguro de actualizar los costos de ${productosConAlerta.length} producto(s) en el sistema?`)) {
-      return;
-    }
-
-    const st = clone(state);
-
-    // Actualizar costos en el estado local
-    productosConAlerta.forEach(productoControl => {
-      const producto = st.products.find((p: any) => p.id === productoControl.id);
-      if (producto) {
-        producto.cost = parseNum(productoControl.precioCompraActual);
-      }
-    });
-
-    setState(st);
-
-    // Persistir en Supabase si está disponible
-    if (hasSupabase) {
-      try {
-        for (const productoControl of productosConAlerta) {
-          await supabase
-            .from("products")
-            .update({ cost: parseNum(productoControl.precioCompraActual) })
-            .eq("id", productoControl.id);
-        }
-        alert(`✅ Costos actualizados correctamente para ${productosConAlerta.length} producto(s).`);
-      } catch (error) {
-        console.error("Error al actualizar costos:", error);
-        alert("❌ Error al actualizar costos en la base de datos.");
-      }
-    } else {
-      alert(`✅ Costos actualizados localmente para ${productosConAlerta.length} producto(s).`);
-    }
-
-    // Limpiar la lista después de actualizar
-    setProductosSeleccionados([]);
-  }
-
-  // Calcular resumen
-  const productosConAlerta = productosSeleccionados.filter(p => p.alerta);
-  const productosSinCambios = productosSeleccionados.filter(p => !p.alerta);
-  const diferenciaTotal = productosSeleccionados.reduce((sum, p) => sum + parseNum(p.diferencia), 0);
-
-  return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card title="🎯 Control de Costos - Recepción de Mercadería">
-        <div className="grid md:grid-cols-3 gap-3 mb-4">
-          <Select
-            label="Filtrar por sección"
-            value={filtroSeccion}
-            onChange={setFiltroSeccion}
-            options={secciones.map(sec => ({ value: sec, label: sec }))}
-          />
-          <Input
-            label="Buscar producto"
-            value={busqueda}
-            onChange={setBusqueda}
-            placeholder="Nombre del producto..."
-          />
-          <div className="pt-6">
-            <Chip tone="emerald">
-              Productos encontrados: {productosFiltrados.length}
-            </Chip>
-          </div>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Lista de productos disponibles */}
-          <div className="space-y-4">
-            <div className="text-sm font-semibold">Productos Disponibles</div>
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
-              {Object.entries(productosAgrupados).map(([seccion, productos]: [string, any]) => (
-                <div key={seccion} className="border border-slate-800 rounded-xl">
-                  <div className="px-3 py-2 text-xs font-semibold bg-slate-800/70">{seccion}</div>
-                  <div className="divide-y divide-slate-800">
-                    {productos.map((p: any) => (
-                      <div key={p.id} className="flex items-center justify-between px-3 py-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium truncate">{p.name}</div>
-                          <div className="text-xs text-slate-400">
-                            Costo actual: {money(p.cost || 0)} · Stock: {p.stock || 0}
-                          </div>
-                        </div>
-                        <Button 
-                          onClick={() => agregarProductoControl(p)} 
-                          tone="slate" 
-                          className="shrink-0"
-                          disabled={productosSeleccionados.find(prod => prod.id === p.id)}
-                        >
-                          {productosSeleccionados.find(prod => prod.id === p.id) ? "Agregado" : "Agregar"}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Panel de control de costos */}
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <div className="text-sm font-semibold">Control de Costos</div>
-              {productosSeleccionados.length > 0 && (
-                <Button 
-                  onClick={() => setProductosSeleccionados([])} 
-                  tone="red"
-                  className="text-xs"
-                >
-                  Limpiar Todo
-                </Button>
-              )}
-            </div>
-
-            {productosSeleccionados.length === 0 ? (
-              <Card>
-                <div className="text-center text-slate-400 py-8">
-                  <div className="text-lg mb-2">📦</div>
-                  <div>Seleccioná productos para controlar sus costos</div>
-                  <div className="text-xs mt-2">Agregá productos del listado de la izquierda</div>
-                </div>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {/* Resumen */}
-                <Card className="bg-slate-800/30">
-                  <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                    <div>
-                      <div className="text-slate-400">Total</div>
-                      <div className="font-semibold">{productosSeleccionados.length}</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-400">Con alerta</div>
-                      <div className={`font-semibold ${productosConAlerta.length > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                        {productosConAlerta.length}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-slate-400">Diferencia</div>
-                      <div className={`font-semibold ${diferenciaTotal > 0 ? 'text-red-400' : diferenciaTotal < 0 ? 'text-blue-400' : 'text-emerald-400'}`}>
-                        {money(diferenciaTotal)}
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                {/* Lista de productos seleccionados */}
-                <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                  {productosSeleccionados.map((producto) => (
-                    <Card 
-                      key={producto.id} 
-                      className={`border ${producto.alerta ? 'border-red-500/50 bg-red-500/10' : 'border-slate-700'}`}
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="flex-1">
-                          <div className="text-sm font-medium">{producto.name}</div>
-                          <div className="text-xs text-slate-400">
-                            Sección: {producto.section} · Stock: {producto.stock}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => quitarProductoControl(producto.id)}
-                          className="text-red-400 hover:text-red-300 text-lg"
-                        >
-                          ✕
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-2 text-sm">
-                        <div>
-                          <div className="text-xs text-slate-400">Costo anterior</div>
-                          <div className="font-medium">{money(producto.costoAnterior)}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-400">Precio compra</div>
-                          <NumberInput
-                            value={producto.precioCompraActual}
-                            onChange={(v: string) => actualizarPrecioCompra(producto.id, v)}
-                            placeholder="0.00"
-                            className="text-sm"
-                          />
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-400">Diferencia</div>
-                          <div className={`font-bold ${
-                            producto.diferencia > 0 ? 'text-red-400' : 
-                            producto.diferencia < 0 ? 'text-blue-400' : 
-                            'text-emerald-400'
-                          }`}>
-                            {money(producto.diferencia)}
-                          </div>
-                        </div>
-                      </div>
-
-                      {producto.alerta && (
-                        <div className="mt-2 p-2 bg-red-500/20 border border-red-500/30 rounded-lg">
-                          <div className="text-xs text-red-300 flex items-center gap-1">
-                            ⚠️ {producto.diferencia > 0 ? 'AUMENTÓ' : 'DISMINUYÓ'} el costo
-                          </div>
-                        </div>
-                      )}
-                    </Card>
-                  ))}
-                </div>
-
-                {/* Botón de actualización */}
-                {productosConAlerta.length > 0 && (
-                  <Card className="bg-amber-500/10 border-amber-500/30">
-                    <div className="text-center">
-                      <div className="text-sm font-semibold text-amber-300 mb-2">
-                        ⚠️ Se detectaron {productosConAlerta.length} producto(s) con diferencias de costo
-                      </div>
-                      <Button 
-                        onClick={actualizarCostosSistema}
-                        tone="emerald"
-                        className="w-full"
-                      >
-                        📊 Actualizar Costos en Sistema
-                      </Button>
-                      <div className="text-xs text-amber-400 mt-2">
-                        Esta acción actualizará los costos configurados en el sistema
-                      </div>
-                    </div>
-                  </Card>
-                )}
-
-                {productosConAlerta.length === 0 && productosSeleccionados.length > 0 && (
-                  <Card className="bg-emerald-500/10 border-emerald-500/30">
-                    <div className="text-center text-emerald-300">
-                      ✅ Todos los costos coinciden con el sistema
-                    </div>
-                  </Card>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </Card>
-
-      {/* Historial de cambios recientes */}
-      <Card title="📋 Historial de Cambios Recientes">
-        <div className="text-sm text-slate-400">
-          Esta funcionalidad te ayuda a mantener actualizados los costos de los productos cuando recibís mercadería.
-        </div>
-        <div className="grid md:grid-cols-3 gap-3 mt-3 text-xs">
-          <div className="p-3 bg-slate-800/30 rounded-lg">
-            <div className="font-semibold text-emerald-400">✅ Sin Cambios</div>
-            <div>El precio de compra coincide con el costo configurado</div>
-          </div>
-          <div className="p-3 bg-slate-800/30 rounded-lg">
-            <div className="font-semibold text-red-400">⚠️ Con Alerta</div>
-            <div>El precio de compra es diferente al costo configurado</div>
-          </div>
-          <div className="p-3 bg-slate-800/30 rounded-lg">
-            <div className="font-semibold text-blue-400">📊 Actualizar</div>
-            <div>Actualiza los costos en el sistema cuando sea necesario</div>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-
-  return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card 
-        title="Gestión de Pedidos Online"
-        actions={
-          <div className="flex gap-2">
-            <Select
-              value={filtroEstado}
-              onChange={setFiltroEstado}
-              options={[
-                { value: "todos", label: "Todos los estados" },
-                { value: "pendiente", label: "Pendientes" },
-                { value: "aceptado", label: "Aceptados" },
-                { value: "listo", label: "Listos" },
-                { value: "cancelado", label: "Cancelados" },
-              ]}
-            />
-            <Button tone="slate" onClick={async () => {
-              const refreshedState = await loadFromSupabase(seedState());
-              setState(refreshedState);
-            }}>
-              Actualizar
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          {pedidosFiltrados.length === 0 ? (
-            <div className="text-center text-slate-400 py-8">
-              No hay pedidos {filtroEstado !== "todos" ? `con estado "${filtroEstado}"` : ""}.
-            </div>
-          ) : (
-            pedidosFiltrados.map((pedido: Pedido) => (
-              <div key={pedido.id} className="border border-slate-800 rounded-xl p-4">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <div className="font-semibold">
-                      Pedido #{pedido.id.slice(-6)} - {pedido.client_name} (N° {pedido.client_number})
-                    </div>
-                    <div className="text-sm text-slate-400">
-                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
-                    </div>
-                    {pedido.observaciones && (
-                      <div className="text-sm text-slate-300 mt-1">
-                        <strong>Observaciones:</strong> {pedido.observaciones}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold">{money(pedido.total)}</div>
-                    <Chip tone={
-                      pedido.status === "pendiente" ? "slate" :
-                      pedido.status === "aceptado" ? "emerald" :
-                      pedido.status === "listo" ? "emerald" : "red"
-                    }>
-                      {pedido.status === "pendiente" && "⏳ Pendiente"}
-                      {pedido.status === "aceptado" && "✅ Aceptado"}
-                      {pedido.status === "listo" && "🚀 Listo para retirar"}
-                      {pedido.status === "cancelado" && "❌ Cancelado"}
-                    </Chip>
-                  </div>
-                </div>
-
-                {/* Items del pedido */}
-                <div className="mb-4">
-                  <div className="text-sm font-semibold mb-2">Productos:</div>
-                  <div className="grid gap-2">
-                    {pedido.items.map((item: any, idx: number) => (
-                      <div key={idx} className="flex justify-between text-sm">
-                        <span>{item.name} × {item.qty}</span>
-                        <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Acciones */}
-                <div className="flex gap-2 flex-wrap">
-                  {pedido.status === "pendiente" && (
-                    <>
-                      <Button onClick={() => cambiarEstado(pedido.id, "aceptado")}>
-                        ✅ Aceptar Pedido
-                      </Button>
-                      <Button tone="red" onClick={() => cambiarEstado(pedido.id, "cancelado")}>
-                        ❌ Cancelar
-                      </Button>
-                    </>
-                  )}
-                  
-                  {pedido.status === "aceptado" && (
-                    <>
-                      <Button onClick={() => cambiarEstado(pedido.id, "listo")}>
-                        🚀 Marcar como Listo
-                      </Button>
-                      <Button onClick={() => convertirAFactura(pedido)}>
-                        📄 Convertir a Factura
-                      </Button>
-                    </>
-                  )}
-                  
-                  {pedido.status === "listo" && (
-                    <Button onClick={() => convertirAFactura(pedido)}>
-                      📄 Convertir a Factura
-                    </Button>
-                  )}
-                  
-                  <Button tone="slate" onClick={() => {
-                    // Ver detalles del pedido
-                    alert(`Detalles del pedido ${pedido.id}\nCliente: ${pedido.client_name}\nTotal: ${money(pedido.total)}\nProductos: ${pedido.items.length}`);
-                  }}>
-                    👁️ Ver Detalles
-                  </Button>
-                </div>
-
-                {/* Información de procesamiento */}
-                {(pedido.accepted_by || pedido.completed_at) && (
-                  <div className="text-xs text-slate-400 mt-3">
-                    {pedido.accepted_by && `Aceptado por: ${pedido.accepted_by} · `}
-                    {pedido.accepted_at && `el ${new Date(pedido.accepted_at).toLocaleString("es-AR")}`}
-                    {pedido.completed_at && ` · Listo: ${new Date(pedido.completed_at).toLocaleString("es-AR")}`}
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      </Card>
-    </div>
-  );
-}
 async function convertirAFactura(pedido: Pedido) {
   try {
     // 1. Preguntar por los datos de pago
@@ -4660,7 +4064,136 @@ const vendedorOnline = obtenerVendedorOnline(st);
   
   return vendedor;
 }
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card 
+        title="Gestión de Pedidos Online"
+        actions={
+          <div className="flex gap-2">
+            <Select
+              value={filtroEstado}
+              onChange={setFiltroEstado}
+              options={[
+                { value: "todos", label: "Todos los estados" },
+                { value: "pendiente", label: "Pendientes" },
+                { value: "aceptado", label: "Aceptados" },
+                { value: "listo", label: "Listos" },
+                { value: "cancelado", label: "Cancelados" },
+              ]}
+            />
+            <Button tone="slate" onClick={async () => {
+              const refreshedState = await loadFromSupabase(seedState());
+              setState(refreshedState);
+            }}>
+              Actualizar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {pedidosFiltrados.length === 0 ? (
+            <div className="text-center text-slate-400 py-8">
+              No hay pedidos {filtroEstado !== "todos" ? `con estado "${filtroEstado}"` : ""}.
+            </div>
+          ) : (
+            pedidosFiltrados.map((pedido: Pedido) => (
+              <div key={pedido.id} className="border border-slate-800 rounded-xl p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <div className="font-semibold">
+                      Pedido #{pedido.id.slice(-6)} - {pedido.client_name} (N° {pedido.client_number})
+                    </div>
+                    <div className="text-sm text-slate-400">
+                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
+                    </div>
+                    {pedido.observaciones && (
+                      <div className="text-sm text-slate-300 mt-1">
+                        <strong>Observaciones:</strong> {pedido.observaciones}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold">{money(pedido.total)}</div>
+                    <Chip tone={
+                      pedido.status === "pendiente" ? "slate" :
+                      pedido.status === "aceptado" ? "emerald" :
+                      pedido.status === "listo" ? "emerald" : "red"
+                    }>
+                      {pedido.status === "pendiente" && "⏳ Pendiente"}
+                      {pedido.status === "aceptado" && "✅ Aceptado"}
+                      {pedido.status === "listo" && "🚀 Listo para retirar"}
+                      {pedido.status === "cancelado" && "❌ Cancelado"}
+                    </Chip>
+                  </div>
+                </div>
 
+                {/* Items del pedido */}
+                <div className="mb-4">
+                  <div className="text-sm font-semibold mb-2">Productos:</div>
+                  <div className="grid gap-2">
+                    {pedido.items.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span>{item.name} × {item.qty}</span>
+                        <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Acciones */}
+                <div className="flex gap-2 flex-wrap">
+                  {pedido.status === "pendiente" && (
+                    <>
+                      <Button onClick={() => cambiarEstado(pedido.id, "aceptado")}>
+                        ✅ Aceptar Pedido
+                      </Button>
+                      <Button tone="red" onClick={() => cambiarEstado(pedido.id, "cancelado")}>
+                        ❌ Cancelar
+                      </Button>
+                    </>
+                  )}
+                  
+                  {pedido.status === "aceptado" && (
+                    <>
+                      <Button onClick={() => cambiarEstado(pedido.id, "listo")}>
+                        🚀 Marcar como Listo
+                      </Button>
+                      <Button onClick={() => convertirAFactura(pedido)}>
+                        📄 Convertir a Factura
+                      </Button>
+                    </>
+                  )}
+                  
+                  {pedido.status === "listo" && (
+                    <Button onClick={() => convertirAFactura(pedido)}>
+                      📄 Convertir a Factura
+                    </Button>
+                  )}
+                  
+                  <Button tone="slate" onClick={() => {
+                    // Ver detalles del pedido
+                    alert(`Detalles del pedido ${pedido.id}\nCliente: ${pedido.client_name}\nTotal: ${money(pedido.total)}\nProductos: ${pedido.items.length}`);
+                  }}>
+                    👁️ Ver Detalles
+                  </Button>
+                </div>
+
+                {/* Información de procesamiento */}
+                {(pedido.accepted_by || pedido.completed_at) && (
+                  <div className="text-xs text-slate-400 mt-3">
+                    {pedido.accepted_by && `Aceptado por: ${pedido.accepted_by} · `}
+                    {pedido.accepted_at && `el ${new Date(pedido.accepted_at).toLocaleString("es-AR")}`}
+                    {pedido.completed_at && ` · Listo: ${new Date(pedido.completed_at).toLocaleString("es-AR")}`}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
 /* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 function nextPaint() {
@@ -5511,11 +5044,6 @@ export default function Page() {
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Pedidos Online" && (
               <GestionPedidosTab state={state} setState={setState} session={session} />
             )}
-            
-
-{session.role !== "cliente" && session.role !== "pedido-online" && tab === "Control de Costos" && (
-  <ControlCostosTab state={state} setState={setState} session={session} />
-)}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
               {hasSupabase ? "Supabase activo" : "Datos en navegador"}
