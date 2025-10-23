@@ -4281,7 +4281,136 @@ function ControlCostosTab({ state, setState, session }: any) {
 }
 
 
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card 
+        title="Gestión de Pedidos Online"
+        actions={
+          <div className="flex gap-2">
+            <Select
+              value={filtroEstado}
+              onChange={setFiltroEstado}
+              options={[
+                { value: "todos", label: "Todos los estados" },
+                { value: "pendiente", label: "Pendientes" },
+                { value: "aceptado", label: "Aceptados" },
+                { value: "listo", label: "Listos" },
+                { value: "cancelado", label: "Cancelados" },
+              ]}
+            />
+            <Button tone="slate" onClick={async () => {
+              const refreshedState = await loadFromSupabase(seedState());
+              setState(refreshedState);
+            }}>
+              Actualizar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {pedidosFiltrados.length === 0 ? (
+            <div className="text-center text-slate-400 py-8">
+              No hay pedidos {filtroEstado !== "todos" ? `con estado "${filtroEstado}"` : ""}.
+            </div>
+          ) : (
+            pedidosFiltrados.map((pedido: Pedido) => (
+              <div key={pedido.id} className="border border-slate-800 rounded-xl p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <div className="font-semibold">
+                      Pedido #{pedido.id.slice(-6)} - {pedido.client_name} (N° {pedido.client_number})
+                    </div>
+                    <div className="text-sm text-slate-400">
+                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
+                    </div>
+                    {pedido.observaciones && (
+                      <div className="text-sm text-slate-300 mt-1">
+                        <strong>Observaciones:</strong> {pedido.observaciones}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold">{money(pedido.total)}</div>
+                    <Chip tone={
+                      pedido.status === "pendiente" ? "slate" :
+                      pedido.status === "aceptado" ? "emerald" :
+                      pedido.status === "listo" ? "emerald" : "red"
+                    }>
+                      {pedido.status === "pendiente" && "⏳ Pendiente"}
+                      {pedido.status === "aceptado" && "✅ Aceptado"}
+                      {pedido.status === "listo" && "🚀 Listo para retirar"}
+                      {pedido.status === "cancelado" && "❌ Cancelado"}
+                    </Chip>
+                  </div>
+                </div>
 
+                {/* Items del pedido */}
+                <div className="mb-4">
+                  <div className="text-sm font-semibold mb-2">Productos:</div>
+                  <div className="grid gap-2">
+                    {pedido.items.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span>{item.name} × {item.qty}</span>
+                        <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Acciones */}
+                <div className="flex gap-2 flex-wrap">
+                  {pedido.status === "pendiente" && (
+                    <>
+                      <Button onClick={() => cambiarEstado(pedido.id, "aceptado")}>
+                        ✅ Aceptar Pedido
+                      </Button>
+                      <Button tone="red" onClick={() => cambiarEstado(pedido.id, "cancelado")}>
+                        ❌ Cancelar
+                      </Button>
+                    </>
+                  )}
+                  
+                  {pedido.status === "aceptado" && (
+                    <>
+                      <Button onClick={() => cambiarEstado(pedido.id, "listo")}>
+                        🚀 Marcar como Listo
+                      </Button>
+                      <Button onClick={() => convertirAFactura(pedido)}>
+                        📄 Convertir a Factura
+                      </Button>
+                    </>
+                  )}
+                  
+                  {pedido.status === "listo" && (
+                    <Button onClick={() => convertirAFactura(pedido)}>
+                      📄 Convertir a Factura
+                    </Button>
+                  )}
+                  
+                  <Button tone="slate" onClick={() => {
+                    // Ver detalles del pedido
+                    alert(`Detalles del pedido ${pedido.id}\nCliente: ${pedido.client_name}\nTotal: ${money(pedido.total)}\nProductos: ${pedido.items.length}`);
+                  }}>
+                    👁️ Ver Detalles
+                  </Button>
+                </div>
+
+                {/* Información de procesamiento */}
+                {(pedido.accepted_by || pedido.completed_at) && (
+                  <div className="text-xs text-slate-400 mt-3">
+                    {pedido.accepted_by && `Aceptado por: ${pedido.accepted_by} · `}
+                    {pedido.accepted_at && `el ${new Date(pedido.accepted_at).toLocaleString("es-AR")}`}
+                    {pedido.completed_at && ` · Listo: ${new Date(pedido.completed_at).toLocaleString("es-AR")}`}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
 async function convertirAFactura(pedido: Pedido) {
   try {
     // 1. Preguntar por los datos de pago
@@ -4529,136 +4658,7 @@ const vendedorOnline = obtenerVendedorOnline(st);
   
   return vendedor;
 }
-  return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card 
-        title="Gestión de Pedidos Online"
-        actions={
-          <div className="flex gap-2">
-            <Select
-              value={filtroEstado}
-              onChange={setFiltroEstado}
-              options={[
-                { value: "todos", label: "Todos los estados" },
-                { value: "pendiente", label: "Pendientes" },
-                { value: "aceptado", label: "Aceptados" },
-                { value: "listo", label: "Listos" },
-                { value: "cancelado", label: "Cancelados" },
-              ]}
-            />
-            <Button tone="slate" onClick={async () => {
-              const refreshedState = await loadFromSupabase(seedState());
-              setState(refreshedState);
-            }}>
-              Actualizar
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          {pedidosFiltrados.length === 0 ? (
-            <div className="text-center text-slate-400 py-8">
-              No hay pedidos {filtroEstado !== "todos" ? `con estado "${filtroEstado}"` : ""}.
-            </div>
-          ) : (
-            pedidosFiltrados.map((pedido: Pedido) => (
-              <div key={pedido.id} className="border border-slate-800 rounded-xl p-4">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <div className="font-semibold">
-                      Pedido #{pedido.id.slice(-6)} - {pedido.client_name} (N° {pedido.client_number})
-                    </div>
-                    <div className="text-sm text-slate-400">
-                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
-                    </div>
-                    {pedido.observaciones && (
-                      <div className="text-sm text-slate-300 mt-1">
-                        <strong>Observaciones:</strong> {pedido.observaciones}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold">{money(pedido.total)}</div>
-                    <Chip tone={
-                      pedido.status === "pendiente" ? "slate" :
-                      pedido.status === "aceptado" ? "emerald" :
-                      pedido.status === "listo" ? "emerald" : "red"
-                    }>
-                      {pedido.status === "pendiente" && "⏳ Pendiente"}
-                      {pedido.status === "aceptado" && "✅ Aceptado"}
-                      {pedido.status === "listo" && "🚀 Listo para retirar"}
-                      {pedido.status === "cancelado" && "❌ Cancelado"}
-                    </Chip>
-                  </div>
-                </div>
 
-                {/* Items del pedido */}
-                <div className="mb-4">
-                  <div className="text-sm font-semibold mb-2">Productos:</div>
-                  <div className="grid gap-2">
-                    {pedido.items.map((item: any, idx: number) => (
-                      <div key={idx} className="flex justify-between text-sm">
-                        <span>{item.name} × {item.qty}</span>
-                        <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Acciones */}
-                <div className="flex gap-2 flex-wrap">
-                  {pedido.status === "pendiente" && (
-                    <>
-                      <Button onClick={() => cambiarEstado(pedido.id, "aceptado")}>
-                        ✅ Aceptar Pedido
-                      </Button>
-                      <Button tone="red" onClick={() => cambiarEstado(pedido.id, "cancelado")}>
-                        ❌ Cancelar
-                      </Button>
-                    </>
-                  )}
-                  
-                  {pedido.status === "aceptado" && (
-                    <>
-                      <Button onClick={() => cambiarEstado(pedido.id, "listo")}>
-                        🚀 Marcar como Listo
-                      </Button>
-                      <Button onClick={() => convertirAFactura(pedido)}>
-                        📄 Convertir a Factura
-                      </Button>
-                    </>
-                  )}
-                  
-                  {pedido.status === "listo" && (
-                    <Button onClick={() => convertirAFactura(pedido)}>
-                      📄 Convertir a Factura
-                    </Button>
-                  )}
-                  
-                  <Button tone="slate" onClick={() => {
-                    // Ver detalles del pedido
-                    alert(`Detalles del pedido ${pedido.id}\nCliente: ${pedido.client_name}\nTotal: ${money(pedido.total)}\nProductos: ${pedido.items.length}`);
-                  }}>
-                    👁️ Ver Detalles
-                  </Button>
-                </div>
-
-                {/* Información de procesamiento */}
-                {(pedido.accepted_by || pedido.completed_at) && (
-                  <div className="text-xs text-slate-400 mt-3">
-                    {pedido.accepted_by && `Aceptado por: ${pedido.accepted_by} · `}
-                    {pedido.accepted_at && `el ${new Date(pedido.accepted_at).toLocaleString("es-AR")}`}
-                    {pedido.completed_at && ` · Listo: ${new Date(pedido.completed_at).toLocaleString("es-AR")}`}
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      </Card>
-    </div>
-  );
-}
 /* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 function nextPaint() {
