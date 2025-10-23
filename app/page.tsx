@@ -3777,7 +3777,6 @@ function addItem(p: any) {
   );
 }
 
-// 👇👇👇 COMPLETAR EL COMPONENTE GestionPedidosTab PRIMERO
 function GestionPedidosTab({ state, setState, session }: any) {
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
 
@@ -3925,7 +3924,6 @@ function GestionPedidosTab({ state, setState, session }: any) {
                   )}
                   
                   <Button tone="slate" onClick={() => {
-                    // Ver detalles del pedido
                     alert(`Detalles del pedido ${pedido.id}\nCliente: ${pedido.client_name}\nTotal: ${money(pedido.total)}\nProductos: ${pedido.items.length}`);
                   }}>
                     👁️ Ver Detalles
@@ -3948,7 +3946,7 @@ function GestionPedidosTab({ state, setState, session }: any) {
     </div>
   );
 }
- /* ===== Control de Costos ===== */
+/* ===== Control de Costos ===== */
 function ControlCostosTab({ state, setState, session }: any) {
   const [productosSeleccionados, setProductosSeleccionados] = useState<any[]>([]);
   const [filtroSeccion, setFiltroSeccion] = useState("Todas");
@@ -4279,7 +4277,15 @@ function ControlCostosTab({ state, setState, session }: any) {
       </Card>
     </div>
   );
-  }
+}
+
+/* ===== helpers para impresión ===== */
+const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
+function nextPaint() {
+  return new Promise<void>((res) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => res()))
+  );
+}
 
 async function convertirAFactura(pedido: Pedido) {
   try {
