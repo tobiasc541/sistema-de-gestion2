@@ -6495,51 +6495,88 @@ return (
 
 function Login({ onLogin, vendors, adminKey, clients }: any) {
   const [role, setRole] = useState("vendedor");
-  const [name, setName] = useState("");
-  const [key, setKey] = useState("");
-  const [clientNumber, setClientNumber] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 
-  function handleSubmit(e: any) {
+  async function handleSubmit(e: any) {
     e.preventDefault();
+    setLoading(true);
 
+    try {
+      if (!hasSupabase) {
+        // Fallback al sistema local si no hay Supabase
+        handleLocalLogin();
+        setLoading(false);
+        return;
+      }
+
+      console.log('🔐 Intentando login con:', email);
+
+      // Autenticación REAL con Supabase
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password
+      });
+
+      if (error) {
+        console.error('❌ Error de login:', error);
+        alert(`Error de autenticación: ${error.message}`);
+        setLoading(false);
+        return;
+      }
+
+      if (data.session) {
+        console.log('✅ Login exitoso:', data.session.user.email);
+        
+        // Usar datos básicos del usuario (por ahora sin perfil)
+        onLogin({
+          role: 'admin', // Por defecto admin
+          name: data.session.user.email,
+          id: data.session.user.id,
+          email: data.session.user.email
+        });
+      }
+    } catch (error) {
+      console.error('💥 Error en login:', error);
+      alert('Error al iniciar sesión');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Función de login local (backup)
+  function handleLocalLogin() {
+    console.log('🔄 Usando login local');
+    
     if (role === "admin") {
-      if (key === adminKey) onLogin({ role: "admin", name: "Admin", id: "admin" });
-      else alert("Clave de administrador incorrecta.");
+      if (password === adminKey) {
+        onLogin({ role: "admin", name: "Admin", id: "admin" });
+      } else {
+        alert("Clave de administrador incorrecta.");
+      }
       return;
     }
 
     if (role === "vendedor") {
       const v = vendors.find(
         (v: any) =>
-          (v.name.toLowerCase() === name.trim().toLowerCase() || v.id === name.trim()) &&
-          v.key === key
+          (v.name.toLowerCase() === email.trim().toLowerCase() || v.id === email.trim()) &&
+          v.key === password
       );
-      if (v) onLogin({ role: "vendedor", name: v.name, id: v.id });
-      else alert("Vendedor o clave incorrecta.");
+      if (v) {
+        onLogin({ role: "vendedor", name: v.name, id: v.id });
+      } else {
+        alert("Vendedor o clave incorrecta.");
+      }
       return;
     }
 
-    // CLIENTE - Panel normal
-    if (role === "cliente") {
-      const num = parseInt(String(clientNumber), 10);
-      if (!num) {
-        alert("Ingrese un número de cliente válido.");
-        return;
-      }
-      const cl = clients.find((c: any) => parseInt(String(c.number), 10) === num);
-      if (!cl) {
-        alert("N° de cliente no encontrado.");
-        return;
-      }
-      onLogin({ role: "cliente", name: cl.name, id: cl.id, number: cl.number });
-      return;
-    }
-
-    // 👇👇👇 NUEVO: PEDIDO ONLINE
-    if (role === "pedido-online") {
-      const num = parseInt(String(clientNumber), 10);
+    // Login local para clientes
+    if (role === "cliente" || role === "pedido-online") {
+      const num = parseInt(email, 10);
       if (!num) {
         alert("Ingrese un número de cliente válido.");
         return;
@@ -6550,7 +6587,7 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
         return;
       }
       onLogin({ 
-        role: "pedido-online", 
+        role: role, 
         name: cl.name, 
         id: cl.id, 
         number: cl.number 
@@ -6567,62 +6604,94 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
           <p className="text-slate-400 text-sm">
             {hasSupabase ? "Conectado a Supabase" : "Datos en navegador"}
           </p>
+          {hasSupabase && (
+            <p className="text-emerald-400 text-xs mt-1">
+              ✅ Autenticación real activa
+            </p>
+          )}
         </div>
 
-    
         <Card title="Ingreso">
           <form className="space-y-3" onSubmit={handleSubmit}>
-            <Select
-              label="Rol"
-              value={role}
-              onChange={setRole}
-              options={[
-                { value: "vendedor", label: "Vendedor" },
-                { value: "admin", label: "Admin" },
-                { value: "cliente", label: "Cliente - Panel Presencial" },
-                { value: "pedido-online", label: "Hacer Pedido Online" }, // 👈 NUEVA OPCIÓN
-              ]}
-            />
-
-            {role === "vendedor" && (
+            {!hasSupabase ? (
+              // Login local
               <>
+                <Select
+                  label="Rol"
+                  value={role}
+                  onChange={setRole}
+                  options={[
+                    { value: "vendedor", label: "Vendedor" },
+                    { value: "admin", label: "Admin" },
+                    { value: "cliente", label: "Cliente - Panel Presencial" },
+                    { value: "pedido-online", label: "Hacer Pedido Online" },
+                  ]}
+                />
+
+                {role === "vendedor" && (
+                  <>
+                    <Input
+                      label="Vendedor (nombre o ID)"
+                      value={email}
+                      onChange={setEmail}
+                      placeholder="Ej: Tobi o v1"
+                    />
+                    <Input
+                      label="Clave"
+                      value={password}
+                      onChange={setPassword}
+                      placeholder="Clave asignada"
+                      type="password"
+                    />
+                  </>
+                )}
+
+                {role === "admin" && (
+                  <Input
+                    label="Clave admin"
+                    value={password}
+                    onChange={setPassword}
+                    placeholder="Clave de administrador"
+                    type="password"
+                  />
+                )}
+
+                {(role === "cliente" || role === "pedido-online") && (
+                  <Input
+                    label="N° de cliente"
+                    value={email}
+                    onChange={setEmail}
+                    placeholder="Ej: 1001"
+                  />
+                )}
+              </>
+            ) : (
+              // Login con Supabase
+              <>
+                <div className="text-xs text-slate-400 mb-2">
+                  Usa: admin@mitobicel.com / 123456
+                </div>
                 <Input
-                  label="Vendedor (nombre o ID)"
-                  value={name}
-                  onChange={setName}
-                  placeholder="Ej: Tobi o v1"
+                  label="Email"
+                  value={email}
+                  onChange={setEmail}
+                  placeholder="admin@mitobicel.com"
+                  type="email"
                 />
                 <Input
-                  label="Clave"
-                  value={key}
-                  onChange={setKey}
-                  placeholder="Clave asignada"
+                  label="Contraseña"
+                  value={password}
+                  onChange={setPassword}
+                  placeholder="123456"
                   type="password"
                 />
               </>
             )}
 
-            {role === "admin" && (
-              <Input
-                label="Clave admin"
-                value={key}
-                onChange={setKey}
-                placeholder="Clave de administrador"
-                type="password"
-              />
-            )}
-
-            {(role === "cliente" || role === "pedido-online") && (
-              <NumberInput
-                label="N° de cliente"
-                value={clientNumber}
-                onChange={setClientNumber}
-                placeholder="Ej: 1001"
-              />
-            )}
-
             <div className="flex items-center justify-end">
-              <Button type="submit">Entrar</Button>
+              <Button type="submit" disabled={loading}>
+                {loading ? "Iniciando sesión..." : "Entrar"}
+              </Button>
             </div>
           </form>
         </Card>
