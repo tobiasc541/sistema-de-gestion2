@@ -1042,6 +1042,51 @@ function ClientesTab({ state, setState, session }: any) {
   const [deudaInicial, setDeudaInicial] = useState(""); // 👈 NUEVO ESTADO
   const [saldoFavorInicial, setSaldoFavorInicial] = useState(""); // 👈 NUEVO ESTADO
   const [modoAdmin, setModoAdmin] = useState(false); // 👈 NUEVO ESTADO
+   // 👇👇👇 PEGA LA FUNCIÓN AQUÍ - JUSTO DESPUÉS DE LOS useState
+  async function limpiarDeudasInconsistentes() {
+    if (!confirm("¿Estás seguro de limpiar todas las deudas inconsistentes? Esto revisará todos los clientes y ajustará las deudas según los pagos registrados.")) return;
+
+    const st = clone(state);
+    let clientesCorregidos = 0;
+
+    st.clients.forEach((cliente: any) => {
+      const detalleDeudas = calcularDetalleDeudas(st, cliente.id);
+      const deudaReal = calcularDeudaTotal(detalleDeudas, cliente);
+      const deudaActual = parseNum(cliente.debt);
+      
+      // Si hay diferencia, corregir
+      if (Math.abs(deudaReal - deudaActual) > 0.01) {
+        console.log(`🔧 Corrigiendo ${cliente.name}: ${money(deudaActual)} → ${money(deudaReal)}`);
+        cliente.debt = deudaReal;
+        clientesCorregidos++;
+      }
+    });
+
+    setState(st);
+
+    if (hasSupabase && clientesCorregidos > 0) {
+      try {
+        // Actualizar todos los clientes corregidos
+        for (const cliente of st.clients) {
+          await supabase
+            .from("clients")
+            .update({ debt: cliente.debt })
+            .eq("id", cliente.id);
+        }
+        
+        alert(`✅ ${clientesCorregidos} clientes corregidos. Deudas actualizadas según pagos registrados.`);
+      } catch (error) {
+        console.error("Error al actualizar clientes:", error);
+        alert("Error al guardar las correcciones en la base de datos.");
+        
+        // Recargar para evitar inconsistencias
+        const refreshedState = await loadFromSupabase(seedState());
+        setState(refreshedState);
+      }
+    } else if (clientesCorregidos === 0) {
+      alert("✅ No se encontraron deudas inconsistentes.");
+    }
+  }
 
   async function addClient() {
     if (!name.trim()) return;
@@ -6158,47 +6203,7 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
     </div>
   );
 }
-// 👇👇👇 AGREGAR ESTA FUNCIÓN EN ClientesTab (en el panel de admin)
-async function limpiarDeudasInconsistentes() {
-  if (!confirm("¿Estás seguro de limpiar todas las deudas inconsistentes? Esto revisará todos los clientes y ajustará las deudas según los pagos registrados.")) return;
 
-  const st = clone(state);
-  let clientesCorregidos = 0;
-
-  st.clients.forEach((cliente: any) => {
-    const detalleDeudas = calcularDetalleDeudas(st, cliente.id);
-    const deudaReal = calcularDeudaTotal(detalleDeudas, cliente);
-    const deudaActual = parseNum(cliente.debt);
-    
-    // Si hay diferencia, corregir
-    if (Math.abs(deudaReal - deudaActual) > 0.01) {
-      console.log(`🔧 Corrigiendo ${cliente.name}: ${money(deudaActual)} → ${money(deudaReal)}`);
-      cliente.debt = deudaReal;
-      clientesCorregidos++;
-    }
-  });
-
-  setState(st);
-
-  if (hasSupabase && clientesCorregidos > 0) {
-    try {
-      // Actualizar todos los clientes corregidos
-      for (const cliente of st.clients) {
-        await supabase
-          .from("clients")
-          .update({ debt: cliente.debt })
-          .eq("id", cliente.id);
-      }
-      
-      alert(`✅ ${clientesCorregidos} clientes corregidos. Deudas actualizadas según pagos registrados.`);
-    } catch (error) {
-      console.error("Error al actualizar clientes:", error);
-      alert("Error al guardar las correcciones en la base de datos.");
-    }
-  } else if (clientesCorregidos === 0) {
-    alert("✅ No se encontraron deudas inconsistentes.");
-  }
-}
 /* ===== Página principal ===== */
 export default function Page() {
   const [state, setState] = useState<any>(seedState());
