@@ -437,7 +437,80 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
 function calcularDeudaTotal(detalleDeudas: DetalleDeuda[]): number {
   return detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
 }
+// === Deuda total del cliente ===
+function calcularDeudaTotal(detalleDeudas: DetalleDeuda[]): number {
+  return detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
+}
 
+// 👇👇👇 NUEVA FUNCIÓN: Obtener detalle de pagos aplicados por factura
+function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
+  const detallePagos: any[] = [];
+
+  pagosDeudores.forEach((pago: any) => {
+    // Obtener el cliente
+    const cliente = state.clients.find((c: any) => c.id === pago.client_id);
+    if (!cliente) return;
+
+    // Obtener facturas pendientes del cliente antes del pago
+    const facturasPendientes = (state.invoices || [])
+      .filter((f: any) => 
+        f.client_id === pago.client_id && 
+        f.type === "Factura" && 
+        f.status === "No Pagada" &&
+        new Date(f.date_iso) <= new Date(pago.date_iso)
+      )
+      .sort((a: any, b: any) => new Date(a.date_iso).getTime() - new Date(b.date_iso).getTime());
+
+    let saldoRestante = pago.total_amount;
+    const aplicaciones: any[] = [];
+
+    // Aplicar el pago a las facturas más antiguas primero
+    for (const factura of facturasPendientes) {
+      if (saldoRestante <= 0) break;
+
+      const deudaFactura = parseNum(factura.total) - 
+                          parseNum(factura?.payments?.cash || 0) - 
+                          parseNum(factura?.payments?.transfer || 0) -
+                          parseNum(factura?.payments?.saldo_aplicado || 0);
+
+      if (deudaFactura > 0) {
+        const montoAplicado = Math.min(saldoRestante, deudaFactura);
+        
+        aplicaciones.push({
+          factura_numero: factura.number,
+          fecha_factura: factura.date_iso,
+          total_factura: parseNum(factura.total),
+          deuda_antes: deudaFactura,
+          monto_aplicado: montoAplicado,
+          deuda_despues: deudaFactura - montoAplicado
+        });
+
+        saldoRestante -= montoAplicado;
+      }
+    }
+
+    // Si sobró saldo, se aplicó a saldo a favor
+    if (saldoRestante > 0) {
+      aplicaciones.push({
+        tipo: "saldo_favor",
+        monto_aplicado: saldoRestante,
+        descripcion: "Acreditado como saldo a favor"
+      });
+    }
+
+    detallePagos.push({
+      pago_id: pago.id,
+      cliente: pago.client_name,
+      fecha_pago: pago.date_iso,
+      total_pagado: pago.total_amount,
+      efectivo: pago.cash_amount,
+      transferencia: pago.transfer_amount,
+      aplicaciones: aplicaciones
+    });
+  });
+
+  return detallePagos;
+}
 function Navbar({ current, setCurrent, role, onLogout }: any) {
   const TABS = [
     "Facturación",
@@ -2012,6 +2085,9 @@ const porAlias = (() => {
     return pagoDate === hoy;
   });
 
+  // 👇👇👇 NUEVO: Detalle de aplicación de pagos
+  const detalleAplicacionPagos = obtenerDetallePagosAplicados(pagosDeudoresHoy, state);
+
   // 👇👇👇 DEUDORES ACTIVOS (con deuda neta > 0)
   const deudoresActivos = state.clients
     .filter((c: any) => {
@@ -2062,6 +2138,7 @@ const porAlias = (() => {
     devoluciones: devolucionesPeriodo,
     pagosDeudores: pagosDeudoresHoy, // 👈 NUEVO
     deudoresActivos: deudoresActivos, // 👈 NUEVO
+      detalleAplicacionPagos: detalleAplicacionPagos, // 👈👈👈 NUEVA LÍNEA - AGREGAR ESTO
     porVendedor,
     porSeccion,
     transferenciasPorAlias: porAlias,
@@ -4563,36 +4640,101 @@ if (inv?.type === "Reporte") {
             )}
           </tbody>
         </table>
-        {/* 👇👇👇 NUEVA SECCIÓN: PAGOS DE DEUDORES DEL DÍA */}
-<div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
-<div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Pagos de Deudores del Día</div>
-<table className="print-table text-sm">
-  <thead>
-    <tr>
-      <th style={{ width: "14%" }}>Fecha</th>
-      <th>Cliente</th>
-      <th style={{ width: "14%" }}>Efectivo</th>
-      <th style={{ width: "14%" }}>Transferencia</th>
-      <th style={{ width: "14%" }}>Total Pagado</th>
-      <th style={{ width: "20%" }}>Deuda Restante</th>
-    </tr>
-  </thead>
-  <tbody>
-    {(inv.pagosDeudores || []).map((pago: any, i: number) => (
-      <tr key={pago.id || i}>
-        <td>{new Date(pago.date_iso).toLocaleString("es-AR")}</td>
-        <td>{pago.client_name}</td>
-        <td style={{ textAlign: "right" }}>{fmt(pago.cash_amount)}</td>
-        <td style={{ textAlign: "right" }}>{fmt(pago.transfer_amount)}</td>
-        <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(pago.total_amount)}</td>
-        <td style={{ textAlign: "right" }}>{fmt(pago.debt_after)}</td>
-      </tr>
+            {/* 👇👇👇 NUEVA SECCIÓN: DETALLE DE APLICACIÓN DE PAGOS DE DEUDORES */}
+{(inv.detalleAplicacionPagos || []).length > 0 && (
+  <>
+    <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+    <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>
+      DETALLE DE APLICACIÓN DE PAGOS DE DEUDORES
+    </div>
+    
+    {inv.detalleAplicacionPagos.map((pagoDetalle: any, index: number) => (
+      <div key={pagoDetalle.pago_id} style={{ marginBottom: 16, border: "1px solid #000", padding: 10 }}>
+        {/* Encabezado del pago */}
+        <div className="flex justify-between items-start mb-3">
+          <div>
+            <div style={{ fontWeight: 700 }}>Pago de {pagoDetalle.cliente}</div>
+            <div style={{ fontSize: 11 }}>
+              {new Date(pagoDetalle.fecha_pago).toLocaleString("es-AR")}
+            </div>
+          </div>
+          <div className="text-right">
+            <div style={{ fontWeight: 700, fontSize: 16, color: "#10b981" }}>
+              {fmt(pagoDetalle.total_pagado)}
+            </div>
+            <div style={{ fontSize: 11 }}>
+              Efectivo: {fmt(pagoDetalle.efectivo)} • Transferencia: {fmt(pagoDetalle.transferencia)}
+            </div>
+          </div>
+        </div>
+
+        {/* Detalle de aplicación por factura */}
+        <table className="print-table text-sm" style={{ width: "100%" }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left", width: "15%" }}>Factura</th>
+              <th style={{ textAlign: "left", width: "20%" }}>Fecha Factura</th>
+              <th style={{ textAlign: "right", width: "15%" }}>Total Factura</th>
+              <th style={{ textAlign: "right", width: "15%" }}>Deuda Antes</th>
+              <th style={{ textAlign: "right", width: "15%" }}>Monto Aplicado</th>
+              <th style={{ textAlign: "right", width: "15%" }}>Deuda Después</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pagoDetalle.aplicaciones
+              .filter((app: any) => app.factura_numero)
+              .map((app: any, idx: number) => (
+                <tr key={idx}>
+                  <td style={{ textAlign: "left" }}>#{pad(app.factura_numero)}</td>
+                  <td style={{ textAlign: "left" }}>
+                    {new Date(app.fecha_factura).toLocaleDateString("es-AR")}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmt(app.total_factura)}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(app.deuda_antes)}</td>
+                  <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981" }}>
+                    {fmt(app.monto_aplicado)}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmt(app.deuda_despues)}</td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+
+        {/* Saldo a favor aplicado */}
+        {pagoDetalle.aplicaciones.filter((app: any) => app.tipo === "saldo_favor").length > 0 && (
+          <div className="mt-2 text-sm">
+            <div style={{ fontWeight: 600 }}>Saldo a favor acreditado:</div>
+            {pagoDetalle.aplicaciones
+              .filter((app: any) => app.tipo === "saldo_favor")
+              .map((app: any, idx: number) => (
+                <div key={idx} style={{ color: "#3b82f6" }}>
+                  {fmt(app.monto_aplicado)} - {app.descripcion}
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* Resumen del pago */}
+        <div style={{ borderTop: "1px solid #000", marginTop: 8, paddingTop: 8 }}>
+          <div className="flex justify-between items-center text-sm">
+            <span style={{ fontWeight: 700 }}>TOTAL APLICADO:</span>
+            <span style={{ fontWeight: 700, color: "#10b981" }}>
+              {fmt(pagoDetalle.aplicaciones.reduce((sum: number, app: any) => sum + app.monto_aplicado, 0))}
+            </span>
+          </div>
+        </div>
+      </div>
     ))}
-    {(!inv.pagosDeudores || inv.pagosDeudores.length === 0) && (
-      <tr><td colSpan={6}>Sin pagos de deudores en el día.</td></tr>
-    )}
-  </tbody>
-</table>
+  </>
+)}
+
+{(!inv.detalleAplicacionPagos || inv.detalleAplicacionPagos.length === 0) && (
+  <>
+    <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+    <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Pagos de Deudores del Día</div>
+    <div className="text-sm text-slate-400">Sin pagos de deudores en el día.</div>
+  </>
+)}
 
         {/* SECCIÓN: GASTOS */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
