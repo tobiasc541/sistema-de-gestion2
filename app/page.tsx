@@ -49,7 +49,7 @@ type DebtPayment = {
   saldo_aplicado?: number;
   debt_before: number;
   debt_after: number;
-  aplicaciones?: any[];
+  aplicaciones?: any[];  // 👈 ESTA LÍNEA ES CRÍTICA
   deuda_real_antes?: number;
 };
 /* ===== helpers ===== */
@@ -1428,7 +1428,6 @@ function DeudoresTab({ state, setState }: any) {
   const detalleDeudasCliente = verDetalle ? calcularDetalleDeudas(state, verDetalle) : [];
   const deudaTotalCliente = calcularDeudaTotal(detalleDeudasCliente);
   const clienteDetalle = state.clients.find((c: any) => c.id === verDetalle);
-
 async function registrarPago() {
   const cl = state.clients.find((c: any) => c.id === active);
   if (!cl) return;
@@ -1502,25 +1501,59 @@ async function registrarPago() {
     deuda_real_antes: deudaReal,
   };
 
-  // Guardar en debt_payments
+  // Guardar en debt_payments LOCAL
   st.debt_payments = st.debt_payments || [];
   st.debt_payments.push(debtPayment);
   st.meta.lastSavedInvoiceId = id;
+  
+  // ACTUALIZAR ESTADO PRIMERO
   setState(st);
 
-  // Persistencia en Supabase
+  // Persistencia en Supabase - CORREGIDO
   if (hasSupabase) {
     try {
-      await supabase.from("debt_payments").insert(debtPayment);
-      await supabase.from("clients").update({ debt: client.debt }).eq("id", client.id);
+      console.log("💾 Guardando pago en Supabase...", debtPayment);
+      
+      const { data, error } = await supabase
+        .from("debt_payments")
+        .insert([debtPayment])  // Usar array
+        .select();
+
+      if (error) {
+        console.error("❌ Error al guardar pago:", error);
+        throw new Error(`No se pudo guardar el pago: ${error.message}`);
+      }
+      
+      console.log("✅ Pago guardado en Supabase:", data);
+
+      // Actualizar cliente
+      const { error: clientError } = await supabase
+        .from("clients")
+        .update({ debt: client.debt })
+        .eq("id", client.id);
+
+      if (clientError) {
+        console.error("❌ Error al actualizar cliente:", clientError);
+      } else {
+        console.log("✅ Cliente actualizado en Supabase");
+      }
+
+      // Guardar contadores
       await saveCountersSupabase(st.meta);
+      console.log("✅ Contadores guardados");
+
     } catch (error) {
-      console.error("Error guardando pago:", error);
+      console.error("💥 ERROR CRÍTICO:", error);
       alert("Error al guardar el pago: " + error.message);
+      
+      // Recargar datos para evitar inconsistencias
+      const refreshedState = await loadFromSupabase(seedState());
+      setState(refreshedState);
       return;
     }
   }
 
+  // Limpiar UI
   setCash("");
   setTransf("");
   setAlias("");
@@ -1551,6 +1584,7 @@ async function registrarPago() {
       client_debt_total: nuevaDeuda
     } 
   } as any));
+  
   await nextPaint();
   window.print();
 }
@@ -1821,6 +1855,24 @@ function ColaTab({ state, setState, session }: any) {
         await refresh();
         return;
       }
+       // 👇👇👇 NUEVA SUSCRIPCIÓN PARA DEBT_PAYMENTS
+    const debtPaymentsSubscription = supabase
+      .channel('debt-payments-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'debt_payments'
+        },
+        async () => {
+          console.log("🔄 Cambios en debt_payments detectados, recargando...");
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+        }
+      )
+      .subscribe();
+
 
       // Sincronizar UI con la verdad del server
       setTickets((prev) => prev.map((x) => (x.id === t.id ? data : x)));
