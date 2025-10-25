@@ -21,6 +21,8 @@ type Pedido = {
   accepted_by?: string;
   accepted_at?: string;
   completed_at?: string;
+   comprobante_url?: string;
+  comprobante_subido_at?: string;
 };
 // 👇👇👇 AGREGAR ESTE NUEVO TIPO PARA DETALLE DE DEUDAS
 type DetalleDeuda = {
@@ -31,6 +33,16 @@ type DetalleDeuda = {
   monto_pagado: number;
   monto_debe: number;
   items: any[];
+};
+type Comprobante = {
+  id: string;
+  factura_id?: string;
+  debt_payment_id?: string;
+  comprobante_url: string;
+  file_name: string;
+  file_size: number;
+  uploaded_by: string;
+  created_at: string;
 };
 
 // 👇👇👇 AGREGAR ESTE NUEVO TIPO PARA PAGOS DE DEUDA
@@ -51,6 +63,8 @@ type DebtPayment = {
   debt_after: number;
   aplicaciones?: any[];  // 👈 ESTA LÍNEA ES CRÍTICA
   deuda_real_antes?: number;
+   comprobante_url?: string;
+  comprobante_subido_at?: string;
 };
 type Cliente = {
   id: string;
@@ -344,6 +358,75 @@ const Chip = ({ children, tone = "slate" }: any) => (
     {children}
   </span>
 );
+/* ===== COMPONENTE SUBIR COMPROBANTE ===== */
+function SubirComprobante({ tipo, id, session, onComprobanteSubido }: {
+  tipo: 'factura' | 'debt_payment';
+  id: string;
+  session: any;
+  onComprobanteSubido: () => void;
+}) {
+  const [subiendo, setSubiendo] = useState(false);
+
+  const manejarSubida = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const archivo = event.target.files?.[0];
+    if (!archivo) return;
+
+    // Validar que sea imagen
+    if (!archivo.type.startsWith('image/')) {
+      alert('Por favor, sube solo archivos de imagen (JPG, PNG, etc.)');
+      return;
+    }
+
+    // Validar tamaño (máximo 5MB)
+    if (archivo.size > 5 * 1024 * 1024) {
+      alert('El archivo es demasiado grande. Máximo 5MB.');
+      return;
+    }
+
+    setSubiendo(true);
+
+    try {
+      // 1. Subir archivo a Storage
+      const comprobanteUrl = await subirComprobante(archivo, tipo, id);
+      
+      // 2. Asociar comprobante al registro
+      await asociarComprobante(tipo, id, comprobanteUrl, session);
+      
+      alert('✅ Comprobante subido correctamente');
+      onComprobanteSubido();
+    } catch (error: any) {
+      console.error('Error:', error);
+      alert(`❌ Error al subir comprobante: ${error.message}`);
+    } finally {
+      setSubiendo(false);
+      // Limpiar input
+      event.target.value = '';
+    }
+  };
+
+  return (
+    <div className="relative">
+      <input
+        type="file"
+        accept="image/*"
+        onChange={manejarSubida}
+        disabled={subiendo}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        title="Subir comprobante"
+      />
+      <button
+        disabled={subiendo}
+        className={`text-sm px-2 py-1 border rounded ${
+          subiendo 
+            ? 'bg-slate-600 text-slate-400 border-slate-700' 
+            : 'bg-blue-600 text-white border-blue-700 hover:bg-blue-500'
+        }`}
+      >
+        {subiendo ? '📤 Subiendo...' : '📎 Comprobante'}
+      </button>
+    </div>
+  );
+}
 
 /* ===== helpers de negocio ===== */
 function ensureUniqueNumber(clients: any[]) {
@@ -388,6 +471,96 @@ function groupBy(arr: any[], key: string) {
     (acc[k] = acc[k] || []).push(it);
     return acc;
   }, {} as any);
+}
+/* ===== FUNCIONES PARA COMPROBANTES ===== */
+// Función para subir comprobante a Supabase Storage
+async function subirComprobante(archivo: File, tipo: 'factura' | 'debt_payment', id: string): Promise<string> {
+  if (!hasSupabase) {
+    throw new Error('Supabase no está configurado');
+  }
+
+  try {
+    // Crear nombre único para el archivo
+    const extension = archivo.name.split('.').pop();
+    const nombreArchivo = `${tipo}_${id}_${Date.now()}.${extension}`;
+    const rutaStorage = `comprobantes/${nombreArchivo}`;
+
+    // Subir archivo a Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('comprobantes')
+      .upload(rutaStorage, archivo);
+
+    if (error) {
+      throw new Error(`Error al subir archivo: ${error.message}`);
+    }
+
+    // Obtener URL pública
+    const { data: urlData } = supabase.storage
+      .from('comprobantes')
+      .getPublicUrl(rutaStorage);
+
+    if (!urlData.publicUrl) {
+      throw new Error('No se pudo obtener la URL pública del archivo');
+    }
+
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('Error subiendo comprobante:', error);
+    throw error;
+  }
+}
+
+// Función para asociar comprobante a factura o debt_payment
+async function asociarComprobante(
+  tipo: 'factura' | 'debt_payment', 
+  id: string, 
+  comprobanteUrl: string,
+  session: any
+) {
+  if (!hasSupabase) return;
+
+  try {
+    const ahora = todayISO();
+    
+    if (tipo === 'factura') {
+      const { error } = await supabase
+        .from('invoices')
+        .update({
+          comprobante_url: comprobanteUrl,
+          comprobante_subido_at: ahora
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from('debt_payments')
+        .update({
+          comprobante_url: comprobanteUrl,
+          comprobante_subido_at: ahora
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+    }
+
+    // También guardar en tabla comprobantes
+    const { error: compError } = await supabase
+      .from('comprobantes')
+      .insert({
+        [tipo === 'factura' ? 'factura_id' : 'debt_payment_id']: id,
+        comprobante_url: comprobanteUrl,
+        file_name: comprobanteUrl.split('/').pop() || 'comprobante.jpg',
+        file_size: 0,
+        uploaded_by: session?.name || 'sistema'
+      });
+
+    if (compError) console.warn('Error guardando en tabla comprobantes:', compError);
+
+  } catch (error) {
+    console.error('Error asociando comprobante:', error);
+    throw error;
+  }
 }
   
 
@@ -3485,22 +3658,23 @@ async function updateGabiSpentForDay(gastado: number) {
       <Card title="Listado de facturas">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="text-left text-slate-400">
-              <tr>
-                <th className="py-2 pr-3">#</th>
-                <th className="py-2 pr-3">Fecha</th>
-                <th className="py-2 pr-3">Cliente</th>
-                <th className="py-2 pr-3">Vendedor</th>
-                <th className="py-2 pr-3">Total</th>
-                <th className="py-2 pr-3">Efectivo</th>
-                <th className="py-2 pr-3">Transf.</th>
-                <th className="py-2 pr-3">Vuelto</th>
-                <th className="py-2 pr-3">Alias/CVU</th>
-                <th className="py-2 pr-3">Tipo</th>
-                <th className="py-2 pr-3">Estado</th>
-                <th className="py-2 pr-3">Acciones</th>
-              </tr>
-            </thead>
+          <thead className="text-left text-slate-400">
+  <tr>
+    <th className="py-2 pr-3">#</th>
+    <th className="py-2 pr-3">Fecha</th>
+    <th className="py-2 pr-3">Cliente</th>
+    <th className="py-2 pr-3">Vendedor</th>
+    <th className="py-2 pr-3">Total</th>
+    <th className="py-2 pr-3">Efectivo</th>
+    <th className="py-2 pr-3">Transf.</th>
+    <th className="py-2 pr-3">Vuelto</th>
+    <th className="py-2 pr-3">Alias/CVU</th>
+    <th className="py-2 pr-3">Tipo</th>
+    <th className="py-2 pr-3">Estado</th>
+    <th className="py-2 pr-3">Comprobante</th> {/* 👈 NUEVA COLUMNA */}
+    <th className="py-2 pr-3">Acciones</th>
+  </tr>
+</thead>
             <tbody className="divide-y divide-slate-800">
               {docsEnRango
                 .slice()
@@ -3530,15 +3704,43 @@ async function updateGabiSpentForDay(gastado: number) {
                       <td className="py-2 pr-3 truncate max-w-[180px]">{alias}</td>
                       <td className="py-2 pr-3">{f.type || "—"}</td>
                       <td className="py-2 pr-3">{f.status || "—"}</td>
-                      <td className="py-2 pr-3 space-x-2">
-                        {/* Botón ver PDF */}
-                        <button
-                          onClick={() => viewInvoicePDF(f)}
-                          className="text-blue-500 hover:text-blue-700"
-                          title="Ver PDF"
-                        >
-                          📄
-                        </button>
+                  <td className="py-2 pr-3">
+  {/* COMPROBANTE - Solo si tiene transferencia */}
+  {(parseNum(f?.payments?.transfer) > 0) && (
+    <div className="flex gap-1 mb-1">
+      <SubirComprobante 
+        tipo="factura"
+        id={f.id}
+        session={session}
+        onComprobanteSubido={async () => {
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+        }}
+      />
+      {f.comprobante_url && (
+        <a 
+          href={f.comprobante_url} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="text-green-400 hover:text-green-300 text-sm px-2 py-1 border border-green-700 rounded"
+          title="Ver comprobante"
+        >
+          👁️ Ver
+        </a>
+      )}
+    </div>
+  )}
+</td>
+
+<td className="py-2 pr-3 space-x-2">
+  {/* Botón ver PDF */}
+  <button
+    onClick={() => viewInvoicePDF(f)}
+    className="text-blue-500 hover:text-blue-700"
+    title="Ver PDF"
+  >
+    📄
+  </button>
 
 {/* Botón eliminar (solo admin) */}
 {session?.role === "admin" && (
@@ -3703,17 +3905,18 @@ async function updateGabiSpentForDay(gastado: number) {
  <Card title="Listado de Pagos de Deudores">
   <div className="overflow-x-auto">
     <table className="min-w-full text-sm">
-      <thead className="text-left text-slate-400">
-        <tr>
-          <th className="py-2 pr-3">Fecha y Hora</th>
-          <th className="py-2 pr-3">Cliente</th>
-          <th className="py-2 pr-3">Monto Pagado</th>
-          <th className="py-2 pr-3">Deuda Antes</th>
-          <th className="py-2 pr-3">Deuda Después</th>
-          <th className="py-2 pr-3">Método</th>
-          <th className="py-2 pr-3">Acciones</th> {/* 👈 NUEVA COLUMNA */}
-        </tr>
-      </thead>
+    <thead className="text-left text-slate-400">
+  <tr>
+    <th className="py-2 pr-3">Fecha y Hora</th>
+    <th className="py-2 pr-3">Cliente</th>
+    <th className="py-2 pr-3">Monto Pagado</th>
+    <th className="py-2 pr-3">Deuda Antes</th>
+    <th className="py-2 pr-3">Deuda Después</th>
+    <th className="py-2 pr-3">Método</th>
+    <th className="py-2 pr-3">Comprobante</th> {/* 👈 NUEVA COLUMNA */}
+    <th className="py-2 pr-3">Acciones</th>
+  </tr>
+</thead>
       <tbody className="divide-y divide-slate-800">
         {pagosDeudores
           .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
@@ -3770,6 +3973,32 @@ async function updateGabiSpentForDay(gastado: number) {
                   </Chip>
                 </td>
                 <td className="py-2 pr-3">
+  {/* COMPROBANTE - Solo si tiene transferencia */}
+  {(parseNum(pago?.transfer_amount || pago?.payments?.transfer || 0) > 0) && (
+    <div className="flex gap-1 mb-1">
+      <SubirComprobante 
+        tipo="debt_payment"
+        id={pago.id}
+        session={session}
+        onComprobanteSubido={async () => {
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+        }}
+      />
+      {pago.comprobante_url && (
+        <a 
+          href={pago.comprobante_url} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="text-green-400 hover:text-green-300 text-sm px-2 py-1 border border-green-700 rounded"
+          title="Ver comprobante"
+        >
+          👁️ Ver
+        </a>
+      )}
+    </div>
+  )}
+</td>
                   {/* 👇👇👇 BOTÓN VER RECIBO */}
                   <button
                     onClick={() => {
