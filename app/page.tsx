@@ -32,6 +32,26 @@ type DetalleDeuda = {
   monto_debe: number;
   items: any[];
 };
+
+// 👇👇👇 AGREGAR ESTE NUEVO TIPO PARA PAGOS DE DEUDA
+type DebtPayment = {
+  id: string;
+  number: number;
+  date_iso: string;
+  client_id: string;
+  client_name: string;
+  vendor_id?: string;
+  vendor_name?: string;
+  cash_amount: number;
+  transfer_amount: number;
+  total_amount: number;
+  alias?: string;
+  saldo_aplicado?: number;
+  debt_before: number;
+  debt_after: number;
+  aplicaciones?: any[];
+  deuda_real_antes?: number;
+};
 /* ===== helpers ===== */
 const pad = (n: number, width = 8) => String(n).padStart(width, "0");
 const money = (n: number) =>
@@ -65,7 +85,7 @@ function seedState() {
     budgets: [] as any[],
     gastos: [] as any[],
     devoluciones: [] as any[],
-    debt_payments: [] as any[], // 👈 NUEVA LÍNEA - AGREGAR ESTO
+    debt_payments: [] as DebtPayment[], // 👈 ESTA LÍNEA DEBE USAR EL TIPO DebtPayment
     queue: [] as any[],
     gabiFunds: [] as any[],
     pedidos: [] as Pedido[],
@@ -164,6 +184,7 @@ if (gabiErr) {
   if (devoluciones) out.devoluciones = devoluciones;
   // 👆👆👆 HASTA AQUÍ
     // 👇👇👇 AGREGAR AQUÍ - Cargar debt_payments
+  // 👇👇👇 DESCOMENTAR Y CORREGIR ESTA SECCIÓN - Cargar debt_payments
   const { data: debtPayments, error: dpErr } = await supabase
     .from("debt_payments")
     .select("*")
