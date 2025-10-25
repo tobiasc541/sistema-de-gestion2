@@ -437,6 +437,7 @@ function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
   return Math.max(0, factMes - devRestables + extrasIntercambio);
 }
 // === Detalle de deudas por cliente - CORREGIDA ===
+// === Detalle de deudas por cliente - CORREGIDA DEFINITIVAMENTE ===
 function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
   if (!clientId) return [];
   
@@ -463,7 +464,7 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
                pago.aplicaciones?.some((app: any) => app.factura_id === factura.id);
       })
       .reduce((sum: number, pago: any) => {
-        const aplicacion = pago.aplicaciones.find((app: any) => app.factura_id === factura.id);
+        const aplicacion = pago.aplicaciones?.find((app: any) => app.factura_id === factura.id);
         return aplicacion ? sum + parseNum(aplicacion.monto_aplicado) : sum;
       }, 0);
 
@@ -495,7 +496,7 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
     };
   });
 
-  // ✅ CORRECCIÓN: Filtrar solo facturas con deuda pendiente REAL
+  // ✅ Filtrar solo facturas con deuda pendiente REAL
   return detalleDeudas.filter(deuda => deuda.monto_debe > 0.01);
 }
 // === Deuda total del cliente - CORREGIDA Y SEGURA ===
@@ -1461,7 +1462,6 @@ async function cancelarDeuda(clienteId: string) {
       </div>
       
       <div className="grid md:grid-cols-3 gap-4 text-sm">
-       // En el panel de control del admin, cambia el cálculo de "Clientes con deuda manual"
 <div className="p-3 bg-slate-800/50 rounded-lg">
   <div className="font-semibold">Clientes con deuda manual</div>
   <div className="text-amber-400 font-bold">
@@ -2067,8 +2067,7 @@ async function eliminarDeudaCliente(clienteId: string) {
       alias: alias.trim(),
       aplicaciones: aplicaciones,
       debt_before: deudaReal,
-      debt_after: calcularDeudaTotal(detalleDeudas, client), // Recalcular
-      deuda_real_antes: deudaReal,
+debt_after: Math.max(0, deudaReal - totalPago), // Calcular correctamente      deuda_real_antes: deudaReal,
     };
 
     // Guardar en debt_payments LOCAL
@@ -2142,7 +2141,7 @@ async function eliminarDeudaCliente(clienteId: string) {
         },
         status: "Pagado",
         aplicaciones: aplicaciones,
-        client_debt_total: calcularDeudaTotal(detalleDeudas, client)
+client_debt_total: Math.max(0, deudaReal - totalPago)
       } 
     } as any));
     
@@ -3685,11 +3684,27 @@ async function updateGabiSpentForDay(gastado: number) {
                     {money(parseNum(pago.debt_before))}
                   </span>
                 </td>
-                <td className="py-2 pr-3">
-                  <span className={parseNum(pago.debt_after) > 0 ? "text-amber-400" : "text-emerald-400"}>
-                    {money(parseNum(pago.debt_after))}
-                  </span>
-                </td>
+              <td className="py-2 pr-3">
+  <span className={(() => {
+    const cliente = state.clients.find((c: any) => c.id === pago.client_id);
+    if (cliente) {
+      const detalleDeudas = calcularDetalleDeudas(state, pago.client_id);
+      const deudaActual = calcularDeudaTotal(detalleDeudas, cliente);
+      return deudaActual > 0 ? "text-amber-400" : "text-emerald-400";
+    }
+    return parseNum(pago.debt_after) > 0 ? "text-amber-400" : "text-emerald-400";
+  })()}>
+    {(() => {
+      const cliente = state.clients.find((c: any) => c.id === pago.client_id);
+      if (cliente) {
+        const detalleDeudas = calcularDetalleDeudas(state, pago.client_id);
+        const deudaActual = calcularDeudaTotal(detalleDeudas, cliente);
+        return money(deudaActual);
+      }
+      return money(parseNum(pago.debt_after));
+    })()}
+  </span>
+</td>
                 <td className="py-2 pr-3">
                   <Chip tone={metodo === "Efectivo" ? "emerald" : "slate"}>
                     {metodo}
@@ -5402,7 +5417,7 @@ function nextPaint() {
 
 
 /* ===== Área de impresión ===== */
-function PrintArea() {
+function PrintArea({ state }: any) {
   const [inv, setInv] = useState<any | null>(null);
   const [ticket, setTicket] = useState<any | null>(null);
 
@@ -6018,7 +6033,16 @@ const net    = Math.max(0, paid - change);              // lo que aplica
 const balance = Math.max(0, parseNum(inv.total) - net);
 const fullyPaid = balance <= 0.009;
 
-const clientDebtTotal = parseNum(inv?.client_debt_total ?? 0);
+const clientDebtTotal = (() => {
+  if (inv?.client_id) {
+    const cliente = state.clients.find((c: any) => c.id === inv.client_id);
+    if (cliente) {
+      const detalleDeudas = calcularDetalleDeudas(state, inv.client_id);
+      return calcularDeudaTotal(detalleDeudas, cliente);
+    }
+  }
+  return parseNum(inv?.client_debt_total ?? 0);
+})();
 
 return (
   <div className="only-print print-area p-14">
@@ -6489,7 +6513,7 @@ export default function Page() {
       </div>
 
       {/* Plantillas que sí se imprimen */}
-      <PrintArea />
+<PrintArea state={state} />
     </>
   );
 }
