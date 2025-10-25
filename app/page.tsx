@@ -811,7 +811,7 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
         <div className="text-sm font-bold tracking-wide">
-          💼 Facturación — {hasSupabase ? "By : Tobias carrizo" : "Local"}
+           Facturación — {hasSupabase ? "By : Tobias carrizo" : "Local"}
         </div>
         <nav className="flex-1 flex gap-1 flex-wrap">
           {visibleTabs.map((t) => (
