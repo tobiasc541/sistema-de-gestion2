@@ -577,7 +577,7 @@ function obtenerHistorialCliente(state: any, clientId: string) {
     .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 }
 
-// REEMPLAZAR la función obtenerDetallePagosAplicados por esta versión mejorada:
+// REEMPLAZAR la función obtenerDetallePagosAplicados por esta versión MEJORADA:
 function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
   const detallePagos: any[] = [];
 
@@ -588,9 +588,11 @@ function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
     // Obtener el detalle REAL de deudas del cliente para este pago
     const detalleDeudasCliente = calcularDetalleDeudas(state, pago.client_id);
     
-    // Reconstruir las aplicaciones con información completa de cada factura
+    // Calcular deuda total ANTES del pago
+    const deudaTotalAntes = calcularDeudaTotal(detalleDeudasCliente);
+    
+    // Reconstruir las aplicaciones con información completa
     const aplicacionesCompletas = pago.aplicaciones?.map((app: any) => {
-      // Buscar la factura correspondiente para obtener información completa
       const factura = state.invoices.find((f: any) => f.id === app.factura_id);
       const deudaFactura = detalleDeudasCliente.find((d: any) => d.factura_id === app.factura_id);
       
@@ -606,7 +608,7 @@ function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
       };
     }) || [];
 
-    // Si no hay aplicaciones específicas, crear una aplicación global
+    // Si no hay aplicaciones específicas, crear aplicación global
     if (aplicacionesCompletas.length === 0) {
       aplicacionesCompletas.push({
         factura_numero: "No especificado",
@@ -620,20 +622,37 @@ function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
       });
     }
 
+    // Calcular total aplicado y deuda pendiente
+    const totalAplicado = aplicacionesCompletas.reduce((sum: number, app: any) => sum + app.monto_aplicado, 0);
+    const deudaPendiente = Math.max(0, deudaTotalAntes - totalAplicado);
+
     detallePagos.push({
       pago_id: pago.id,
       cliente: pago.client_name,
+      cliente_id: pago.client_id,
       fecha_pago: pago.date_iso,
       total_pagado: pago.total_amount,
       efectivo: pago.cash_amount,
       transferencia: pago.transfer_amount,
       alias: pago.alias || "",
+      
+      // INFORMACIÓN COMPLETA DE LA DEUDA
+      deuda_total_antes: deudaTotalAntes, // Deuda total antes del pago
+      total_aplicado: totalAplicado,      // Total realmente aplicado
+      deuda_pendiente: deudaPendiente,    // Lo que queda pendiente
+      
       deuda_antes_pago: pago.debt_before,
       deuda_despues_pago: pago.debt_after,
-      aplicaciones: aplicacionesCompletas
+      
+      // DETALLE POR FACTURA
+      aplicaciones: aplicacionesCompletas,
+      
+      // PARA FILTRAR - solo mostrar si tiene deuda pendiente
+      tiene_deuda_pendiente: deudaPendiente > 1
     });
   });
 
+  // ✅ FILTRAR: Solo devolver pagos de clientes que aún tengan deuda pendiente
   return detallePagos;
 }
 function Navbar({ current, setCurrent, role, onLogout }: any) {
@@ -4829,39 +4848,122 @@ if (inv?.type === "Reporte") {
           </tbody>
         </table>
             {/* 👇👇👇 NUEVA SECCIÓN: DETALLE DE APLICACIÓN DE PAGOS DE DEUDORES */}
-// EN EL COMPONENTE PrintArea, dentro del reporte, REEMPLAZAR esta sección:
+
+{/* 👇👇👇 NUEVA SECCIÓN MEJORADA: DETALLE DE APLICACIÓN DE PAGOS DE DEUDORES */}
 {(inv.detalleAplicacionPagos || []).length > 0 && (
   <>
     <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
-    <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>
+    <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6, fontSize: 16 }}>
       DETALLE DE APLICACIÓN DE PAGOS DE DEUDORES
     </div>
     
     {inv.detalleAplicacionPagos.map((pagoDetalle: any, index: number) => (
-      <div key={pagoDetalle.pago_id} style={{ marginBottom: 20, border: "1px solid #000", padding: 12, pageBreakInside: 'avoid' }}>
-        {/* Encabezado del pago */}
-        <div className="flex justify-between items-start mb-4">
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>Pago de {pagoDetalle.cliente}</div>
-            <div style={{ fontSize: 12 }}>
-              Fecha: {new Date(pagoDetalle.fecha_pago).toLocaleString("es-AR")}
-            </div>
-            <div style={{ fontSize: 12 }}>
-              Deuda antes: {fmt(pagoDetalle.deuda_antes_pago)} | Deuda después: {fmt(pagoDetalle.deuda_despues_pago)}
-            </div>
+      <div key={pagoDetalle.pago_id} style={{ 
+        marginBottom: 25, 
+        border: "2px solid #000", 
+        padding: 15, 
+        pageBreakInside: 'avoid',
+        backgroundColor: '#f9f9f9'
+      }}>
+        
+        {/* ENCABEZADO PRINCIPAL - CLIENTE Y DEUDA */}
+        <div style={{ marginBottom: 15, paddingBottom: 10, borderBottom: '1px solid #ccc' }}>
+          <div style={{ fontWeight: 700, fontSize: 18, textTransform: 'uppercase' }}>
+            CLIENTE {pagoDetalle.cliente}: DEUDA MONTO {money(pagoDetalle.deuda_total_antes)}
           </div>
-          <div className="text-right">
-            <div style={{ fontWeight: 700, fontSize: 18, color: "#10b981" }}>
-              {fmt(pagoDetalle.total_pagado)}
-            </div>
-            <div style={{ fontSize: 12 }}>
-              Efectivo: {fmt(pagoDetalle.efectivo)} • Transferencia: {fmt(pagoDetalle.transferencia)}
-            </div>
-            {pagoDetalle.alias && (
-              <div style={{ fontSize: 11 }}>Alias: {pagoDetalle.alias}</div>
-            )}
+          <div style={{ fontSize: 12, color: '#666', marginTop: 5 }}>
+            Fecha del pago: {new Date(pagoDetalle.fecha_pago).toLocaleString("es-AR")}
           </div>
         </div>
+
+        {/* DETALLE POR FACTURA */}
+        <div style={{ marginBottom: 15 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 14 }}>
+            DETALLE DE FACTURAS:
+          </div>
+          
+          {pagoDetalle.aplicaciones
+            .filter((app: any) => app.factura_numero && app.factura_numero !== "No especificado")
+            .map((app: any, idx: number) => (
+              <div key={idx} style={{ 
+                marginBottom: 8, 
+                padding: 8, 
+                border: '1px solid #ddd',
+                backgroundColor: 'white'
+              }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>
+                  FACTURA {pad(app.factura_numero)} - {money(app.total_factura)} 
+                  <span style={{ fontWeight: 400, fontSize: 11, color: '#666', marginLeft: 10 }}>
+                    FECHA: {app.fecha_factura ? new Date(app.fecha_factura).toLocaleDateString("es-AR") : "N/E"}
+                  </span>
+                </div>
+                
+                <div style={{ fontSize: 12, marginTop: 4 }}>
+                  <span>Deuda antes: {money(app.deuda_antes)}</span>
+                  <span style={{ margin: '0 10px' }}>|</span>
+                  <span>Pago aplicado: <strong>{money(app.monto_aplicado)}</strong></span>
+                  <span style={{ margin: '0 10px' }}>|</span>
+                  <span>Deuda después: {money(app.deuda_despues)}</span>
+                </div>
+              </div>
+            ))}
+        </div>
+
+{/* RESUMEN FINAL - EXACTAMENTE COMO LO PEDISTE */}
+<div style={{ 
+  borderTop: '2px solid #000', 
+  paddingTop: 12, 
+  marginTop: 12,
+  backgroundColor: pagoDetalle.saldado_completamente ? '#e8f6e8' : '#e8f4fd',
+  padding: 12,
+  borderRadius: 4
+}}>
+  <div style={{ 
+    fontWeight: 700, 
+    fontSize: 14, 
+    textAlign: 'center',
+    color: pagoDetalle.saldado_completamente ? '#059669' : '#000'
+  }}>
+    {pagoDetalle.saldado_completamente ? (
+      <>✅ CLIENTE SALDADO COMPLETAMENTE - DEUDA: {money(pagoDetalle.deuda_total_antes)} PAGADO: {money(pagoDetalle.total_aplicado)}</>
+    ) : (
+      <>TOTAL = SU DEUDA ({money(pagoDetalle.deuda_total_antes)}) PAGO AHORA {money(pagoDetalle.total_aplicado)} Y QUEDA PENDIENTE {money(pagoDetalle.deuda_pendiente)}</>
+    )}
+  </div>
+          
+          <div style={{ fontSize: 12, textAlign: 'center', marginTop: 6, color: '#666' }}>
+            Método de pago: 
+            {pagoDetalle.efectivo > 0 ? ` Efectivo: ${money(pagoDetalle.efectivo)}` : ''}
+            {pagoDetalle.transferencia > 0 ? ` Transferencia: ${money(pagoDetalle.transferencia)}` : ''}
+            {pagoDetalle.alias ? ` (${pagoDetalle.alias})` : ''}
+          </div>
+        </div>
+
+        {/* PIE DEL COMPROBANTE */}
+        <div style={{ 
+          marginTop: 10, 
+          paddingTop: 8, 
+          borderTop: '1px dashed #ccc',
+          fontSize: 10,
+          color: '#666',
+          textAlign: 'center'
+        }}>
+          Comprobante de pago #{pagoDetalle.pago_id} - {pagoDetalle.aplicaciones.length} factura(s) afectada(s)
+        </div>
+      </div>
+    ))}
+  </>
+)}
+
+{(!inv.detalleAplicacionPagos || inv.detalleAplicacionPagos.length === 0) && (
+  <>
+    <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+    <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Pagos de Deudores del Día</div>
+    <div className="text-sm text-slate-400" style={{ textAlign: 'center', padding: 20 }}>
+      ✅ No hay clientes con deudas pendientes - Todos están al día
+    </div>
+  </>
+)}
 
         {/* Detalle de aplicación por factura - SOLO SI HAY FACTURAS ESPECÍFICAS */}
         {pagoDetalle.aplicaciones.some((app: any) => app.factura_numero && app.factura_numero !== "No especificado") && (
