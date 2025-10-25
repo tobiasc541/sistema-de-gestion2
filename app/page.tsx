@@ -500,6 +500,7 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
   return detalleDeudas.filter(deuda => deuda.monto_debe > 0.01);
 }
 // === Deuda total del cliente - CORREGIDA DEFINITIVAMENTE ===
+// === Deuda total del cliente - CON SALDO A FAVOR APLICADO ===
 function calcularDeudaTotal(detalleDeudas: DetalleDeuda[], cliente: any): number {
   if (!cliente) return 0;
   
@@ -509,12 +510,16 @@ function calcularDeudaTotal(detalleDeudas: DetalleDeuda[], cliente: any): number
   // ✅ Deuda manual del cliente
   const deudaManual = parseNum(cliente.debt || 0);
   
-  // ✅ SUMAR AMBAS - pero sin duplicar
-  const deudaTotal = deudaFacturas + deudaManual;
+  // ✅ Saldo a favor del cliente
+  const saldoFavor = parseNum(cliente.saldo_favor || 0);
   
-  console.log(`💰 Cliente ${cliente.name}: Facturas=${deudaFacturas}, Manual=${deudaManual}, Total=${deudaTotal}`);
+  // ✅ CALCULAR DEUDA NETA: (Deuda total - Saldo a favor) - No puede ser negativo
+  const deudaBruta = deudaFacturas + deudaManual;
+  const deudaNeta = Math.max(0, deudaBruta - saldoFavor);
   
-  return deudaTotal; // ← Devuelve la SUMA CORRECTA
+  console.log(`💰 Cliente ${cliente.name}: Facturas=${deudaFacturas}, Manual=${deudaManual}, SaldoFavor=${saldoFavor}, Bruta=${deudaBruta}, Neta=${deudaNeta}`);
+  
+  return deudaNeta; // ← Devuelve la DEUDA NETA después de aplicar saldo a favor
 }
 // 👇👇👇 AGREGAR ESTA FUNCIÓN NUEVA
 function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
@@ -888,18 +893,18 @@ const toPay = Math.max(0, total - applied);
               onChange={setVendorId}
               options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))}
             />
-  <div className="col-span-2 text-xs text-slate-300 mt-1">
+<div className="col-span-2 text-xs text-slate-300 mt-1">
   Deuda del cliente: <span className="font-semibold">
     {(() => {
       const cliente = state.clients.find((c:any) => c.id === clientId);
-      if (!cliente) return money(0);
+      if (!cliente) return "✅ Al día";
       const detalleDeudas = calcularDetalleDeudas(state, clientId);
-      const deudaTotal = calcularDeudaTotal(detalleDeudas, cliente);
-      return money(deudaTotal);
+      const deudaNeta = calcularDeudaTotal(detalleDeudas, cliente);
+      return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
     })()}
   </span>
   <span className="mx-2">·</span>
-  Saldo a favor: <span className="font-semibold">
+  Saldo a favor: <span className="font-semibold text-emerald-400">
     {money(state.clients.find((c:any)=>c.id===clientId)?.saldo_favor || 0)}
   </span>
   <span className="mx-2">·</span>
@@ -1389,18 +1394,18 @@ async function cancelarDeuda(clienteId: string) {
                       </div>
                     )}
                   </td>
-          <td className="py-2 pr-4">
+       <td className="py-2 pr-4">
   <div className={`font-medium ${
     (() => {
       const detalleDeudas = calcularDetalleDeudas(state, c.id);
-      const deudaTotal = calcularDeudaTotal(detalleDeudas, c);
-      return deudaTotal > 0 ? "text-amber-400" : "text-slate-300";
+      const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
+      return deudaNeta > 0 ? "text-amber-400" : "text-emerald-400";
     })()
   }`}>
     {(() => {
       const detalleDeudas = calcularDetalleDeudas(state, c.id);
-      const deudaTotal = calcularDeudaTotal(detalleDeudas, c);
-      return money(deudaTotal);
+      const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
+      return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
     })()}
   </div>
 </td>
@@ -1875,14 +1880,15 @@ function ProductosTab({ state, setState, role }: any) {
 
 function DeudoresTab({ state, setState, session }: any) {
 // ✅ FILTRAR MEJORADO: Incluye deuda manual Y deuda de facturas
+// ✅ FILTRAR: Solo clientes con deuda NETA > 0 (después de aplicar saldo)
 const clients = state.clients.filter((c: any) => {
   if (!c || !c.id) return false;
   
   const detalleDeudas = calcularDetalleDeudas(state, c.id);
-  const deudaTotal = calcularDeudaTotal(detalleDeudas, c);
+  const deudaNeta = calcularDeudaTotal(detalleDeudas, c); // ← Esto YA aplica saldo
   
-  // Mostrar si tiene deuda REAL mayor a 0.01 (manual O facturas O ambas)
-  return deudaTotal > 0.01;
+  // Mostrar solo si tiene deuda NETA pendiente
+  return deudaNeta > 0.01;
 });
   const [active, setActive] = useState<string | null>(null);
   const [cash, setCash] = useState("");
@@ -2257,15 +2263,16 @@ client_debt_total: Math.max(0, deudaReal - totalPago)
       <Card title="Deudores">
         {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas.</div>}
         <div className="divide-y divide-slate-800">
-      {clients.map((c: any) => {
+   {clients.map((c: any) => {
   const detalleDeudas = calcularDetalleDeudas(state, c.id);
-  const deudaTotal = calcularDeudaTotal(detalleDeudas, c); // ← Esto ya incluye ambas
+  const deudaNeta = calcularDeudaTotal(detalleDeudas, c); // ← Esto YA aplica saldo a favor
   const deudaManual = parseNum(c.debt || 0);
   const saldoFavor = parseNum(c.saldo_favor || 0);
   
-  // Calcular solo deuda de facturas para mostrar el desglose
+  // Calcular deuda BRUTA (sin aplicar saldo) para mostrar el desglose
   const deudaFacturas = detalleDeudas.reduce((sum, deuda) => sum + deuda.monto_debe, 0);
-  
+  const deudaBruta = deudaFacturas + deudaManual;
+
   return (
     <div key={c.id} className="border border-slate-700 rounded-lg p-4 mb-3">
       <div className="flex justify-between items-start">
@@ -2277,44 +2284,67 @@ client_debt_total: Math.max(0, deudaReal - totalPago)
                 ⚠️ Deuda Manual
               </span>
             )}
+            {saldoFavor > 0 && deudaNeta === 0 && (
+              <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-emerald-800 text-emerald-200 border border-emerald-700">
+                💰 Saldo a favor
+              </span>
+            )}
           </div>
           
-          {/* ✅ INFORMACIÓN CLARA - SIN DUPLICACIONES */}
+          {/* ✅ INFORMACIÓN CLARA CON SALDO APLICADO */}
           <div className="text-sm text-slate-400 mt-1">
-            <span className="text-red-400 font-semibold">
-              Deuda total: {money(deudaTotal)}
+            {/* DEUDA NETA (después de saldo) */}
+            <span className={`font-semibold ${
+              deudaNeta > 0 ? "text-red-400" : "text-emerald-400"
+            }`}>
+              {deudaNeta > 0 ? `Deuda pendiente: ${money(deudaNeta)}` : "✅ Al día"}
             </span>
             
-            {/* Mostrar desglose SOLO si tiene ambos tipos */}
-            {deudaManual > 0 && deudaFacturas > 0 && (
+            {/* Desglose SOLO si hay deuda bruta */}
+            {deudaBruta > 0 && (
               <>
-                <span className="ml-2 text-amber-400">
-                  (Manual: {money(deudaManual)})
+                <span className="ml-2 text-slate-500">
+                  (Bruta: {money(deudaBruta)})
                 </span>
-                <span className="ml-2 text-blue-400">
-                  (Facturas: {money(deudaFacturas)})
-                </span>
+                
+                {deudaManual > 0 && deudaFacturas > 0 && (
+                  <>
+                    <span className="ml-2 text-amber-400">
+                      (Manual: {money(deudaManual)})
+                    </span>
+                    <span className="ml-2 text-blue-400">
+                      (Facturas: {money(deudaFacturas)})
+                    </span>
+                  </>
+                )}
+                
+                {deudaManual > 0 && deudaFacturas === 0 && (
+                  <span className="ml-2 text-amber-400">
+                    ← Solo deuda manual
+                  </span>
+                )}
+                
+                {deudaManual === 0 && deudaFacturas > 0 && (
+                  <span className="ml-2 text-blue-400">
+                    ← Solo deuda de facturas
+                  </span>
+                )}
               </>
             )}
             
-            {/* Mostrar si solo tiene deuda manual */}
-            {deudaManual > 0 && deudaFacturas === 0 && (
-              <span className="ml-2 text-amber-400">
-                ← Solo deuda manual
-              </span>
-            )}
-            
-            {/* Mostrar si solo tiene deuda de facturas */}
-            {deudaManual === 0 && deudaFacturas > 0 && (
-              <span className="ml-2 text-blue-400">
-                ← Solo deuda de facturas
-              </span>
-            )}
-            
+            {/* INFORMACIÓN DE SALDO A FAVOR */}
             {saldoFavor > 0 && (
-              <span className="ml-2 text-emerald-400">
-                (Saldo a favor: {money(saldoFavor)})
-              </span>
+              <div className="mt-1">
+                {deudaNeta === 0 ? (
+                  <span className="text-emerald-400">
+                    💰 Saldo a favor: {money(saldoFavor)} (no aplicado - cliente al día)
+                  </span>
+                ) : (
+                  <span className="text-emerald-400">
+                    💰 Saldo a favor: {money(saldoFavor)} (aplicado - reduce deuda)
+                  </span>
+                )}
+              </div>
             )}
           </div>
           
