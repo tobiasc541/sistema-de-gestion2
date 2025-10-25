@@ -1382,45 +1382,44 @@ async function cancelarDeuda(clienteId: string) {
         </div>
       </Card>
 
-      {/* Panel de control para admin */}
-      {session?.role === "admin" && (
-        <Card title="🛠️ Panel de Control - Administrador">
-          <div className="space-y-3">
-            <div className="text-sm text-slate-300">
-              Gestión avanzada de clientes y deudas
-            </div>
-            
-            <div className="grid md:grid-cols-3 gap-4 text-sm">
-              <div className="p-3 bg-slate-800/50 rounded-lg">
-                <div className="font-semibold">Clientes con deuda manual</div>
-                <div className="text-amber-400 font-bold">
-                  {clients.filter((c: any) => c.deuda_manual).length}
-                </div>
-              </div>
-              
-              <div className="p-3 bg-slate-800/50 rounded-lg">
-                <div className="font-semibold">Deuda manual total</div>
-                <div className="text-amber-400 font-bold">
-                  {money(
-                    clients
-                      .filter((c: any) => c.deuda_manual)
-                      .reduce((sum: number, c: any) => sum + parseNum(c.debt), 0)
-                  )}
-                </div>
-              </div>
-              
-              <div className="p-3 bg-slate-800/50 rounded-lg">
-                <div className="font-semibold">Saldo a favor total</div>
-                <div className="text-emerald-400 font-bold">
-                  {money(
-                    clients.reduce((sum: number, c: any) => sum + parseNum(c.saldo_favor), 0)
-                  )}
-                </div>
-              </div>
-            </div>
+// 👇👇👇 DENTRO DE ClientesTab, en el Card del Panel de Control del Admin
+{session?.role === "admin" && (
+  <Card title="🛠️ Panel de Control - Administrador">
+    <div className="space-y-3">
+      <div className="text-sm text-slate-300">
+        Gestión avanzada de clientes y deudas
+      </div>
+      
+      <div className="grid md:grid-cols-3 gap-4 text-sm">
+        <div className="p-3 bg-slate-800/50 rounded-lg">
+          <div className="font-semibold">Clientes con deuda manual</div>
+          <div className="text-amber-400 font-bold">
+            {clients.filter((c: any) => c.deuda_manual).length}
+          </div>
+        </div>
+        
+        <div className="p-3 bg-slate-800/50 rounded-lg">
+          <div className="font-semibold">Deuda manual total</div>
+          <div className="text-amber-400 font-bold">
+            {money(
+              clients
+                .filter((c: any) => c.deuda_manual)
+                .reduce((sum: number, c: any) => sum + parseNum(c.debt), 0)
+            )}
+          </div>
+        </div>
+        
+        <div className="p-3 bg-slate-800/50 rounded-lg">
+          <div className="font-semibold">Saldo a favor total</div>
+          <div className="text-emerald-400 font-bold">
+            {money(
+              clients.reduce((sum: number, c: any) => sum + parseNum(c.saldo_favor), 0)
+            )}
+          </div>
+        </div>
+      </div>
 
-       
-      {/* 👇👇👇 AQUÍ VA EL BOTÓN NUEVO - JUSTO AQUÍ */}
+      {/* 👇👇👇 AQUÍ VA EL BOTÓN NUEVO - VERSIÓN CORREGIDA */}
       <div className="border-t border-slate-700 pt-3">
         <div className="text-xs text-slate-400 mb-2">
           Herramientas de mantenimiento:
@@ -1462,6 +1461,10 @@ async function cancelarDeuda(clienteId: string) {
               } catch (error) {
                 console.error("Error al actualizar clientes:", error);
                 alert("Error al guardar las correcciones en la base de datos.");
+                
+                // Recargar para evitar inconsistencias
+                const refreshedState = await loadFromSupabase(seedState());
+                setState(refreshedState);
               }
             } else if (clientesCorregidos === 0) {
               alert("✅ No se encontraron deudas inconsistentes.");
