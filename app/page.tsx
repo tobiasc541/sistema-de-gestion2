@@ -2275,16 +2275,17 @@ function DeudoresTab({ state, setState, session }: any) {
                     <Button tone="slate" onClick={() => setActive(c.id)}>
                       💳 Pagar
                     </Button>
-                     {/* 👇👇👇 AGREGAR ESTE NUEVO BOTÓN - SOLO PARA ADMIN */}
-          {session?.role === "admin" && (
-            <Button 
-              tone="red" 
-              onClick={() => eliminarDeudaCliente(c.id)}
-              title="Eliminar completamente la deuda"
-            >
-              🗑️ Eliminar Deuda
-            </Button>
-                  </div>
+                {/* 👇👇👇 AGREGAR ESTE NUEVO BOTÓN - SOLO PARA ADMIN */}
+  {session?.role === "admin" && (
+    <Button 
+      tone="red" 
+      onClick={() => eliminarDeudaCliente(c.id)}
+      title="Eliminar completamente la deuda"
+    >
+      🗑️ Eliminar Deuda
+    </Button>
+  )} {/* 👈 AGREGAR ESTA LLAVE */}
+</div>
                 </div>
               </div>
             );
