@@ -23,17 +23,6 @@ type Pedido = {
   completed_at?: string;
 };
 
-// 👇👇👇 AGREGAR ESTE NUEVO TIPO PARA DETALLE DE DEUDAS
-type DetalleDeuda = {
-  factura_id: string;
-  factura_numero: number;
-  fecha: string;
-  monto_total: number;
-  monto_pagado: number;
-  monto_debe: number;
-  items: any[];
-};
-
 /* ===== helpers ===== */
 const pad = (n: number, width = 8) => String(n).padStart(width, "0");
 const money = (n: number) =>
@@ -46,72 +35,6 @@ const parseNum = (v: any) => {
 };
 const todayISO = () => new Date().toISOString();
 const clone = (obj: any) => JSON.parse(JSON.stringify(obj));
-// AGREGAR esta función nueva después de las funciones helpers (línea ~200)
-async function repararInconsistenciasDeudas(state: any) {
-  console.log("🔧 INICIANDO REPARACIÓN DE INCONSISTENCIAS...");
-  
-  const clientesConProblemas = [];
-  
-  for (const cliente of state.clients) {
-    // Calcular deuda REAL según facturas y pagos
-    const detalleReal = calcularDetalleDeudas(state, cliente.id);
-    const deudaReal = calcularDeudaTotal(detalleReal);
-    const deudaActual = parseNum(cliente.debt);
-    
-    // Si hay diferencia, reportar
-    if (Math.abs(deudaReal - deudaActual) > 1) { // Margen de error de $1
-      clientesConProblemas.push({
-        cliente: cliente.name,
-        deudaActual,
-        deudaReal,
-        diferencia: deudaReal - deudaActual,
-        detalle: detalleReal
-      });
-      
-      console.warn(`❌ INCONSISTENCIA: ${cliente.name}`, {
-        deudaActual,
-        deudaReal,
-        diferencia: deudaReal - deudaActual
-      });
-    }
-  }
-  
-  if (clientesConProblemas.length > 0) {
-    console.table(clientesConProblemas);
-    
-    // Preguntar si quiere reparar automáticamente
-    const reparar = confirm(
-      `Se encontraron ${clientesConProblemas.length} clientes con inconsistencias.\n\n¿Deseas reparar automáticamente?`
-    );
-    
-    if (reparar) {
-      const st = clone(state);
-      
-      for (const problema of clientesConProblemas) {
-        const cliente = st.clients.find((c: any) => c.name === problema.cliente);
-        if (cliente) {
-          console.log(`🔧 Reparando ${cliente.name}: ${cliente.debt} → ${problema.deudaReal}`);
-          cliente.debt = problema.deudaReal;
-          
-          // Actualizar en Supabase
-          if (hasSupabase) {
-            await supabase.from("clients")
-              .update({ debt: problema.deudaReal })
-              .eq("id", cliente.id);
-          }
-        }
-      }
-      
-      alert(`✅ Reparados ${clientesConProblemas.length} clientes`);
-      return st;
-    }
-  } else {
-    console.log("✅ No se encontraron inconsistencias");
-    alert("✅ No se encontraron inconsistencias en las deudas");
-  }
-  
-  return state;
-}
 
 /* ===== seed inicial (solo UI mientras carga Supabase) ===== */
 function seedState() {
@@ -462,199 +385,7 @@ function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
 
   return Math.max(0, factMes - devRestables + extrasIntercambio);
 }
-// === Detalle de deudas por cliente - CORREGIDA ===
-// CORREGIR esta función - el problema está aquí
-// REEMPLAZAR esta función completa - ESTÁ EN LA LÍNEA ~460
-// REEMPLAZAR la función calcularDetalleDeudas por esta versión corregida:
-function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
-  if (!clientId) return [];
-  
-  const todasFacturas = (state.invoices || [])
-    .filter((f: any) => 
-      f.client_id === clientId && 
-      f.type === "Factura"
-    )
-    .sort((a: any, b: any) => new Date(a.date_iso).getTime() - new Date(b.date_iso).getTime());
 
-  const detalleDeudas = todasFacturas.map((factura: any) => {
-    const totalFactura = parseNum(factura.total);
-    
-    // 1. Pagos DIRECTOS de la factura (al momento de la compra)
-    const pagosDirectos = 
-      parseNum(factura?.payments?.cash || 0) + 
-      parseNum(factura?.payments?.transfer || 0) + 
-      parseNum(factura?.payments?.saldo_aplicado || 0);
-
-    // 2. Pagos ADICIONALES desde debt_payments para ESTA factura específica
-    const pagosAdicionales = (state.debt_payments || [])
-      .filter((pago: any) => {
-        return pago.client_id === clientId && 
-               pago.aplicaciones?.some((app: any) => app.factura_id === factura.id);
-      })
-      .reduce((sum: number, pago: any) => {
-        const aplicacion = pago.aplicaciones.find((app: any) => app.factura_id === factura.id);
-        return aplicacion ? sum + parseNum(aplicacion.monto_aplicado) : sum;
-      }, 0);
-
-    // 3. Devoluciones que afectan esta factura específica
-    const devolucionesFactura = (state.devoluciones || [])
-      .filter((dev: any) => {
-        if (dev.client_id !== clientId) return false;
-        // Buscar si esta devolución incluye productos de esta factura
-        return dev.items?.some((item: any) => item.facturaId === factura.id);
-      })
-      .reduce((sum: number, dev: any) => {
-        const itemsEstaFactura = dev.items?.filter((item: any) => item.facturaId === factura.id) || [];
-        return sum + itemsEstaFactura.reduce((s: number, item: any) => 
-          s + (parseNum(item.qtyDevuelta) * parseNum(item.unitPrice)), 0);
-      }, 0);
-
-    const totalPagos = pagosDirectos + pagosAdicionales;
-    const montoDebe = Math.max(0, totalFactura - totalPagos - devolucionesFactura);
-
-    return {
-      factura_id: factura.id,
-      factura_numero: factura.number,
-      fecha: factura.date_iso,
-      monto_total: totalFactura,
-      monto_pagado: totalPagos,
-      monto_debe: montoDebe,
-      items: factura.items || [],
-      devoluciones: devolucionesFactura
-    };
-  });
-
-  // ✅ CORRECCIÓN: Filtrar solo facturas con deuda pendiente REAL
-  return detalleDeudas.filter(deuda => deuda.monto_debe > 0.01); // Margen de error de 1 centavo
-}
-
-
-// === Deuda total del cliente - CORREGIDA ===
-function calcularDeudaTotal(detalleDeudas: DetalleDeuda[]): number {
-  const deudaCalculada = detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
-  console.log(`💰 Deuda total calculada: ${deudaCalculada}`);
-  return deudaCalculada;
-}
-// 👇👇👇 AGREGAR ESTA FUNCIÓN NUEVA
-function obtenerHistorialCliente(state: any, clientId: string) {
-  const historial = [];
-  
-  // Facturas
-  const facturas = (state.invoices || [])
-    .filter((f: any) => f.client_id === clientId && f.type === "Factura")
-    .map((f: any) => ({
-      tipo: 'FACTURA',
-      fecha: f.date_iso,
-      descripcion: `Factura #${f.number}`,
-      monto: parseNum(f.total),
-      detalle: f.items.map((it: any) => `${it.name} x${it.qty}`).join(', ')
-    }));
-  
-  // Pagos de deudores
-  const pagos = (state.debt_payments || [])
-    .filter((p: any) => p.client_id === clientId)
-    .map((p: any) => ({
-      tipo: 'PAGO_DEUDA',
-      fecha: p.date_iso,
-      descripcion: `Pago de deuda #${p.number}`,
-      monto: -parseNum(p.total_amount),
-      detalle: p.aplicaciones?.map((app: any) => `Aplicado a Factura #${app.factura_numero}: ${money(app.monto_aplicado)}`).join(', ') || 'Sin detalle'
-    }));
-  
-  // Devoluciones
-  const devoluciones = (state.devoluciones || [])
-    .filter((d: any) => d.client_id === clientId)
-    .map((d: any) => ({
-      tipo: 'DEVOLUCION',
-      fecha: d.date_iso,
-      descripcion: `Devolución - ${d.metodo}`,
-      monto: -parseNum(d.total),
-      detalle: d.items.map((it: any) => `${it.name} x${it.qtyDevuelta}`).join(', ')
-    }));
-  
-  // Combinar y ordenar por fecha
-  return [...facturas, ...pagos, ...devoluciones]
-    .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-}
-
-// REEMPLAZAR la función obtenerDetallePagosAplicados por esta versión MEJORADA:
-function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
-  const detallePagos: any[] = [];
-
-  pagosDeudores.forEach((pago: any) => {
-    const cliente = state.clients.find((c: any) => c.id === pago.client_id);
-    if (!cliente) return;
-
-    // Obtener el detalle REAL de deudas del cliente para este pago
-    const detalleDeudasCliente = calcularDetalleDeudas(state, pago.client_id);
-    
-    // Calcular deuda total ANTES del pago
-    const deudaTotalAntes = calcularDeudaTotal(detalleDeudasCliente);
-    
-    // Reconstruir las aplicaciones con información completa
-    const aplicacionesCompletas = pago.aplicaciones?.map((app: any) => {
-      const factura = state.invoices.find((f: any) => f.id === app.factura_id);
-      const deudaFactura = detalleDeudasCliente.find((d: any) => d.factura_id === app.factura_id);
-      
-      return {
-        factura_id: app.factura_id,
-        factura_numero: app.factura_numero || factura?.number || "N/E",
-        fecha_factura: factura?.date_iso || pago.date_iso,
-        total_factura: deudaFactura?.monto_total || factura?.total || 0,
-        deuda_antes: app.deuda_antes || deudaFactura?.monto_debe || 0,
-        monto_aplicado: app.monto_aplicado,
-        deuda_despues: app.deuda_despues || Math.max(0, (deudaFactura?.monto_debe || 0) - app.monto_aplicado),
-        tipo: "pago_factura"
-      };
-    }) || [];
-
-    // Si no hay aplicaciones específicas, crear aplicación global
-    if (aplicacionesCompletas.length === 0) {
-      aplicacionesCompletas.push({
-        factura_numero: "No especificado",
-        fecha_factura: pago.date_iso,
-        total_factura: 0,
-        deuda_antes: pago.debt_before || 0,
-        monto_aplicado: pago.total_amount,
-        deuda_despues: pago.debt_after || 0,
-        descripcion: "Pago aplicado globalmente",
-        tipo: "global"
-      });
-    }
-
-    // Calcular total aplicado y deuda pendiente
-    const totalAplicado = aplicacionesCompletas.reduce((sum: number, app: any) => sum + app.monto_aplicado, 0);
-    const deudaPendiente = Math.max(0, deudaTotalAntes - totalAplicado);
-
-    detallePagos.push({
-      pago_id: pago.id,
-      cliente: pago.client_name,
-      cliente_id: pago.client_id,
-      fecha_pago: pago.date_iso,
-      total_pagado: pago.total_amount,
-      efectivo: pago.cash_amount,
-      transferencia: pago.transfer_amount,
-      alias: pago.alias || "",
-      
-      // INFORMACIÓN COMPLETA DE LA DEUDA
-      deuda_total_antes: deudaTotalAntes, // Deuda total antes del pago
-      total_aplicado: totalAplicado,      // Total realmente aplicado
-      deuda_pendiente: deudaPendiente,    // Lo que queda pendiente
-      
-      deuda_antes_pago: pago.debt_before,
-      deuda_despues_pago: pago.debt_after,
-      
-      // DETALLE POR FACTURA
-      aplicaciones: aplicacionesCompletas,
-      
-      // PARA FILTRAR - solo mostrar si tiene deuda pendiente
-      tiene_deuda_pendiente: deudaPendiente > 1
-    });
-  });
-
-  // ✅ FILTRAR: Solo devolver pagos de clientes que aún tengan deuda pendiente
-  return detallePagos;
-}
 function Navbar({ current, setCurrent, role, onLogout }: any) {
   const TABS = [
     "Facturación",
@@ -667,23 +398,22 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     "Gastos y Devoluciones",
     "Cola",
     "Pedidos Online", // 👈 NUEVA PESTAÑA
-      "Ingresar Stock", // 👈 NUEVA PESTAÑA
-
   ];
 
- const visibleTabs =
-  role === "admin"
-    ? TABS
-    : role === "vendedor"
-    ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online", "Ingresar Stock"] // 👈 AGREGAR
-    : role === "pedido-online"
-    ? ["Hacer Pedido"]
-    : ["Panel"];
+  const visibleTabs =
+    role === "admin"
+      ? TABS
+      : role === "vendedor"
+      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online"] // 👈 AGREGAR
+      : role === "pedido-online"
+      ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
+      : ["Panel"];
+
   return (
     <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
         <div className="text-sm font-bold tracking-wide">
-           Facturación — {hasSupabase ? "By : Tobias carrizo" : "Local"}
+          💼 Facturación — {hasSupabase ? "By : Tobias carrizo" : "Local"}
         </div>
         <nav className="flex-1 flex gap-1 flex-wrap">
           {visibleTabs.map((t) => (
@@ -1311,31 +1041,16 @@ function ProductosTab({ state, setState, role }: any) {
 /* Deudores */
 function DeudoresTab({ state, setState }: any) {
   // Filtrar clientes que tengan deuda NETO mayor a 0 (deuda - saldo a favor > 0)
-const clients = state.clients.filter((c: any) => {
-  const detalleDeudas = calcularDetalleDeudas(state, c.id);
-  const deudaReal = calcularDeudaTotal(detalleDeudas);
-  const saldoFavor = parseNum(c.saldo_favor || 0);
-  const deudaNeta = Math.max(0, deudaReal - saldoFavor);
-  
-  // ✅ Solo mostrar si tiene deuda neta mayor a $1
-  return deudaNeta > 1;
-});
+  const clients = state.clients.filter((c: any) => {
+    const deuda = parseNum(c.debt);
+    const saldoFavor = parseNum(c.saldo_favor || 0);
+    return (deuda - saldoFavor) > 0;
+  });
   
   const [active, setActive] = useState<string | null>(null);
   const [cash, setCash] = useState("");
   const [transf, setTransf] = useState("");
   const [alias, setAlias] = useState("");
-  const [verDetalle, setVerDetalle] = useState<string | null>(null);
-
-  // Función para ver detalle de deudas
-  function verDetalleDeudas(clientId: string) {
-    setVerDetalle(clientId);
-  }
-
-  // Calcular detalle de deudas para un cliente
-  const detalleDeudasCliente = verDetalle ? calcularDetalleDeudas(state, verDetalle) : [];
-  const deudaTotalCliente = calcularDeudaTotal(detalleDeudasCliente);
-  const clienteDetalle = state.clients.find((c: any) => c.id === verDetalle);
 
 async function registrarPago() {
   const cl = state.clients.find((c: any) => c.id === active);
@@ -1346,45 +1061,33 @@ async function registrarPago() {
   const st = clone(state);
   const client = st.clients.find((c: any) => c.id === active)!;
 
-  // 👇👇👇 CALCULO CORREGIDO - Usar el detalle REAL de deudas
-  const detalleDeudas = calcularDetalleDeudas(st, active);
-  const deudaReal = calcularDeudaTotal(detalleDeudas);
+  // CALCULAR DEUDA NETA (considerando saldo a favor)
+  const deudaBruta = parseNum(client.debt);
+  const saldoFavor = parseNum(client.saldo_favor || 0);
+  const deudaNeta = Math.max(0, deudaBruta - saldoFavor);
+
+  const aplicado = Math.min(totalPago, deudaNeta);
   
-  console.log(`💳 Pago: ${totalPago}, Deuda real: ${deudaReal}`);
-
-  const aplicado = Math.min(totalPago, deudaReal);
+  // Aplicar el pago PRIMERO al saldo a favor si existe, luego a la deuda
+  let saldoRestante = saldoFavor;
+  let deudaRestante = deudaBruta;
   
-  // Aplicar el pago a las facturas más antiguas primero
-  let saldoRestante = aplicado;
-  const aplicaciones: any[] = [];
-
-  for (const deuda of detalleDeudas) {
-    if (saldoRestante <= 0) break;
-
-    if (deuda.monto_debe > 0) {
-      const montoAplicado = Math.min(saldoRestante, deuda.monto_debe);
-      
-      aplicaciones.push({
-        factura_id: deuda.factura_id,
-        factura_numero: deuda.factura_numero,
-        monto_aplicado: montoAplicado,
-        deuda_antes: deuda.monto_debe,
-        deuda_despues: deuda.monto_debe - montoAplicado
-      });
-
-      saldoRestante -= montoAplicado;
-    }
+  if (saldoFavor > 0) {
+    const saldoUsado = Math.min(aplicado, saldoFavor);
+    saldoRestante = saldoFavor - saldoUsado;
+    deudaRestante = deudaBruta - saldoUsado;
   }
+  
+  // Aplicar el resto del pago directamente a la deuda
+  const pagoRestante = aplicado - (saldoFavor - saldoRestante);
+  deudaRestante = Math.max(0, deudaRestante - pagoRestante);
 
-  // Actualizar la deuda del cliente
-  const deudaAnterior = parseNum(client.debt);
-  const nuevaDeuda = Math.max(0, deudaAnterior - aplicado);
-  client.debt = nuevaDeuda;
+  // Actualizar el cliente
+  client.debt = deudaRestante;
+  client.saldo_favor = saldoRestante;
 
-  console.log(`📊 Deuda actualizada: ${deudaAnterior} -> ${nuevaDeuda}`);
-
-  // ⭐⭐ NUEVO: Guardar en debt_payments con el detalle de aplicación
-  const number = st.meta.invoiceCounter++;
+  // ⭐⭐ NUEVO: Usar la tabla debt_payments en lugar de invoices
+  const number = st.meta.invoiceCounter++; // Seguimos usando el mismo contador
   const id = "dp_" + number;
 
   const debtPayment = {
@@ -1399,25 +1102,26 @@ async function registrarPago() {
     transfer_amount: parseNum(transf),
     total_amount: aplicado,
     alias: alias.trim(),
-    aplicaciones: aplicaciones, // 👈 NUEVO: Guardar el detalle de aplicación
-    debt_before: deudaAnterior,
-    debt_after: nuevaDeuda,
-    deuda_real_antes: deudaReal, // 👈 NUEVO: Guardar la deuda real calculada
+    saldo_aplicado: (saldoFavor - saldoRestante),
+    debt_before: deudaBruta,
+    debt_after: deudaRestante,
+    // 👇👇👇 ELIMINAR client_debt_total - NO ES NECESARIO
   };
 
-  console.log("💾 Guardando pago de deudor:", debtPayment);
+  console.log("💾 Guardando pago de deudor en debt_payments:", debtPayment);
 
-  // Guardar en debt_payments
+  // ⭐⭐ NUEVO: Guardar en debt_payments en lugar de invoices
   st.debt_payments = st.debt_payments || [];
   st.debt_payments.push(debtPayment);
   st.meta.lastSavedInvoiceId = id;
   setState(st);
 
-  // Persistencia en Supabase
+  // ⭐⭐ NUEVO: Persistencia en la tabla debt_payments
   if (hasSupabase) {
     try {
       console.log("📦 Intentando guardar en debt_payments...");
       
+      // 1. Guardar en debt_payments (SOLO con columnas existentes)
       const { data, error } = await supabase
         .from("debt_payments")
         .insert({
@@ -1432,10 +1136,10 @@ async function registrarPago() {
           transfer_amount: debtPayment.transfer_amount,
           total_amount: debtPayment.total_amount,
           alias: debtPayment.alias,
-          aplicaciones: debtPayment.aplicaciones, // 👈 NUEVO
+          saldo_aplicado: debtPayment.saldo_aplicado,
           debt_before: debtPayment.debt_before,
           debt_after: debtPayment.debt_after,
-          deuda_real_antes: debtPayment.deuda_real_antes, // 👈 NUEVO
+          // 👇👇👇 NO incluir client_debt_total
         })
         .select();
 
@@ -1444,18 +1148,24 @@ async function registrarPago() {
         alert("Error al guardar el pago: " + error.message);
         return;
       }
+      console.log("✅ Pago guardado en debt_payments:", data);
 
-      // Actualizar cliente en Supabase
+      // 2. Actualizar cliente en Supabase
       const { error: clientError } = await supabase.from("clients")
-        .update({ debt: client.debt })
+        .update({ 
+          debt: client.debt, 
+          saldo_favor: client.saldo_favor 
+        })
         .eq("id", client.id);
 
       if (clientError) {
         console.error("❌ Error actualizando cliente:", clientError);
       }
 
-      // Actualizar contadores
+      // 3. Actualizar contadores
       await saveCountersSupabase(st.meta);
+
+      console.log("✅ Todo guardado correctamente en debt_payments");
 
     } catch (error) {
       console.error("💥 Error crítico:", error);
@@ -1477,7 +1187,7 @@ async function registrarPago() {
     }, 1500);
   }
 
-  // Imprimir comprobante de pago de deuda MEJORADO
+  // ⭐⭐ NUEVO: Imprimir comprobante de pago de deuda - CORREGIDO
   window.dispatchEvent(new CustomEvent("print-invoice", { 
     detail: { 
       ...debtPayment, 
@@ -1495,204 +1205,48 @@ async function registrarPago() {
         cash: parseNum(cash), 
         transfer: parseNum(transf), 
         change: 0,
-        alias: alias.trim()
+        alias: alias.trim(),
+        saldo_aplicado: (saldoFavor - saldoRestante)
       },
       status: "Pagado",
-      aplicaciones: aplicaciones, // 👈 NUEVO: Incluir detalle de aplicación
-      client_debt_total: nuevaDeuda
+      // 👇👇👇 USAR debt_after QUE ES LO QUE REALMENTE TENEMOS
+      client_debt_total: deudaRestante // 👈 Esto se usa solo para la impresión
     } 
   } as any));
   await nextPaint();
   window.print();
 }
-
   return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      {/* MODAL DE DETALLE DE DEUDAS */}
-      {verDetalle && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 rounded-2xl border border-slate-700 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold">
-                  📋 Detalle de Deudas - {clienteDetalle?.name}
-                </h2>
-                <button 
-                  onClick={() => setVerDetalle(null)}
-                  className="text-slate-400 hover:text-white text-2xl"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* RESUMEN */}
-              <Card title="Resumen de Deuda" className="mb-6">
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div>
-                    <div className="text-2xl font-bold text-amber-400">
-                      {money(deudaTotalCliente)}
-                    </div>
-                    <div className="text-sm text-slate-400">Deuda Total</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-blue-400">
-                      {detalleDeudasCliente.length}
-                    </div>
-                    <div className="text-sm text-slate-400">Facturas Pendientes</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-emerald-400">
-                      {money(parseNum(clienteDetalle?.saldo_favor || 0))}
-                    </div>
-                    <div className="text-sm text-slate-400">Saldo a Favor</div>
+    <div className="max-w-4xl mx-auto p-4 space-y-4">
+      <Card title="Deudores">
+        {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas netas.</div>}
+        <div className="divide-y divide-slate-800">
+          {clients.map((c: any) => {
+            const deudaBruta = parseNum(c.debt);
+            const saldoFavor = parseNum(c.saldo_favor || 0);
+            const deudaNeta = Math.max(0, deudaBruta - saldoFavor);
+            
+            return (
+              <div key={c.id} className="flex items-center justify-between py-3">
+                <div className="text-sm">
+                  <div className="font-medium">{c.name}</div>
+                  <div className="text-xs text-slate-400 mt-1">
+                    Deuda neta: <span className="text-slate-300">{money(deudaNeta)}</span>
+                    {saldoFavor > 0 && (
+                      <span className="ml-2">
+                        (Deuda: {money(deudaBruta)} - Saldo a favor: {money(saldoFavor)})
+                      </span>
+                    )}
                   </div>
                 </div>
-              </Card>
-
-              {/* DETALLE POR FACTURA */}
-              <Card title="Detalle por Factura">
-                {detalleDeudasCliente.length === 0 ? (
-                  <div className="text-center text-slate-400 py-8">
-                    ✅ Cliente al día - No tiene deudas pendientes
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {detalleDeudasCliente.map((deuda, index) => (
-                      <div key={deuda.factura_id} className="border border-slate-700 rounded-xl p-4">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <div className="font-semibold">
-                              Factura #{pad(deuda.factura_numero)}
-                            </div>
-                            <div className="text-sm text-slate-400">
-                              {new Date(deuda.fecha).toLocaleDateString("es-AR")}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-lg font-bold text-amber-400">
-                              {money(deuda.monto_debe)}
-                            </div>
-                            <div className="text-sm text-slate-400">
-                              Total: {money(deuda.monto_total)} • Pagado: {money(deuda.monto_pagado)}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* ITEMS DE LA FACTURA */}
-                        <div className="text-sm">
-                          <div className="font-medium mb-2">Productos:</div>
-                          <div className="space-y-1">
-                            {deuda.items.map((item: any, idx: number) => (
-                              <div key={idx} className="flex justify-between">
-                                <span>{item.name} × {item.qty}</span>
-                                <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* TOTAL */}
-                    <div className="border-t border-slate-700 pt-4 mt-4">
-                      <div className="flex justify-between items-center text-lg font-bold">
-                        <span>DEUDA TOTAL:</span>
-                        <span className="text-amber-400">{money(deudaTotalCliente)}</span>
-                      </div>
-                    </div>
-
-                    {/* BOTÓN IMPRIMIR DETALLE */}
-                    <div className="flex justify-end mt-4">
-                      <Button onClick={() => {
-                        const data = {
-                          type: "DetalleDeuda",
-                          cliente: clienteDetalle,
-                          detalleDeudas: detalleDeudasCliente,
-                          deudaTotal: deudaTotalCliente,
-                          saldoFavor: parseNum(clienteDetalle?.saldo_favor || 0)
-                        };
-                        window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
-                        setTimeout(() => window.print(), 0);
-                      }}>
-                        🖨️ Imprimir Detalle
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </Card>
-            </div>
-          </div>
-        </div>
-      )}
-
-     <Card title="Deudores" actions={
-  <div className="flex gap-2">
-    <Button tone="slate" onClick={async () => {
-      const confirmar = confirm(
-        "¿Ejecutar reparación de inconsistencias?\n\nEsto comparará la deuda actual con el cálculo real basado en facturas y pagos."
-      );
-      if (confirmar) {
-        const nuevoEstado = await repararInconsistenciasDeudas(state);
-        setState(nuevoEstado);
-      }
-    }}>
-      🔧 Reparar Inconsistencias
-    </Button>
-  </div>
-}>
-  {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas netas.</div>}
-  <div className="divide-y divide-slate-800">
-// En el map de clients, actualiza esta parte:
-{clients.map((c: any) => {
-  const detalleDeudas = calcularDetalleDeudas(state, c.id);
-  const deudaReal = calcularDeudaTotal(detalleDeudas);
-  const saldoFavor = parseNum(c.saldo_favor || 0);
-  const deudaNeta = Math.max(0, deudaReal - saldoFavor);
-  
-  if (deudaNeta <= 0) return null;
-  
-  return (
-    <div key={c.id} className="border border-slate-700 rounded-lg p-4 mb-3">
-      <div className="flex justify-between items-start">
-        <div className="flex-1">
-          <div className="font-semibold">{c.name} (N° {c.number})</div>
-          <div className="text-sm text-slate-400 mt-1">
-            Deuda neta: <span className="text-red-400 font-semibold">{money(deudaNeta)}</span>
-            {saldoFavor > 0 && (
-              <span className="ml-2">
-                (Deuda real: {money(deudaReal)} - Saldo a favor: {money(saldoFavor)})
-              </span>
-            )}
-          </div>
-          
-          {/* Detalle de facturas pendientes */}
-          <div className="mt-2 text-xs">
-            {detalleDeudas.slice(0, 3).map((deuda, idx) => (
-              <div key={idx} className="flex justify-between">
-                <span>Factura #{deuda.factura_numero}</span>
-                <span>{money(deuda.monto_debe)}</span>
+                <div>
+                  <Button tone="slate" onClick={() => setActive(c.id)}>
+                    Registrar pago
+                  </Button>
+                </div>
               </div>
-            ))}
-            {detalleDeudas.length > 3 && (
-              <div className="text-slate-500">
-                +{detalleDeudas.length - 3} facturas más...
-              </div>
-            )}
-          </div>
-        </div>
-        
-        <div className="flex gap-2 shrink-0">
-          <Button tone="slate" onClick={() => verDetalleDeudas(c.id)}>
-            📋 Detalle
-          </Button>
-          <Button tone="slate" onClick={() => setActive(c.id)}>
-            💳 Pagar
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-})}
+            );
+          })}
         </div>
       </Card>
 
@@ -2260,102 +1814,48 @@ const porAlias = (() => {
   return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
 })();
 
-async function imprimirReporte() {
-  // 👇👇👇 CALCULAR DEUDA DEL DÍA CORRECTAMENTE
-  const deudaDelDia = invoices
-    .filter((f: any) => {
-      const total = parseNum(f.total);
-      const pagos = parseNum(f?.payments?.cash || 0) + 
-                   parseNum(f?.payments?.transfer || 0) + 
-                   parseNum(f?.payments?.saldo_aplicado || 0);
-      return (total - pagos) > 0; // Tiene deuda pendiente
-    })
-    .reduce((s: number, f: any) => {
-      const total = parseNum(f.total);
-      const pagos = parseNum(f?.payments?.cash || 0) + 
-                   parseNum(f?.payments?.transfer || 0) + 
-                   parseNum(f?.payments?.saldo_aplicado || 0);
-      return s + (total - pagos);
-    }, 0);
+  async function imprimirReporte() {
+    const data = {
+      type: "Reporte",
+      periodo,
+      rango: { start, end },
+      resumen: {
+        ventas: totalVentas,
+        efectivoCobrado: totalEfectivo,
+        vueltoEntregado: totalVuelto,
+        efectivoNeto: totalEfectivoNeto,
+        transferencias: totalTransf,
 
-  // 👇👇👇 PAGOS DE DEUDORES DEL DÍA (ya lo tienes)
-  const pagosDeudoresHoy = pagosDeudores.filter((p: any) => {
-    const pagoDate = new Date(p.date_iso).toDateString();
-    const hoy = new Date().toDateString();
-    return pagoDate === hoy;
-  });
+        gastosTotal: totalGastos,
+        gastosEfectivo: totalGastosEfectivo,
+        gastosTransfer: totalGastosTransferencia,
 
-  // 👇👇👇 NUEVO: Detalle de aplicación de pagos
-  const detalleAplicacionPagos = obtenerDetallePagosAplicados(pagosDeudoresHoy, state);
+        devolucionesCantidad: devolucionesPeriodo.length,
+        devolucionesEfectivo: devolucionesMontoEfectivo,
+        devolucionesTransfer: devolucionesMontoTransfer,
+        devolucionesTotal: devolucionesMontoTotal,
 
-  // 👇👇👇 DEUDORES ACTIVOS (con deuda neta > 0) - CORREGIDO
-  const deudoresActivos = state.clients
-    .filter((c: any) => {
-      const deudaBruta = parseNum(c.debt);
-      const saldoFavor = parseNum(c.saldo_favor || 0);
-      return (deudaBruta - saldoFavor) > 0;
-    })
-    .map((c: any) => {
-      // Calcular detalle REAL de deudas para cada cliente
-      const detalleDeudasCliente = calcularDetalleDeudas(state, c.id);
-      const deudaNeta = calcularDeudaTotal(detalleDeudasCliente);
-      
-      return {
-        id: c.id,
-        name: c.name,
-        deuda: parseNum(c.debt),
-        saldoFavor: parseNum(c.saldo_favor || 0),
-        deudaNeta: deudaNeta,
-        cantidadFacturas: detalleDeudasCliente.length // 👈 NUEVO: cantidad de facturas
-      };
-    })
-    .sort((a: any, b: any) => b.deudaNeta - a.deudaNeta);
+        cashFloatTarget,
+        vueltoRestante,
 
-  const data = {
-    type: "Reporte",
-    periodo,
-    rango: { start, end },
-    resumen: {
-      ventas: totalVentas,
-      deudaDelDia: deudaDelDia, // 👈 AHORA CORRECTO
-      efectivoCobrado: totalEfectivo,
-      vueltoEntregado: totalVuelto,
-      efectivoNeto: totalEfectivoNeto,
-      transferencias: totalTransf,
+        flujoCajaEfectivo: flujoCajaEfectivoFinal,
 
-      gastosTotal: totalGastos,
-      gastosEfectivo: totalGastosEfectivo,
-      gastosTransfer: totalGastosTransferencia,
+        comisionesPeriodo: commissionsPeriodo,
+      },
 
-      devolucionesCantidad: devolucionesPeriodo.length,
-      devolucionesEfectivo: devolucionesMontoEfectivo,
-      devolucionesTransfer: devolucionesMontoTransfer,
-      devolucionesTotal: devolucionesMontoTotal,
+      ventas: invoices,
+      gastos: gastosPeriodo,
+      devoluciones: devolucionesPeriodo,
+      porVendedor,
+      porSeccion,
+      transferenciasPorAlias: porAlias,
+      transferGastosPorAlias: transferenciasPorAlias,
+    };
 
-      cashFloatTarget,
-      vueltoRestante,
-
-      flujoCajaEfectivo: flujoCajaEfectivoFinal,
-
-      comisionesPeriodo: commissionsPeriodo,
-    },
-
-    ventas: invoices,
-    gastos: gastosPeriodo,
-    devoluciones: devolucionesPeriodo,
-    pagosDeudores: pagosDeudoresHoy,
-    deudoresActivos: deudoresActivos,
-    detalleAplicacionPagos: detalleAplicacionPagos,
-    porVendedor,
-    porSeccion,
-    transferenciasPorAlias: porAlias,
-    transferGastosPorAlias: transferenciasPorAlias,
-  };
-
-  window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
-  await nextPaint();
-  window.print();
-}
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
+    await nextPaint();
+    window.print();
+      } 
   // Función para guardar fondos iniciales de Gabi
 async function setGabiFundsForDay(nuevo: number) {
   const st = clone(state);
@@ -2420,19 +1920,6 @@ async function updateGabiSpentForDay(gastado: number) {
           {periodo === "anio" && <Input label="Año" type="number" value={anio} onChange={setAnio} />}
         </div>
       </Card>
-      {/* 👇👇👇 AGREGAR ESTA CARD NUEVA - JUSTO DESPUÉS DE LOS FILTROS */}
-<Card title="💰 Deuda Actual del Día">
-  <div className="text-2xl font-bold text-amber-400">
-    {money(
-      invoices
-        .filter((f: any) => f.status === "No Pagada")
-        .reduce((sum: number, f: any) => sum + parseNum(f.total), 0)
-    )}
-  </div>
-  <div className="text-xs text-slate-400 mt-1">
-    Total adeudado en facturas del día
-  </div>
-</Card>
 
       <Card title="Acciones" actions={
         <div className="flex gap-2">
@@ -2567,20 +2054,6 @@ async function updateGabiSpentForDay(gastado: number) {
 
 <div className="grid md:grid-cols-4 gap-3">
   <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
-    
-  {/* 👇👇👇 NUEVA CARD DE DEUDA */}
-  <Card title="💰 Deuda del Día">
-    <div className="text-2xl font-bold text-amber-400">
-      {money(
-        invoices
-          .filter((f: any) => f.status === "No Pagada")
-          .reduce((sum: number, f: any) => sum + parseNum(f.total), 0)
-      )}
-    </div>
-    <div className="text-xs text-slate-400 mt-1">
-      Facturas no pagadas del día
-    </div>
-  </Card>
   <Card title="Efectivo (cobrado)">
     <div className="text-2xl font-bold">{money(totalEfectivo + efectivoPagosDeudores)}</div>
     <div className="text-xs text-slate-400 mt-1">
@@ -4721,7 +4194,6 @@ const vendedorOnline = obtenerVendedorOnline(st);
     </div>
   );
 }
-
 /* ===== helpers para impresión ===== */
 const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
 function nextPaint() {
@@ -4790,25 +4262,20 @@ if (inv?.type === "Reporte") {
         <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
 
         {/* RESUMEN PRINCIPAL */}
-        {/* RESUMEN PRINCIPAL */}
-<div className="grid grid-cols-4 gap-3 text-sm mb-4">
-  <div>
-    <div style={{ fontWeight: 700 }}>Ventas totales</div>
-    <div>{fmt(inv.resumen.ventas)}</div>
-  </div>
-  <div>
-    <div style={{ fontWeight: 700 }}>Deuda del día</div>
-    <div>{fmt(inv.resumen.deudaDelDia)}</div>
-  </div>
-  <div>
-    <div style={{ fontWeight: 700 }}>Efectivo neto</div>
-    <div>{fmt(inv.resumen.efectivoNeto)}</div>
-  </div>
-  <div>
-    <div style={{ fontWeight: 700 }}>Transferencias</div>
-    <div>{fmt(inv.resumen.transferencias)}</div>
-  </div>
-</div>
+        <div className="grid grid-cols-3 gap-3 text-sm mb-4">
+          <div>
+            <div style={{ fontWeight: 700 }}>Ventas totales</div>
+            <div>{fmt(inv.resumen.ventas)}</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700 }}>Efectivo neto</div>
+            <div>{fmt(inv.resumen.efectivoNeto)}</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700 }}>Transferencias</div>
+            <div>{fmt(inv.resumen.transferencias)}</div>
+          </div>
+        </div>
 
         {/* SECCIÓN: VENTAS */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
@@ -4847,193 +4314,6 @@ if (inv?.type === "Reporte") {
             )}
           </tbody>
         </table>
-            {/* 👇👇👇 NUEVA SECCIÓN: DETALLE DE APLICACIÓN DE PAGOS DE DEUDORES */}
-
-{/* 👇👇👇 NUEVA SECCIÓN MEJORADA: DETALLE DE APLICACIÓN DE PAGOS DE DEUDORES */}
-{(inv.detalleAplicacionPagos || []).length > 0 && (
-  <>
-    <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
-    <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6, fontSize: 16 }}>
-      DETALLE DE APLICACIÓN DE PAGOS DE DEUDORES
-    </div>
-    
-    {inv.detalleAplicacionPagos.map((pagoDetalle: any, index: number) => (
-      <div key={pagoDetalle.pago_id} style={{ 
-        marginBottom: 25, 
-        border: "2px solid #000", 
-        padding: 15, 
-        pageBreakInside: 'avoid',
-        backgroundColor: '#f9f9f9'
-      }}>
-        
-        {/* ENCABEZADO PRINCIPAL - CLIENTE Y DEUDA */}
-        <div style={{ marginBottom: 15, paddingBottom: 10, borderBottom: '1px solid #ccc' }}>
-          <div style={{ fontWeight: 700, fontSize: 18, textTransform: 'uppercase' }}>
-            CLIENTE {pagoDetalle.cliente}: DEUDA MONTO {money(pagoDetalle.deuda_total_antes)}
-          </div>
-          <div style={{ fontSize: 12, color: '#666', marginTop: 5 }}>
-            Fecha del pago: {new Date(pagoDetalle.fecha_pago).toLocaleString("es-AR")}
-          </div>
-        </div>
-
-        {/* DETALLE POR FACTURA */}
-        <div style={{ marginBottom: 15 }}>
-          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 14 }}>
-            DETALLE DE FACTURAS:
-          </div>
-          
-          {pagoDetalle.aplicaciones
-            .filter((app: any) => app.factura_numero && app.factura_numero !== "No especificado")
-            .map((app: any, idx: number) => (
-              <div key={idx} style={{ 
-                marginBottom: 8, 
-                padding: 8, 
-                border: '1px solid #ddd',
-                backgroundColor: 'white'
-              }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>
-                  FACTURA {pad(app.factura_numero)} - {money(app.total_factura)} 
-                  <span style={{ fontWeight: 400, fontSize: 11, color: '#666', marginLeft: 10 }}>
-                    FECHA: {app.fecha_factura ? new Date(app.fecha_factura).toLocaleDateString("es-AR") : "N/E"}
-                  </span>
-                </div>
-                
-                <div style={{ fontSize: 12, marginTop: 4 }}>
-                  <span>Deuda antes: {money(app.deuda_antes)}</span>
-                  <span style={{ margin: '0 10px' }}>|</span>
-                  <span>Pago aplicado: <strong>{money(app.monto_aplicado)}</strong></span>
-                  <span style={{ margin: '0 10px' }}>|</span>
-                  <span>Deuda después: {money(app.deuda_despues)}</span>
-                </div>
-              </div>
-            ))}
-        </div>
-
-{/* RESUMEN FINAL - EXACTAMENTE COMO LO PEDISTE */}
-<div style={{ 
-  borderTop: '2px solid #000', 
-  paddingTop: 12, 
-  marginTop: 12,
-  backgroundColor: pagoDetalle.saldado_completamente ? '#e8f6e8' : '#e8f4fd',
-  padding: 12,
-  borderRadius: 4
-}}>
-  <div style={{ 
-    fontWeight: 700, 
-    fontSize: 14, 
-    textAlign: 'center',
-    color: pagoDetalle.saldado_completamente ? '#059669' : '#000'
-  }}>
-    {pagoDetalle.saldado_completamente ? (
-      <>✅ CLIENTE SALDADO COMPLETAMENTE - DEUDA: {money(pagoDetalle.deuda_total_antes)} PAGADO: {money(pagoDetalle.total_aplicado)}</>
-    ) : (
-      <>TOTAL = SU DEUDA ({money(pagoDetalle.deuda_total_antes)}) PAGO AHORA {money(pagoDetalle.total_aplicado)} Y QUEDA PENDIENTE {money(pagoDetalle.deuda_pendiente)}</>
-    )}
-  </div>
-          
-          <div style={{ fontSize: 12, textAlign: 'center', marginTop: 6, color: '#666' }}>
-            Método de pago: 
-            {pagoDetalle.efectivo > 0 ? ` Efectivo: ${money(pagoDetalle.efectivo)}` : ''}
-            {pagoDetalle.transferencia > 0 ? ` Transferencia: ${money(pagoDetalle.transferencia)}` : ''}
-            {pagoDetalle.alias ? ` (${pagoDetalle.alias})` : ''}
-          </div>
-        </div>
-
-        {/* PIE DEL COMPROBANTE */}
-        <div style={{ 
-          marginTop: 10, 
-          paddingTop: 8, 
-          borderTop: '1px dashed #ccc',
-          fontSize: 10,
-          color: '#666',
-          textAlign: 'center'
-        }}>
-          Comprobante de pago #{pagoDetalle.pago_id} - {pagoDetalle.aplicaciones.length} factura(s) afectada(s)
-        </div>
-      </div>
-    ))}
-  </>
-)}
-
-{(!inv.detalleAplicacionPagos || inv.detalleAplicacionPagos.length === 0) && (
-  <>
-    <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
-    <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Pagos de Deudores del Día</div>
-    <div className="text-sm text-slate-400" style={{ textAlign: 'center', padding: 20 }}>
-      ✅ No hay clientes con deudas pendientes - Todos están al día
-    </div>
-  </>
-)}
-
-        {/* Detalle de aplicación por factura - SOLO SI HAY FACTURAS ESPECÍFICAS */}
-        {pagoDetalle.aplicaciones.some((app: any) => app.factura_numero && app.factura_numero !== "No especificado") && (
-          <>
-            <div style={{ borderTop: "1px solid #ccc", margin: "8px 0", paddingTop: "8px" }} />
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Aplicación por Factura:</div>
-            
-            <table className="print-table text-sm" style={{ width: "100%", marginBottom: 8 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", width: "15%" }}>Factura</th>
-                  <th style={{ textAlign: "left", width: "15%" }}>Fecha</th>
-                  <th style={{ textAlign: "right", width: "14%" }}>Total Factura</th>
-                  <th style={{ textAlign: "right", width: "14%" }}>Deuda Antes</th>
-                  <th style={{ textAlign: "right", width: "14%" }}>Monto Aplicado</th>
-                  <th style={{ textAlign: "right", width: "14%" }}>Deuda Después</th>
-                  <th style={{ textAlign: "right", width: "14%" }}>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pagoDetalle.aplicaciones
-                  .filter((app: any) => app.factura_numero && app.factura_numero !== "No especificado")
-                  .map((app: any, idx: number) => (
-                    <tr key={idx}>
-                      <td style={{ textAlign: "left", fontWeight: 600 }}>#{pad(app.factura_numero)}</td>
-                      <td style={{ textAlign: "left" }}>
-                        {app.fecha_factura ? new Date(app.fecha_factura).toLocaleDateString("es-AR") : "N/E"}
-                      </td>
-                      <td style={{ textAlign: "right" }}>{fmt(app.total_factura)}</td>
-                      <td style={{ textAlign: "right" }}>{fmt(app.deuda_antes)}</td>
-                      <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981" }}>
-                        {fmt(app.monto_aplicado)}
-                      </td>
-                      <td style={{ textAlign: "right" }}>{fmt(app.deuda_despues)}</td>
-                      <td style={{ textAlign: "center" }}>
-                        {app.deuda_despues <= 0.01 ? "✅ Pagada" : "⏳ Pendiente"}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </>
-        )}
-
-        {/* Resumen del pago */}
-        <div style={{ borderTop: "2px solid #000", marginTop: 8, paddingTop: 8 }}>
-          <div className="flex justify-between items-center text-sm">
-            <div>
-              <span style={{ fontWeight: 700 }}>TOTAL APLICADO: </span>
-              <span style={{ fontWeight: 700, color: "#10b981" }}>
-                {fmt(pagoDetalle.aplicaciones.reduce((sum: number, app: any) => sum + app.monto_aplicado, 0))}
-              </span>
-            </div>
-            <div style={{ fontSize: 12, color: "#666" }}>
-              {pagoDetalle.aplicaciones.length} factura(s) afectada(s)
-            </div>
-          </div>
-        </div>
-      </div>
-    ))}
-  </>
-)}
-
-{(!inv.detalleAplicacionPagos || inv.detalleAplicacionPagos.length === 0) && (
-  <>
-    <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
-    <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Pagos de Deudores del Día</div>
-    <div className="text-sm text-slate-400">Sin pagos de deudores en el día.</div>
-  </>
-)}
 
         {/* SECCIÓN: GASTOS */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
@@ -5098,7 +4378,6 @@ if (inv?.type === "Reporte") {
         {/* SECCIÓN: Transferencias por alias (ventas) */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
         <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Transferencias por alias (ventas)</div>
-        
         <table className="print-table text-sm">
           <thead>
             <tr>
@@ -5118,34 +4397,6 @@ if (inv?.type === "Reporte") {
             )}
           </tbody>
         </table>
-      {/* 👇👇👇 MEJORADA: Tabla de Deudores Activos con más detalles */}
-<div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
-<div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Deudores Activos</div>
-<table className="print-table text-sm">
-  <thead>
-    <tr>
-      <th>Cliente</th>
-      <th style={{ width: "15%" }}>Facturas</th>
-      <th style={{ width: "15%" }}>Deuda Actual</th>
-      <th style={{ width: "15%" }}>Saldo a Favor</th>
-      <th style={{ width: "15%" }}>Deuda Neta</th>
-    </tr>
-  </thead>
-  <tbody>
-    {(inv.deudoresActivos || []).map((deudor: any, i: number) => (
-      <tr key={deudor.id || i}>
-        <td>{deudor.name}</td>
-        <td style={{ textAlign: "center" }}>{deudor.cantidadFacturas || 0}</td>
-        <td style={{ textAlign: "right" }}>{fmt(deudor.deuda)}</td>
-        <td style={{ textAlign: "right" }}>{fmt(deudor.saldoFavor)}</td>
-        <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(deudor.deudaNeta)}</td>
-      </tr>
-    ))}
-    {(!inv.deudoresActivos || inv.deudoresActivos.length === 0) && (
-      <tr><td colSpan={5}>No hay deudores activos.</td></tr>
-    )}
-  </tbody>
-</table>
 
         {/* FINAL: FLUJO DE CAJA (EFECTIVO) */}
         <div style={{ borderTop: "1px solid #000", margin: "14px 0 8px" }} />
@@ -5158,202 +4409,7 @@ if (inv?.type === "Reporte") {
     </div>
   );
 }
-  // ==== PLANTILLA: DETALLE DE DEUDAS ====
-if (inv?.type === "DetalleDeuda") {
-  const fmt = (n: number) => money(parseNum(n));
-  
-  return (
-    <div className="only-print print-area p-14">
-      <div className="max-w-[780px] mx-auto text-black">
-        <div className="flex items-start justify-between">
-          <div>
-            <div style={{ fontWeight: 800, letterSpacing: 1 }}>DETALLE DE DEUDAS</div>
-            <div style={{ marginTop: 2 }}>MITOBICEL</div>
-          </div>
-          <div className="text-right">
-            <div><b>Fecha:</b> {new Date().toLocaleString("es-AR")}</div>
-            <div><b>Cliente:</b> {inv.cliente.name}</div>
-          </div>
-        </div>
 
-        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
-
-        {/* RESUMEN */}
-        <div className="grid grid-cols-3 gap-4 text-sm mb-6" style={{ border: "1px solid #000", padding: 12 }}>
-          <div className="text-center">
-            <div style={{ fontWeight: 700, fontSize: 18 }}>{fmt(inv.deudaTotal)}</div>
-            <div>Deuda Total</div>
-          </div>
-          <div className="text-center">
-            <div style={{ fontWeight: 700, fontSize: 18 }}>{inv.detalleDeudas.length}</div>
-            <div>Facturas Pendientes</div>
-          </div>
-          <div className="text-center">
-            <div style={{ fontWeight: 700, fontSize: 18 }}>{fmt(inv.saldoFavor)}</div>
-            <div>Saldo a Favor</div>
-          </div>
-        </div>
-
-        {/* DETALLE POR FACTURA */}
-        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
-        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Detalle por Factura</div>
-        
-        {inv.detalleDeudas.map((deuda: any, index: number) => (
-          <div key={index} style={{ border: "1px solid #000", marginBottom: 12, padding: 10 }}>
-            {/* ENCABEZADO FACTURA */}
-            <div className="flex justify-between items-start mb-3">
-              <div>
-                <div style={{ fontWeight: 700 }}>Factura #{pad(deuda.factura_numero)}</div>
-                <div style={{ fontSize: 11 }}>{new Date(deuda.fecha).toLocaleDateString("es-AR")}</div>
-              </div>
-              <div className="text-right">
-                <div style={{ fontWeight: 700, fontSize: 16, color: "#f59e0b" }}>
-                  {fmt(deuda.monto_debe)}
-                </div>
-                <div style={{ fontSize: 11 }}>
-                  Total: {fmt(deuda.monto_total)} • Pagado: {fmt(deuda.monto_pagado)}
-                </div>
-              </div>
-            </div>
-
-            {/* ITEMS */}
-            <table className="print-table text-sm" style={{ width: "100%", marginTop: 8 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", width: "60%" }}>Producto</th>
-                  <th style={{ textAlign: "center", width: "15%" }}>Cant.</th>
-                  <th style={{ textAlign: "right", width: "25%" }}>Subtotal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deuda.items.map((item: any, idx: number) => (
-                  <tr key={idx}>
-                    <td style={{ textAlign: "left" }}>{item.name}</td>
-                    <td style={{ textAlign: "center" }}>{item.qty}</td>
-                    <td style={{ textAlign: "right" }}>
-                      {money(parseNum(item.qty) * parseNum(item.unitPrice))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-
-        {/* TOTAL FINAL */}
-        <div style={{ borderTop: "2px solid #000", margin: "16px 0 8px", paddingTop: 8 }}>
-          <div className="flex justify-between items-center" style={{ fontWeight: 900, fontSize: 18 }}>
-            <span>DEUDA TOTAL DEL CLIENTE:</span>
-            <span>{fmt(inv.deudaTotal)}</span>
-          </div>
-        </div>
-
-        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
-      </div>
-    </div>
-  );
-}
-  // ==== PLANTILLA: PAGO DE DEUDA CON DETALLE ====
-  if (inv?.type === "Pago de Deuda" && inv.aplicaciones) {
-    const fmt = (n: number) => money(parseNum(n));
-    
-    return (
-      <div className="only-print print-area p-14">
-        <div className="max-w-[780px] mx-auto text-black">
-          <div className="flex items-start justify-between">
-            <div>
-              <div style={{ fontWeight: 800, letterSpacing: 1 }}>COMPROBANTE DE PAGO DE DEUDA</div>
-              <div style={{ marginTop: 2 }}>MITOBICEL</div>
-            </div>
-            <div className="text-right">
-              <div><b>Fecha:</b> {new Date(inv.date_iso).toLocaleString("es-AR")}</div>
-              <div><b>N° Comprobante:</b> {inv.id}</div>
-            </div>
-          </div>
-
-          <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
-
-          {/* Información del cliente y pago */}
-          <div className="grid grid-cols-2 gap-3 text-sm mb-4">
-            <div>
-              <div style={{ fontWeight: 700 }}>Cliente</div>
-              <div>{inv.client_name}</div>
-            </div>
-            <div className="text-right">
-              <div style={{ fontWeight: 700, fontSize: 18, color: "#10b981" }}>
-                {fmt(inv.total_amount)}
-              </div>
-              <div>
-                Efectivo: {fmt(inv.cash_amount)} • Transferencia: {fmt(inv.transfer_amount)}
-              </div>
-              {inv.alias && (
-                <div>Alias/CVU: {inv.alias}</div>
-              )}
-            </div>
-          </div>
-
-          {/* DETALLE DE APLICACIÓN */}
-          <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
-          <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>
-            DETALLE DE APLICACIÓN DEL PAGO
-          </div>
-          
-          <table className="print-table text-sm" style={{ width: "100%" }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", width: "15%" }}>Factura</th>
-                <th style={{ textAlign: "right", width: "20%" }}>Deuda Antes</th>
-                <th style={{ textAlign: "right", width: "20%" }}>Monto Aplicado</th>
-                <th style={{ textAlign: "right", width: "20%" }}>Deuda Después</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inv.aplicaciones.map((app: any, idx: number) => (
-                <tr key={idx}>
-                  <td style={{ textAlign: "left" }}>#{pad(app.factura_numero)}</td>
-                  <td style={{ textAlign: "right" }}>{fmt(app.deuda_antes)}</td>
-                  <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981" }}>
-                    {fmt(app.monto_aplicado)}
-                  </td>
-                  <td style={{ textAlign: "right" }}>{fmt(app.deuda_despues)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={4} style={{ textAlign: "right", fontWeight: 700, borderTop: "2px solid #000", paddingTop: "8px" }}>
-                  TOTAL APLICADO: {fmt(inv.aplicaciones.reduce((sum: number, app: any) => sum + app.monto_aplicado, 0))}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-
-          {/* Resumen de deuda */}
-          <div style={{ borderTop: "1px solid #000", margin: "16px 0 8px", paddingTop: "8px" }}>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <div>Deuda antes del pago:</div>
-                <div style={{ fontWeight: 600 }}>{fmt(inv.debt_before)}</div>
-              </div>
-              <div>
-                <div>Deuda después del pago:</div>
-                <div style={{ fontWeight: 600, color: inv.debt_after > 0 ? "#f59e0b" : "#10b981" }}>
-                  {fmt(inv.debt_after)} {inv.debt_after <= 0 ? "✅" : ""}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 text-center text-sm">
-            <div style={{ fontWeight: 700 }}>¡Gracias por su pago!</div>
-            <div>Para consultas, presente este comprobante</div>
-          </div>
-
-          <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
-        </div>
-      </div>
-    );
-  }
 // ==== PLANTILLA: COMPROBANTE DE DEVOLUCIÓN ====
 if (inv?.type === "Devolucion") {
   const fmt = (n: number) => money(parseNum(n));
@@ -5927,275 +4983,6 @@ export default function Page() {
   function onLogout() {
     setSession(null);
   }
- /* ===== Ingresar Stock ===== */
-function IngresarStockTab({ state, setState, session }: any) {
-  const [productoSeleccionado, setProductoSeleccionado] = useState("");
-  const [cantidadIngresar, setCantidadIngresar] = useState("");
-  const [precioCosto, setPrecioCosto] = useState("");
-  const [mensajeAlerta, setMensajeAlerta] = useState("");
-  const [filtroSeccion, setFiltroSeccion] = useState("Todas"); // 👈 NUEVO FILTRO
-  const [busqueda, setBusqueda] = useState(""); // 👈 NUEVA BÚSQUEDA
-
-  // Obtener todas las secciones únicas
-  const secciones = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))];
-
-  // Filtrar productos por sección y búsqueda
-  const productosFiltrados = state.products.filter((p: any) => {
-    const coincideSeccion = filtroSeccion === "Todas" || p.section === filtroSeccion;
-    const coincideBusqueda = !busqueda || 
-      p.name.toLowerCase().includes(busqueda.toLowerCase()) ||
-      (p.section && p.section.toLowerCase().includes(busqueda.toLowerCase()));
-    
-    return coincideSeccion && coincideBusqueda;
-  });
-
-  // Obtener el producto seleccionado
-  const producto = state.products.find((p: any) => p.id === productoSeleccionado);
-
-  // Cuando se selecciona un producto, cargar su precio de costo actual
-  useEffect(() => {
-    if (producto) {
-      setPrecioCosto(String(producto.cost || ""));
-    } else {
-      setPrecioCosto("");
-    }
-    setMensajeAlerta("");
-  }, [productoSeleccionado]);
-
-  // Verificar si el precio es mayor al actual
-  useEffect(() => {
-    if (producto && precioCosto) {
-      const costoActual = parseNum(producto.cost || 0);
-      const costoNuevo = parseNum(precioCosto);
-      
-      if (costoNuevo > costoActual && costoActual > 0) {
-        const diferencia = costoNuevo - costoActual;
-        const porcentaje = ((diferencia / costoActual) * 100).toFixed(1);
-        setMensajeAlerta(`⚠️ ATENCIÓN: El nuevo costo es ${porcentaje}% MAYOR al actual (${money(costoActual)} → ${money(costoNuevo)})`);
-      } else if (costoNuevo < costoActual && costoActual > 0) {
-        const diferencia = costoActual - costoNuevo;
-        const porcentaje = ((diferencia / costoActual) * 100).toFixed(1);
-        setMensajeAlerta(`✅ El nuevo costo es ${porcentaje}% MENOR al actual (${money(costoActual)} → ${money(costoNuevo)})`);
-      } else {
-        setMensajeAlerta("");
-      }
-    }
-  }, [precioCosto, producto]);
-
-  async function ingresarStock() {
-    if (!productoSeleccionado) {
-      alert("Seleccioná un producto.");
-      return;
-    }
-    
-    const cantidad = parseNum(cantidadIngresar);
-    const costo = parseNum(precioCosto);
-    
-    if (cantidad <= 0) {
-      alert("La cantidad debe ser mayor a 0.");
-      return;
-    }
-    
-    if (costo <= 0) {
-      alert("El precio de costo debe ser mayor a 0.");
-      return;
-    }
-
-    // Confirmar si el costo es mucho mayor
-    const costoActual = parseNum(producto.cost || 0);
-    if (costo > costoActual * 1.5 && costoActual > 0) { // 50% más caro
-      const confirmar = confirm(
-        `¿Estás seguro? El costo nuevo es más del 50% mayor:\n\n` +
-        `Costo actual: ${money(costoActual)}\n` +
-        `Costo nuevo: ${money(costo)}\n\n` +
-        `¿Ingresar igualmente?`
-      );
-      if (!confirmar) return;
-    }
-
-    const st = clone(state);
-    const productoActualizado = st.products.find((p: any) => p.id === productoSeleccionado);
-    
-    if (productoActualizado) {
-      // Actualizar stock
-      productoActualizado.stock = parseNum(productoActualizado.stock) + cantidad;
-      // Actualizar costo
-      productoActualizado.cost = costo;
-      
-      setState(st);
-
-      // Persistir en Supabase
-      if (hasSupabase) {
-        await supabase
-          .from("products")
-          .update({
-            stock: productoActualizado.stock,
-            cost: productoActualizado.cost
-          })
-          .eq("id", productoSeleccionado);
-      }
-
-      alert(`✅ Stock actualizado:\n${producto.name}\nStock: +${cantidad} unidades\nNuevo costo: ${money(costo)}`);
-
-      // Limpiar formulario
-      setCantidadIngresar("");
-      setPrecioCosto("");
-      setProductoSeleccionado("");
-      setMensajeAlerta("");
-    }
-  }
-
-  return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4"> {/* 👈 Aumenté el max-width */}
-      <Card title="Ingresar Stock">
-        <div className="space-y-4">
-          {/* Filtros de búsqueda */}
-          <div className="grid md:grid-cols-3 gap-3"> {/* 👈 NUEVOS FILTROS */}
-            <Select
-              label="Filtrar por Sección"
-              value={filtroSeccion}
-              onChange={setFiltroSeccion}
-              options={secciones.map((sec: any) => ({ value: sec, label: sec }))}
-            />
-            <Input
-              label="Buscar Producto"
-              value={busqueda}
-              onChange={setBusqueda}
-              placeholder="Nombre o sección..."
-            />
-            <div className="pt-6">
-              <Chip tone="emerald">
-                {productosFiltrados.length} producto(s)
-              </Chip>
-            </div>
-          </div>
-
-          {/* Selección de producto */}
-          <Select
-            label="Seleccionar Producto"
-            value={productoSeleccionado}
-            onChange={setProductoSeleccionado}
-            options={[
-              { value: "", label: "— Seleccionar producto —" },
-              ...productosFiltrados.map((p: any) => ({
-                value: p.id,
-                label: `${p.name} - ${p.section} - Stock: ${p.stock || 0} - Costo: ${money(p.cost || 0)}`
-              }))
-            ]}
-          />
-
-          {/* Información del producto seleccionado */}
-          {producto && (
-            <div className="p-3 bg-slate-800/30 rounded-lg">
-              <div className="text-sm font-semibold">Información del Producto</div>
-              <div className="grid grid-cols-2 gap-2 text-sm mt-2">
-                <div>Nombre: <span className="font-medium">{producto.name}</span></div>
-                <div>Sección: <span className="font-medium">{producto.section}</span></div>
-                <div>Stock actual: <span className="font-medium">{producto.stock || 0} unidades</span></div>
-                <div>Costo actual: <span className="font-medium">{money(producto.cost || 0)}</span></div>
-              </div>
-            </div>
-          )}
-
-          {/* Campos para ingresar datos */}
-          <div className="grid md:grid-cols-2 gap-3">
-            <NumberInput
-              label="Cantidad a Ingresar"
-              value={cantidadIngresar}
-              onChange={setCantidadIngresar}
-              placeholder="Ej: 100"
-            />
-            <NumberInput
-              label="Precio de Costo Unitario"
-              value={precioCosto}
-              onChange={setPrecioCosto}
-              placeholder="Ej: 150.50"
-            />
-          </div>
-
-          {/* Alerta de precio */}
-          {mensajeAlerta && (
-            <div className={`p-3 rounded-lg text-sm ${
-              mensajeAlerta.includes("MAYOR") 
-                ? "bg-yellow-500/20 border border-yellow-500/50 text-yellow-200" 
-                : "bg-green-500/20 border border-green-500/50 text-green-200"
-            }`}>
-              {mensajeAlerta}
-            </div>
-          )}
-
-          {/* Resumen */}
-          {producto && cantidadIngresar && precioCosto && (
-            <div className="p-3 bg-slate-700/30 rounded-lg">
-              <div className="text-sm font-semibold">Resumen del Ingreso</div>
-              <div className="text-sm mt-2 space-y-1">
-                <div>Stock actual: <span className="font-medium">{producto.stock || 0}</span></div>
-                <div>+ Cantidad a ingresar: <span className="font-medium">{parseNum(cantidadIngresar)}</span></div>
-                <div>= Stock final: <span className="font-medium text-emerald-400">
-                  {(producto.stock || 0) + parseNum(cantidadIngresar)}
-                </span></div>
-                <div className="mt-2">Inversión total: <span className="font-medium text-amber-400">
-                  {money(parseNum(cantidadIngresar) * parseNum(precioCosto))}
-                </span></div>
-              </div>
-            </div>
-          )}
-
-          {/* Botón de acción */}
-          <div className="flex justify-end">
-            <Button 
-              onClick={ingresarStock}
-              disabled={!productoSeleccionado || !cantidadIngresar || !precioCosto}
-            >
-              ✅ Ingresar Stock y Actualizar Costo
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      {/* Lista de productos con bajo stock - TAMBIÉN CON FILTROS */}
-      <Card title="Productos con Bajo Stock">
-        {/* Filtros para productos con bajo stock */}
-        <div className="grid md:grid-cols-3 gap-3 mb-4">
-          <Select
-            label="Filtrar por Sección"
-            value={filtroSeccion}
-            onChange={setFiltroSeccion}
-            options={secciones.map((sec: any) => ({ value: sec, label: sec }))}
-          />
-          <Input
-            label="Buscar Producto"
-            value={busqueda}
-            onChange={setBusqueda}
-            placeholder="Nombre o sección..."
-          />
-        </div>
-
-        <div className="space-y-2">
-          {productosFiltrados
-            .filter((p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 10))
-            .map((p: any) => (
-              <div key={p.id} className="flex justify-between items-center p-2 bg-red-500/10 border border-red-500/30 rounded">
-                <div className="text-sm">
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-slate-400 ml-2">({p.section})</span>
-                </div>
-                <div className="text-sm text-red-300">
-                  Stock: {p.stock || 0} / Mínimo: {p.stock_minimo || 10}
-                </div>
-              </div>
-            ))}
-          
-          {productosFiltrados.filter((p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 10)).length === 0 && (
-            <div className="text-center text-slate-400 py-4">
-              No hay productos con bajo stock ✅
-            </div>
-          )}
-        </div>
-      </Card>
-    </div>
-  );
-}
 
   return (
     <>
@@ -6257,11 +5044,6 @@ function IngresarStockTab({ state, setState, session }: any) {
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Pedidos Online" && (
               <GestionPedidosTab state={state} setState={setState} session={session} />
             )}
-           {/* 👇👇👇 NUEVA PESTAÑA: Ingresar Stock */}
-{session.role !== "cliente" && session.role !== "pedido-online" && tab === "Ingresar Stock" && (
-  <IngresarStockTab state={state} setState={setState} session={session} />
-)}
-
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
               {hasSupabase ? "Supabase activo" : "Datos en navegador"}
@@ -6269,11 +5051,9 @@ function IngresarStockTab({ state, setState, session }: any) {
           </>
         )}
       </div>
-      
 
       {/* Plantillas que sí se imprimen */}
       <PrintArea />
     </>
   );
 }
-
