@@ -23,6 +23,17 @@ type Pedido = {
   completed_at?: string;
 };
 
+// 👇👇👇 AGREGAR ESTE NUEVO TIPO PARA DETALLE DE DEUDAS
+type DetalleDeuda = {
+  factura_id: string;
+  factura_numero: number;
+  fecha: string;
+  monto_total: number;
+  monto_pagado: number;
+  monto_debe: number;
+  items: any[];
+};
+
 /* ===== helpers ===== */
 const pad = (n: number, width = 8) => String(n).padStart(width, "0");
 const money = (n: number) =>
@@ -384,6 +395,47 @@ function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
     );
 
   return Math.max(0, factMes - devRestables + extrasIntercambio);
+}
+// === Detalle de deudas por cliente ===
+function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
+  if (!clientId) return [];
+  
+  // Obtener todas las facturas del cliente con estado "No Pagada"
+  const facturasCliente = (state.invoices || [])
+    .filter((f: any) => 
+      f.client_id === clientId && 
+      f.type === "Factura" && 
+      f.status === "No Pagada"
+    )
+    .sort((a: any, b: any) => new Date(a.date_iso).getTime() - new Date(b.date_iso).getTime());
+
+  // Calcular detalle para cada factura
+  const detalleDeudas = facturasCliente.map((factura: any) => {
+    const totalFactura = parseNum(factura.total);
+    const pagosEfectivo = parseNum(factura?.payments?.cash || 0);
+    const pagosTransferencia = parseNum(factura?.payments?.transfer || 0);
+    const saldoAplicado = parseNum(factura?.payments?.saldo_aplicado || 0);
+    
+    const totalPagos = pagosEfectivo + pagosTransferencia + saldoAplicado;
+    const montoDebe = Math.max(0, totalFactura - totalPagos);
+
+    return {
+      factura_id: factura.id,
+      factura_numero: factura.number,
+      fecha: factura.date_iso,
+      monto_total: totalFactura,
+      monto_pagado: totalPagos,
+      monto_debe: montoDebe,
+      items: factura.items || []
+    };
+  });
+
+  return detalleDeudas.filter(deuda => deuda.monto_debe > 0);
+}
+
+// === Deuda total del cliente ===
+function calcularDeudaTotal(detalleDeudas: DetalleDeuda[]): number {
+  return detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
 }
 
 function Navbar({ current, setCurrent, role, onLogout }: any) {
@@ -1052,6 +1104,17 @@ function DeudoresTab({ state, setState }: any) {
   const [cash, setCash] = useState("");
   const [transf, setTransf] = useState("");
   const [alias, setAlias] = useState("");
+  const [verDetalle, setVerDetalle] = useState<string | null>(null);
+
+  // Función para ver detalle de deudas
+  function verDetalleDeudas(clientId: string) {
+    setVerDetalle(clientId);
+  }
+
+  // Calcular detalle de deudas para un cliente
+  const detalleDeudasCliente = verDetalle ? calcularDetalleDeudas(state, verDetalle) : [];
+  const deudaTotalCliente = calcularDeudaTotal(detalleDeudasCliente);
+  const clienteDetalle = state.clients.find((c: any) => c.id === verDetalle);
 
 async function registrarPago() {
   const cl = state.clients.find((c: any) => c.id === active);
@@ -1106,7 +1169,6 @@ async function registrarPago() {
     saldo_aplicado: (saldoFavor - saldoRestante),
     debt_before: deudaBruta,
     debt_after: deudaRestante,
-    // 👇👇👇 ELIMINAR client_debt_total - NO ES NECESARIO
   };
 
   console.log("💾 Guardando pago de deudor en debt_payments:", debtPayment);
@@ -1140,7 +1202,6 @@ async function registrarPago() {
           saldo_aplicado: debtPayment.saldo_aplicado,
           debt_before: debtPayment.debt_before,
           debt_after: debtPayment.debt_after,
-          // 👇👇👇 NO incluir client_debt_total
         })
         .select();
 
@@ -1210,15 +1271,132 @@ async function registrarPago() {
         saldo_aplicado: (saldoFavor - saldoRestante)
       },
       status: "Pagado",
-      // 👇👇👇 USAR debt_after QUE ES LO QUE REALMENTE TENEMOS
-      client_debt_total: deudaRestante // 👈 Esto se usa solo para la impresión
+      client_debt_total: deudaRestante
     } 
   } as any));
   await nextPaint();
   window.print();
 }
+
   return (
-    <div className="max-w-4xl mx-auto p-4 space-y-4">
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      {/* MODAL DE DETALLE DE DEUDAS */}
+      {verDetalle && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 rounded-2xl border border-slate-700 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold">
+                  📋 Detalle de Deudas - {clienteDetalle?.name}
+                </h2>
+                <button 
+                  onClick={() => setVerDetalle(null)}
+                  className="text-slate-400 hover:text-white text-2xl"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* RESUMEN */}
+              <Card title="Resumen de Deuda" className="mb-6">
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-2xl font-bold text-amber-400">
+                      {money(deudaTotalCliente)}
+                    </div>
+                    <div className="text-sm text-slate-400">Deuda Total</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-blue-400">
+                      {detalleDeudasCliente.length}
+                    </div>
+                    <div className="text-sm text-slate-400">Facturas Pendientes</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-emerald-400">
+                      {money(parseNum(clienteDetalle?.saldo_favor || 0))}
+                    </div>
+                    <div className="text-sm text-slate-400">Saldo a Favor</div>
+                  </div>
+                </div>
+              </Card>
+
+              {/* DETALLE POR FACTURA */}
+              <Card title="Detalle por Factura">
+                {detalleDeudasCliente.length === 0 ? (
+                  <div className="text-center text-slate-400 py-8">
+                    ✅ Cliente al día - No tiene deudas pendientes
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {detalleDeudasCliente.map((deuda, index) => (
+                      <div key={deuda.factura_id} className="border border-slate-700 rounded-xl p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <div className="font-semibold">
+                              Factura #{pad(deuda.factura_numero)}
+                            </div>
+                            <div className="text-sm text-slate-400">
+                              {new Date(deuda.fecha).toLocaleDateString("es-AR")}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-lg font-bold text-amber-400">
+                              {money(deuda.monto_debe)}
+                            </div>
+                            <div className="text-sm text-slate-400">
+                              Total: {money(deuda.monto_total)} • Pagado: {money(deuda.monto_pagado)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* ITEMS DE LA FACTURA */}
+                        <div className="text-sm">
+                          <div className="font-medium mb-2">Productos:</div>
+                          <div className="space-y-1">
+                            {deuda.items.map((item: any, idx: number) => (
+                              <div key={idx} className="flex justify-between">
+                                <span>{item.name} × {item.qty}</span>
+                                <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* TOTAL */}
+                    <div className="border-t border-slate-700 pt-4 mt-4">
+                      <div className="flex justify-between items-center text-lg font-bold">
+                        <span>DEUDA TOTAL:</span>
+                        <span className="text-amber-400">{money(deudaTotalCliente)}</span>
+                      </div>
+                    </div>
+
+                    {/* BOTÓN IMPRIMIR DETALLE */}
+                    <div className="flex justify-end mt-4">
+                      <Button onClick={() => {
+                        const data = {
+                          type: "DetalleDeuda",
+                          cliente: clienteDetalle,
+                          detalleDeudas: detalleDeudasCliente,
+                          deudaTotal: deudaTotalCliente,
+                          saldoFavor: parseNum(clienteDetalle?.saldo_favor || 0)
+                        };
+                        window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
+                        setTimeout(() => window.print(), 0);
+                      }}>
+                        🖨️ Imprimir Detalle
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Card title="Deudores">
         {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas netas.</div>}
         <div className="divide-y divide-slate-800">
@@ -1226,10 +1404,12 @@ async function registrarPago() {
             const deudaBruta = parseNum(c.debt);
             const saldoFavor = parseNum(c.saldo_favor || 0);
             const deudaNeta = Math.max(0, deudaBruta - saldoFavor);
+            const detalleDeudas = calcularDetalleDeudas(state, c.id);
+            const cantidadFacturas = detalleDeudas.length;
             
             return (
               <div key={c.id} className="flex items-center justify-between py-3">
-                <div className="text-sm">
+                <div className="text-sm flex-1">
                   <div className="font-medium">{c.name}</div>
                   <div className="text-xs text-slate-400 mt-1">
                     Deuda neta: <span className="text-slate-300">{money(deudaNeta)}</span>
@@ -1238,9 +1418,13 @@ async function registrarPago() {
                         (Deuda: {money(deudaBruta)} - Saldo a favor: {money(saldoFavor)})
                       </span>
                     )}
+                    <span className="ml-2">• {cantidadFacturas} factura(s) pendiente(s)</span>
                   </div>
                 </div>
-                <div>
+                <div className="flex gap-2 shrink-0">
+                  <Button tone="slate" onClick={() => verDetalleDeudas(c.id)}>
+                    📋 Ver Detalle
+                  </Button>
                   <Button tone="slate" onClick={() => setActive(c.id)}>
                     Registrar pago
                   </Button>
@@ -4524,6 +4708,101 @@ if (inv?.type === "Reporte") {
         <div style={{ borderTop: "1px solid #000", margin: "14px 0 8px" }} />
         <div className="text-center" style={{ fontWeight: 900, fontSize: 24, letterSpacing: 1 }}>
           FLUJO DE CAJA (EFECTIVO): {fmt(inv.resumen.flujoCajaEfectivo)}
+        </div>
+
+        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+      </div>
+    </div>
+  );
+}
+  // ==== PLANTILLA: DETALLE DE DEUDAS ====
+if (inv?.type === "DetalleDeuda") {
+  const fmt = (n: number) => money(parseNum(n));
+  
+  return (
+    <div className="only-print print-area p-14">
+      <div className="max-w-[780px] mx-auto text-black">
+        <div className="flex items-start justify-between">
+          <div>
+            <div style={{ fontWeight: 800, letterSpacing: 1 }}>DETALLE DE DEUDAS</div>
+            <div style={{ marginTop: 2 }}>MITOBICEL</div>
+          </div>
+          <div className="text-right">
+            <div><b>Fecha:</b> {new Date().toLocaleString("es-AR")}</div>
+            <div><b>Cliente:</b> {inv.cliente.name}</div>
+          </div>
+        </div>
+
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+        {/* RESUMEN */}
+        <div className="grid grid-cols-3 gap-4 text-sm mb-6" style={{ border: "1px solid #000", padding: 12 }}>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{fmt(inv.deudaTotal)}</div>
+            <div>Deuda Total</div>
+          </div>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{inv.detalleDeudas.length}</div>
+            <div>Facturas Pendientes</div>
+          </div>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{fmt(inv.saldoFavor)}</div>
+            <div>Saldo a Favor</div>
+          </div>
+        </div>
+
+        {/* DETALLE POR FACTURA */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Detalle por Factura</div>
+        
+        {inv.detalleDeudas.map((deuda: any, index: number) => (
+          <div key={index} style={{ border: "1px solid #000", marginBottom: 12, padding: 10 }}>
+            {/* ENCABEZADO FACTURA */}
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <div style={{ fontWeight: 700 }}>Factura #{pad(deuda.factura_numero)}</div>
+                <div style={{ fontSize: 11 }}>{new Date(deuda.fecha).toLocaleDateString("es-AR")}</div>
+              </div>
+              <div className="text-right">
+                <div style={{ fontWeight: 700, fontSize: 16, color: "#f59e0b" }}>
+                  {fmt(deuda.monto_debe)}
+                </div>
+                <div style={{ fontSize: 11 }}>
+                  Total: {fmt(deuda.monto_total)} • Pagado: {fmt(deuda.monto_pagado)}
+                </div>
+              </div>
+            </div>
+
+            {/* ITEMS */}
+            <table className="print-table text-sm" style={{ width: "100%", marginTop: 8 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", width: "60%" }}>Producto</th>
+                  <th style={{ textAlign: "center", width: "15%" }}>Cant.</th>
+                  <th style={{ textAlign: "right", width: "25%" }}>Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deuda.items.map((item: any, idx: number) => (
+                  <tr key={idx}>
+                    <td style={{ textAlign: "left" }}>{item.name}</td>
+                    <td style={{ textAlign: "center" }}>{item.qty}</td>
+                    <td style={{ textAlign: "right" }}>
+                      {money(parseNum(item.qty) * parseNum(item.unitPrice))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+
+        {/* TOTAL FINAL */}
+        <div style={{ borderTop: "2px solid #000", margin: "16px 0 8px", paddingTop: 8 }}>
+          <div className="flex justify-between items-center" style={{ fontWeight: 900, fontSize: 18 }}>
+            <span>DEUDA TOTAL DEL CLIENTE:</span>
+            <span>{fmt(inv.deudaTotal)}</span>
+          </div>
         </div>
 
         <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
