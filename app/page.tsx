@@ -2913,6 +2913,50 @@ const [gabiSpent, setGabiSpent] = useState("");
       await saveCountersSupabase?.(st.meta);
     }
   }
+    // Función para guardar fondos iniciales de Gabi
+async function setGabiFundsForDay(nuevo: number) {
+  const st = clone(state);
+  st.meta.gabiFundsByDate = st.meta.gabiFundsByDate || {};
+  st.meta.gabiFundsByDate[diaClave] = nuevo;
+  setState(st);
+
+  if (hasSupabase) {
+    await supabase
+      .from("gabi_funds")
+      .upsert(
+        { 
+          id: `gabi_${diaClave}`,
+          day: diaClave, 
+          initial_amount: nuevo,
+          updated_at: todayISO()
+        },
+        { onConflict: "day" }
+      );
+  }
+}
+  // Función para actualizar gastos de Gabi
+async function updateGabiSpentForDay(gastado: number) {
+  if (!hasSupabase) return;
+
+  const { data: existing } = await supabase
+    .from("gabi_funds")
+    .select("*")
+    .eq("day", diaClave)
+    .single();
+
+  if (existing) {
+    const remaining = parseNum(existing.initial_amount) - gastado;
+    await supabase
+      .from("gabi_funds")
+      .update({
+        spent_amount: gastado,
+        remaining_amount: remaining,
+        updated_at: todayISO()
+      })
+      .eq("day", diaClave);
+  }
+}
+
 
   // Rango según período
   function rangoActual() {
@@ -3271,50 +3315,7 @@ const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c);      const saldoF
   await nextPaint();
   window.print();
 }
-  // Función para guardar fondos iniciales de Gabi
-async function setGabiFundsForDay(nuevo: number) {
-  const st = clone(state);
-  st.meta.gabiFundsByDate = st.meta.gabiFundsByDate || {};
-  st.meta.gabiFundsByDate[diaClave] = nuevo;
-  setState(st);
 
-  if (hasSupabase) {
-    await supabase
-      .from("gabi_funds")
-      .upsert(
-        { 
-          id: `gabi_${diaClave}`,
-          day: diaClave, 
-          initial_amount: nuevo,
-          updated_at: todayISO()
-        },
-        { onConflict: "day" }
-      );
-  }
-}
-  // Función para actualizar gastos de Gabi
-async function updateGabiSpentForDay(gastado: number) {
-  if (!hasSupabase) return;
-
-  const { data: existing } = await supabase
-    .from("gabi_funds")
-    .select("*")
-    .eq("day", diaClave)
-    .single();
-
-  if (existing) {
-    const remaining = parseNum(existing.initial_amount) - gastado;
-    await supabase
-      .from("gabi_funds")
-      .update({
-        spent_amount: gastado,
-        remaining_amount: remaining,
-        updated_at: todayISO()
-      })
-      .eq("day", diaClave);
-  }
-}
-}
   // ===== AQUÍ ESTÁ EL RETURN PRINCIPAL DEL COMPONENTE =====
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
