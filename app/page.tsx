@@ -164,10 +164,20 @@ if (gabiErr) {
   if (vendErr) { console.error("SELECT vendors:", vendErr); alert("No pude leer 'vendors' de Supabase."); }
   if (vendors) out.vendors = vendors;
   
-  // clients
-  const { data: clients, error: cliErr } = await supabase.from("clients").select("*");
-  if (cliErr) { console.error("SELECT clients:", cliErr); alert("No pude leer 'clients' de Supabase."); }
-  if (clients) out.clients = clients;
+// clients
+const { data: clients, error: cliErr } = await supabase.from("clients").select("*");
+if (cliErr) { 
+  console.error("SELECT clients:", cliErr); 
+  alert("No pude leer 'clients' de Supabase."); 
+}
+if (clients) {
+  out.clients = clients.map((c: any) => ({
+    ...c,
+    creado_por: c.creado_por || "sistema",
+    fecha_creacion: c.fecha_creacion || c.date_iso || todayISO(),
+    deuda_manual: c.deuda_manual || false
+  }));
+}
 
   // products
   const { data: products, error: prodErr } = await supabase.from("products").select("*");
@@ -1061,96 +1071,144 @@ function ClientesTab({ state, setState, session }: any) {
     alert(`Cliente agregado ${modoAdmin ? 'con deuda/saldo manual' : 'correctamente'}`);
   }
 
-  // Función para que admin agregue deuda manualmente a cliente existente
-  async function agregarDeudaManual(clienteId: string) {
-    const deuda = prompt("Ingrese el monto de deuda a agregar:", "0");
-    if (deuda === null) return;
-    
-    const montoDeuda = parseNum(deuda);
-    if (montoDeuda < 0) return alert("El monto no puede ser negativo");
+ // Función para que admin agregue deuda manualmente a cliente existente
+async function agregarDeudaManual(clienteId: string) {
+  const deuda = prompt("Ingrese el monto de deuda a agregar:", "0");
+  if (deuda === null) return;
+  
+  const montoDeuda = parseNum(deuda);
+  if (montoDeuda < 0) return alert("El monto no puede ser negativo");
 
-    const st = clone(state);
-    const cliente = st.clients.find((c: any) => c.id === clienteId);
+  const st = clone(state);
+  const cliente = st.clients.find((c: any) => c.id === clienteId);
+  
+  if (cliente) {
+    const deudaAnterior = parseNum(cliente.debt);
+    cliente.debt = deudaAnterior + montoDeuda;
+    cliente.deuda_manual = true; // 👈 Marcar como deuda manual
     
-    if (cliente) {
-      const deudaAnterior = parseNum(cliente.debt);
-      cliente.debt = deudaAnterior + montoDeuda;
-      cliente.deuda_manual = true; // 👈 Marcar como deuda manual
-      
-      setState(st);
+    setState(st);
 
-      if (hasSupabase) {
-        await supabase
+    if (hasSupabase) {
+      try {
+        const { error } = await supabase
           .from("clients")
           .update({ 
             debt: cliente.debt,
             deuda_manual: true 
           })
           .eq("id", clienteId);
+
+        if (error) {
+          console.error("❌ Error al guardar deuda manual:", error);
+          alert("Error al guardar la deuda en la base de datos.");
+          // Recargar para evitar inconsistencias
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+          return;
+        }
+        
+        console.log("✅ Deuda manual guardada en Supabase");
+      } catch (error) {
+        console.error("💥 Error crítico:", error);
+        alert("Error al guardar la deuda.");
+        return;
       }
-
-      alert(`Deuda agregada: ${money(deudaAnterior)} → ${money(cliente.debt)}`);
     }
+
+    alert(`Deuda agregada: ${money(deudaAnterior)} → ${money(cliente.debt)}`);
   }
+}
+ // Función para que admin ajuste saldo a favor manualmente
+async function ajustarSaldoFavor(clienteId: string) {
+  const saldo = prompt("Ingrese el nuevo saldo a favor:", "0");
+  if (saldo === null) return;
+  
+  const montoSaldo = parseNum(saldo);
+  if (montoSaldo < 0) return alert("El monto no puede ser negativo");
 
-  // Función para que admin ajuste saldo a favor manualmente
-  async function ajustarSaldoFavor(clienteId: string) {
-    const saldo = prompt("Ingrese el nuevo saldo a favor:", "0");
-    if (saldo === null) return;
+  const st = clone(state);
+  const cliente = st.clients.find((c: any) => c.id === clienteId);
+  
+  if (cliente) {
+    const saldoAnterior = parseNum(cliente.saldo_favor);
+    cliente.saldo_favor = montoSaldo;
     
-    const montoSaldo = parseNum(saldo);
-    if (montoSaldo < 0) return alert("El monto no puede ser negativo");
+    setState(st);
 
-    const st = clone(state);
-    const cliente = st.clients.find((c: any) => c.id === clienteId);
-    
-    if (cliente) {
-      const saldoAnterior = parseNum(cliente.saldo_favor);
-      cliente.saldo_favor = montoSaldo;
-      
-      setState(st);
-
-      if (hasSupabase) {
-        await supabase
+    if (hasSupabase) {
+      try {
+        const { error } = await supabase
           .from("clients")
           .update({ saldo_favor: cliente.saldo_favor })
           .eq("id", clienteId);
+
+        if (error) {
+          console.error("❌ Error al guardar saldo:", error);
+          alert("Error al guardar el saldo en la base de datos.");
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+          return;
+        }
+        
+        console.log("✅ Saldo guardado en Supabase");
+      } catch (error) {
+        console.error("💥 Error crítico:", error);
+        alert("Error al guardar el saldo.");
+        return;
       }
-
-      alert(`Saldo a favor ajustado: ${money(saldoAnterior)} → ${money(cliente.saldo_favor)}`);
     }
+
+    alert(`Saldo a favor ajustado: ${money(saldoAnterior)} → ${money(cliente.saldo_favor)}`);
   }
+}
 
-  // Función para que admin cancele deuda manualmente
-  async function cancelarDeuda(clienteId: string) {
-    const cliente = state.clients.find((c: any) => c.id === clienteId);
-    if (!cliente) return;
-    
-    const confirmacion = confirm(
-      `¿Está seguro de cancelar la deuda de ${cliente.name}?\nDeuda actual: ${money(cliente.debt)}`
-    );
-    
-    if (!confirmacion) return;
+ // Función para que admin cancele deuda manualmente
+async function cancelarDeuda(clienteId: string) {
+  const cliente = state.clients.find((c: any) => c.id === clienteId);
+  if (!cliente) return;
+  
+  const confirmacion = confirm(
+    `¿Está seguro de cancelar la deuda de ${cliente.name}?\nDeuda actual: ${money(cliente.debt)}`
+  );
+  
+  if (!confirmacion) return;
 
-    const st = clone(state);
-    const clienteActualizado = st.clients.find((c: any) => c.id === clienteId);
+  const st = clone(state);
+  const clienteActualizado = st.clients.find((c: any) => c.id === clienteId);
+  
+  if (clienteActualizado) {
+    const deudaCancelada = parseNum(clienteActualizado.debt);
+    clienteActualizado.debt = 0;
     
-    if (clienteActualizado) {
-      const deudaCancelada = parseNum(clienteActualizado.debt);
-      clienteActualizado.debt = 0;
-      
-      setState(st);
+    setState(st);
 
-      if (hasSupabase) {
-        await supabase
+    if (hasSupabase) {
+      try {
+        const { error } = await supabase
           .from("clients")
           .update({ debt: 0 })
           .eq("id", clienteId);
-      }
 
-      alert(`Deuda cancelada: ${money(deudaCancelada)} → $0`);
+        if (error) {
+          console.error("❌ Error al cancelar deuda:", error);
+          alert("Error al cancelar la deuda en la base de datos.");
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+          return;
+        }
+        
+        console.log("✅ Deuda cancelada en Supabase");
+      } catch (error) {
+        console.error("💥 Error crítico:", error);
+        alert("Error al cancelar la deuda.");
+        return;
+      }
     }
+
+    alert(`Deuda cancelada: ${money(deudaCancelada)} → $0`);
   }
+}
 
   const clients = Array.isArray(state.clients)
     ? [...state.clients].sort((a: any, b: any) => (a.number || 0) - (b.number || 0))
@@ -6078,11 +6136,29 @@ export default function Page() {
           }
         )
         .subscribe();
+       // 👇👇👇 NUEVA SUSCRIPCIÓN PARA DEBT_PAYMENTS
+    const debtPaymentsSubscription = supabase
+      .channel('debt-payments-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'debt_payments'
+        },
+        async () => {
+          console.log("🔄 Cambios en debt_payments detectados, recargando...");
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+        }
+      )
+      .subscribe();
 
       return () => {
         supabase.removeChannel(budgetSubscription);
         supabase.removeChannel(invoicesSubscription);
         supabase.removeChannel(pedidosSubscription); // 👈 AGREGAR ESTA LÍNEA
+         supabase.removeChannel(debtPaymentsSubscription);
       };
     }
   }, []);
