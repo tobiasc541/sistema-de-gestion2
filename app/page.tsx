@@ -1091,51 +1091,60 @@ function ProductosTab({ state, setState, role }: any) {
   const productosBajoStock = state.products.filter(
     (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
   );
+// 👇👇👇 FUNCIÓN COMPLETA DE INGRESO DE STOCK CON COMPARACIONES
+async function agregarStock() {
+  const producto = state.products.find((p: any) => p.id === ingresoStock.productoId);
+  if (!producto) return alert("Selecciona un producto");
+  
+  const cantidad = parseNum(ingresoStock.cantidad);
+  const nuevoCosto = parseNum(ingresoStock.costo);
+  
+  if (cantidad <= 0) return alert("La cantidad debe ser mayor a 0");
+  if (nuevoCosto < 0) return alert("El costo no puede ser negativo");
 
-  // 👇👇👇 FUNCIÓN ORIGINAL DE INGRESO DE STOCK
-  async function agregarStock() {
-    const producto = state.products.find((p: any) => p.id === ingresoStock.productoId);
-    if (!producto) return alert("Selecciona un producto");
+  const st = clone(state);
+  const prod = st.products.find((p: any) => p.id === ingresoStock.productoId);
+  
+  if (prod) {
+    const stockAnterior = parseNum(prod.stock);
+    const costoAnterior = parseNum(prod.cost || 0);
     
-    const cantidad = parseNum(ingresoStock.cantidad);
-    const costo = parseNum(ingresoStock.costo);
+    // Actualizar stock
+    prod.stock = stockAnterior + cantidad;
     
-    if (cantidad <= 0) return alert("La cantidad debe ser mayor a 0");
-    if (costo < 0) return alert("El costo no puede ser negativo");
-
-    const st = clone(state);
-    const prod = st.products.find((p: any) => p.id === ingresoStock.productoId);
-    
-    if (prod) {
-      const stockAnterior = parseNum(prod.stock);
-      prod.stock = stockAnterior + cantidad;
-      
-      // Solo actualizar costo si se ingresó un valor
-      if (costo > 0) {
-        prod.cost = costo;
+    // Manejar costo - solo actualizar si se ingresó un valor > 0
+    let mensajeCosto = "";
+    if (nuevoCosto > 0) {
+      if (costoAnterior > 0 && nuevoCosto !== costoAnterior) {
+        mensajeCosto = `\n⚠️ ATENCIÓN: Costo cambiado\nAnterior: ${money(costoAnterior)}\nNuevo: ${money(nuevoCosto)}`;
+        prod.cost = nuevoCosto;
+      } else if (costoAnterior === 0) {
+        mensajeCosto = `\n✅ Costo asignado: ${money(nuevoCosto)}`;
+        prod.cost = nuevoCosto;
       }
-      
-      setState(st);
-
-      if (hasSupabase) {
-        await supabase
-          .from("products")
-          .update({ 
-            stock: prod.stock,
-            ...(costo > 0 && { cost: costo })
-          })
-          .eq("id", ingresoStock.productoId);
-      }
-      
-      // Mostrar comparación de stock
-      const mensaje = `✅ Stock actualizado:\n${producto.name}\nStock anterior: ${stockAnterior}\nStock nuevo: ${prod.stock}\n${costo > 0 ? `Costo actualizado: ${money(costo)}` : ''}`;
-      
-      alert(mensaje);
-      
-      // Limpiar formulario
-      setIngresoStock({ productoId: "", cantidad: "", costo: "" });
     }
+    
+    setState(st);
+
+    if (hasSupabase) {
+      await supabase
+        .from("products")
+        .update({ 
+          stock: prod.stock,
+          ...(nuevoCosto > 0 && { cost: nuevoCosto })
+        })
+        .eq("id", ingresoStock.productoId);
+    }
+    
+    // Mostrar comparación COMPLETA
+    const mensaje = `✅ STOCK ACTUALIZADO\n\n📦 ${producto.name}\n\n📊 Stock:\nAnterior: ${stockAnterior}\nAgregado: +${cantidad}\nNuevo: ${prod.stock}\nMínimo: ${prod.stock_minimo || 0}\n\n${mensajeCosto}\n\n${prod.stock >= (prod.stock_minimo || 0) ? '✅ Stock suficiente' : '⚠️ Stock por debajo del mínimo'}`;
+    
+    alert(mensaje);
+    
+    // Limpiar formulario
+    setIngresoStock({ productoId: "", cantidad: "", costo: "" });
   }
+}
 
   async function addProduct() {
     if (!name.trim()) return;
@@ -2248,7 +2257,7 @@ const porAlias = (() => {
   return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
 })();
 
- async function imprimirReporte() {
+async function imprimirReporte() {
   // 👇👇👇 CALCULAR DEUDA DEL DÍA CORRECTAMENTE
   const deudaDelDia = invoices
     .filter((f: any) => {
@@ -2256,7 +2265,7 @@ const porAlias = (() => {
       const pagos = parseNum(f?.payments?.cash || 0) + 
                    parseNum(f?.payments?.transfer || 0) + 
                    parseNum(f?.payments?.saldo_aplicado || 0);
-      return (total - pagos) > 0; // Tiene deuda pendiente
+      return (total - pagos) > 0.01; // Tiene deuda pendiente
     })
     .reduce((s: number, f: any) => {
       const total = parseNum(f.total);
@@ -2266,50 +2275,66 @@ const porAlias = (() => {
       return s + (total - pagos);
     }, 0);
 
-  // 👇👇👇 PAGOS DE DEUDORES DEL DÍA (ya lo tienes)
-  const pagosDeudoresHoy = pagosDeudores.filter((p: any) => {
-    const pagoDate = new Date(p.date_iso).toDateString();
-    const hoy = new Date().toDateString();
-    return pagoDate === hoy;
-  });
-
-  // 👇👇👇 NUEVO: Detalle de aplicación de pagos
-  const detalleAplicacionPagos = obtenerDetallePagosAplicados(pagosDeudoresHoy, state);
-
-  // 👇👇👇 DEUDORES ACTIVOS (con deuda neta > 0) - CORREGIDO
+  // 👇👇👇 DEUDORES ACTIVOS CON DETALLE COMPLETO
   const deudoresActivos = state.clients
     .filter((c: any) => {
-      const deudaBruta = parseNum(c.debt);
-      const saldoFavor = parseNum(c.saldo_favor || 0);
-      return (deudaBruta - saldoFavor) > 0;
-    })
-    .map((c: any) => {
-      // Calcular detalle REAL de deudas para cada cliente
       const detalleDeudasCliente = calcularDetalleDeudas(state, c.id);
       const deudaNeta = calcularDeudaTotal(detalleDeudasCliente);
+      return deudaNeta > 0.01;
+    })
+    .map((c: any) => {
+      const detalleDeudasCliente = calcularDetalleDeudas(state, c.id);
+      const deudaNeta = calcularDeudaTotal(detalleDeudasCliente);
+      const saldoFavor = parseNum(c.saldo_favor || 0);
       
       return {
         id: c.id,
         name: c.name,
-        deuda: parseNum(c.debt),
-        saldoFavor: parseNum(c.saldo_favor || 0),
-        deudaNeta: deudaNeta,
-        cantidadFacturas: detalleDeudasCliente.length // 👈 NUEVO: cantidad de facturas
+        number: c.number,
+        deuda_bruta: parseNum(c.debt),
+        saldo_favor: saldoFavor,
+        deuda_neta: deudaNeta,
+        detalle_facturas: detalleDeudasCliente,
+        cantidad_facturas: detalleDeudasCliente.length
       };
     })
-    .sort((a: any, b: any) => b.deudaNeta - a.deudaNeta);
+    .sort((a: any, b: any) => b.deuda_neta - a.deuda_neta);
+
+  // 👇👇👇 PAGOS DE DEUDORES CON DETALLE DE APLICACIÓN
+  const pagosDeudoresDetallados = pagosDeudores.map((pago: any) => {
+    const cliente = state.clients.find((c: any) => c.id === pago.client_id);
+    const detalleDeudasAntes = calcularDetalleDeudas(state, pago.client_id);
+    
+    return {
+      pago_id: pago.id,
+      fecha_pago: pago.date_iso,
+      cliente: pago.client_name,
+      total_pagado: pago.total_amount,
+      efectivo: pago.cash_amount,
+      transferencia: pago.transfer_amount,
+      alias: pago.alias || "",
+      deuda_antes_pago: pago.debt_before,
+      deuda_despues_pago: pago.debt_after,
+      aplicaciones: pago.aplicaciones || [],
+      detalle_deuda_antes: detalleDeudasAntes
+    };
+  });
 
   const data = {
     type: "Reporte",
     periodo,
     rango: { start, end },
+    
+    // RESUMEN PRINCIPAL
     resumen: {
       ventas: totalVentas,
-      deudaDelDia: deudaDelDia, // 👈 AHORA CORRECTO
+      deudaDelDia: deudaDelDia, // 👈 AHORA SÍ INCLUIDA
       efectivoCobrado: totalEfectivo,
       vueltoEntregado: totalVuelto,
       efectivoNeto: totalEfectivoNeto,
       transferencias: totalTransf,
+      pagosDeudores: totalPagosDeudores,
+      cantidadPagosDeudores: pagosDeudores.length,
 
       gastosTotal: totalGastos,
       gastosEfectivo: totalGastosEfectivo,
@@ -2322,18 +2347,27 @@ const porAlias = (() => {
 
       cashFloatTarget,
       vueltoRestante,
-
       flujoCajaEfectivo: flujoCajaEfectivoFinal,
-
       comisionesPeriodo: commissionsPeriodo,
     },
 
+    // DETALLES COMPLETOS
     ventas: invoices,
     gastos: gastosPeriodo,
     devoluciones: devolucionesPeriodo,
-    pagosDeudores: pagosDeudoresHoy,
-    deudoresActivos: deudoresActivos,
-    detalleAplicacionPagos: detalleAplicacionPagos,
+    
+    // 👇👇👇 NUEVAS SECCIONES CON DETALLE
+    deudaDelDiaDetalle: invoices.filter((f: any) => {
+      const total = parseNum(f.total);
+      const pagos = parseNum(f?.payments?.cash || 0) + 
+                   parseNum(f?.payments?.transfer || 0) + 
+                   parseNum(f?.payments?.saldo_aplicado || 0);
+      return (total - pagos) > 0.01;
+    }),
+    
+    deudoresActivos: deudoresActivos, // 👈 CON DETALLE COMPLETO
+    pagosDeudoresDetallados: pagosDeudoresDetallados, // 👈 CON DETALLE DE APLICACIÓN
+    
     porVendedor,
     porSeccion,
     transferenciasPorAlias: porAlias,
@@ -4737,7 +4771,7 @@ function PrintArea() {
 }, []);
 
   if (!inv && !ticket) return null;
-// ==== PLANTILLA: REPORTE ====
+// ==== PLANTILLA: REPORTE MEJORADO ====
 if (inv?.type === "Reporte") {
   const fmt = (n: number) => money(parseNum(n));
   const rangoStr = (() => {
@@ -4752,22 +4786,27 @@ if (inv?.type === "Reporte") {
       <div className="max-w-[780px] mx-auto text-black">
         <div className="flex items-start justify-between">
           <div>
-            <div style={{ fontWeight: 800, letterSpacing: 1 }}>REPORTE</div>
+            <div style={{ fontWeight: 800, letterSpacing: 1 }}>REPORTE COMPLETO</div>
             <div style={{ marginTop: 2 }}>MITOBICEL</div>
           </div>
           <div className="text-right">
             <div><b>Período:</b> {rangoStr}</div>
             <div><b>Tipo:</b> {inv.periodo}</div>
+            <div><b>Fecha:</b> {new Date().toLocaleString("es-AR")}</div>
           </div>
         </div>
 
         <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
 
-        {/* RESUMEN PRINCIPAL */}
-        <div className="grid grid-cols-3 gap-3 text-sm mb-4">
+        {/* RESUMEN PRINCIPAL MEJORADO */}
+        <div className="grid grid-cols-4 gap-3 text-sm mb-4">
           <div>
             <div style={{ fontWeight: 700 }}>Ventas totales</div>
             <div>{fmt(inv.resumen.ventas)}</div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700 }}>Deuda del día</div>
+            <div style={{ color: "#f59e0b", fontWeight: 700 }}>{fmt(inv.resumen.deudaDelDia)}</div>
           </div>
           <div>
             <div style={{ fontWeight: 700 }}>Efectivo neto</div>
@@ -4778,6 +4817,130 @@ if (inv?.type === "Reporte") {
             <div>{fmt(inv.resumen.transferencias)}</div>
           </div>
         </div>
+
+        {/* 👇👇👇 SECCIÓN: DEUDA DEL DÍA */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>📋 Facturas con Deuda del Día</div>
+        
+        {inv.deudaDelDiaDetalle && inv.deudaDelDiaDetalle.length > 0 ? (
+          <table className="print-table text-sm">
+            <thead>
+              <tr>
+                <th style={{ width: "10%" }}>Factura</th>
+                <th style={{ width: "25%" }}>Cliente</th>
+                <th style={{ width: "20%" }}>Total</th>
+                <th style={{ width: "20%" }}>Pagado</th>
+                <th style={{ width: "25%" }}>Debe</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inv.deudaDelDiaDetalle.map((f: any, i: number) => {
+                const total = parseNum(f.total);
+                const pagos = parseNum(f?.payments?.cash || 0) + 
+                             parseNum(f?.payments?.transfer || 0) + 
+                             parseNum(f?.payments?.saldo_aplicado || 0);
+                const debe = total - pagos;
+                
+                return (
+                  <tr key={f.id}>
+                    <td style={{ textAlign: "right" }}>#{pad(f.number)}</td>
+                    <td>{f.client_name}</td>
+                    <td style={{ textAlign: "right" }}>{fmt(total)}</td>
+                    <td style={{ textAlign: "right" }}>{fmt(pagos)}</td>
+                    <td style={{ textAlign: "right", color: "#f59e0b", fontWeight: 600 }}>
+                      {fmt(debe)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <div className="text-sm text-slate-500 p-2">No hay facturas con deuda pendiente en el día</div>
+        )}
+
+        {/* 👇👇👇 SECCIÓN: DEUDORES ACTIVOS */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>👥 Deudores Activos</div>
+        
+        {inv.deudoresActivos && inv.deudoresActivos.length > 0 ? (
+          inv.deudoresActivos.map((deudor: any, idx: number) => (
+            <div key={deudor.id} style={{ border: "1px solid #000", marginBottom: 12, padding: 10, pageBreakInside: 'avoid' }}>
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <div style={{ fontWeight: 700 }}>{deudor.name} (N° {deudor.number})</div>
+                  <div style={{ fontSize: 11 }}>
+                    Deuda bruta: {fmt(deudor.deuda_bruta)} • Saldo favor: {fmt(deudor.saldo_favor)} • Facturas: {deudor.cantidad_facturas}
+                  </div>
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 16, color: "#f59e0b" }}>
+                  {fmt(deudor.deuda_neta)}
+                </div>
+              </div>
+
+              {/* DETALLE POR FACTURA (igual que en DeudoresTab) */}
+              {deudor.detalle_facturas.map((deuda: any, factIdx: number) => (
+                <div key={factIdx} style={{ marginBottom: 8, padding: 6, border: "1px dashed #ccc" }}>
+                  <div className="flex justify-between text-sm">
+                    <span>Factura #{pad(deuda.factura_numero)}</span>
+                    <span style={{ fontWeight: 600, color: "#f59e0b" }}>
+                      {fmt(deuda.monto_debe)}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#666" }}>
+                    Fecha: {new Date(deuda.fecha).toLocaleDateString("es-AR")} • 
+                    Total: {fmt(deuda.monto_total)} • 
+                    Pagado: {fmt(deuda.monto_pagado)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))
+        ) : (
+          <div className="text-sm text-slate-500 p-2">No hay deudores activos</div>
+        )}
+
+        {/* 👇👇👇 SECCIÓN: PAGOS DE DEUDORES CON DETALLE */}
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>💳 Pagos de Deudores Registrados</div>
+        
+        {inv.pagosDeudoresDetallados && inv.pagosDeudoresDetallados.length > 0 ? (
+          inv.pagosDeudoresDetallados.map((pago: any, idx: number) => (
+            <div key={pago.pago_id} style={{ border: "1px solid #000", marginBottom: 12, padding: 10, pageBreakInside: 'avoid' }}>
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <div style={{ fontWeight: 700 }}>{pago.cliente}</div>
+                  <div style={{ fontSize: 11 }}>
+                    {new Date(pago.fecha_pago).toLocaleString("es-AR")} • 
+                    Efectivo: {fmt(pago.efectivo)} • 
+                    Transferencia: {fmt(pago.transferencia)}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontWeight: 700, color: "#10b981" }}>Pagado: {fmt(pago.total_pagado)}</div>
+                  <div style={{ fontSize: 11 }}>
+                    Deuda: {fmt(pago.deuda_antes_pago)} → {fmt(pago.deuda_despues_pago)}
+                  </div>
+                </div>
+              </div>
+
+              {/* DETALLE DE APLICACIÓN DEL PAGO */}
+              {pago.aplicaciones && pago.aplicaciones.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>Aplicado a:</div>
+                  {pago.aplicaciones.map((app: any, appIdx: number) => (
+                    <div key={appIdx} style={{ fontSize: 10, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Factura #{pad(app.factura_numero)}:</span>
+                      <span>{fmt(app.monto_aplicado)} (Deuda: {fmt(app.deuda_antes)} → {fmt(app.deuda_despues)})</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))
+        ) : (
+          <div className="text-sm text-slate-500 p-2">No hay pagos de deudores en el período</div>
+        )}
 
         {/* SECCIÓN: VENTAS */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
@@ -4911,7 +5074,8 @@ if (inv?.type === "Reporte") {
     </div>
   );
 }
-  // ==== PLANTILLA: DETALLE DE DEUDAS ====
+
+// ==== PLANTILLA: DETALLE DE DEUDAS ====
 if (inv?.type === "DetalleDeuda") {
   const fmt = (n: number) => money(parseNum(n));
   
@@ -5143,63 +5307,58 @@ if (inv?.type === "Devolucion") {
   );
 }
 
-       
-
-
-
-  // ==== PLANTILLA: TICKET ====
-  if (ticket) {
-    return (
-      <div className="only-print print-area p-14">
-        <div className="max-w-[520px] mx-auto text-black">
-          <div className="text-center">
-            <div style={{ fontWeight: 800, letterSpacing: 1, fontSize: 20 }}>TICKET DE TURNO</div>
-            <div style={{ marginTop: 2, fontSize: 12 }}>MITOBICEL</div>
-          </div>
-
-          <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
-
-          <div className="text-sm space-y-1">
-            <div>
-              <b>Código:</b> {ticket.id}
-            </div>
-            <div>
-              <b>Cliente:</b> {ticket.client_name} (N° {ticket.client_number})
-            </div>
-            <div>
-              <b>Acción:</b> {ticket.action}
-            </div>
-            <div>
-              <b>Fecha:</b> {new Date(ticket.date_iso).toLocaleString("es-AR")}
-            </div>
-          </div>
-
-          <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
-
-          <div className="text-sm" style={{ lineHeight: 1.35 }}>
-            POR FAVOR ESPERE A VER SU NÚMERO EN PANTALLA PARA INGRESAR A HACER SU PEDIDO
-            O GESTIONAR SU DEVOLUCIÓN.
-          </div>
-
-          <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+// ==== PLANTILLA: TICKET ====
+if (ticket) {
+  return (
+    <div className="only-print print-area p-14">
+      <div className="max-w-[520px] mx-auto text-black">
+        <div className="text-center">
+          <div style={{ fontWeight: 800, letterSpacing: 1, fontSize: 20 }}>TICKET DE TURNO</div>
+          <div style={{ marginTop: 2, fontSize: 12 }}>MITOBICEL</div>
         </div>
-      </div>
-    );
-  }
 
-  // ==== PLANTILLA: FACTURA ====
-  const paidCash = parseNum(inv?.payments?.cash || 0);
-  const paidTransf = parseNum(inv?.payments?.transfer || 0);
- const change = parseNum(inv?.payments?.change || 0);
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+        <div className="text-sm space-y-1">
+          <div>
+            <b>Código:</b> {ticket.id}
+          </div>
+          <div>
+            <b>Cliente:</b> {ticket.client_name} (N° {ticket.client_number})
+          </div>
+          <div>
+            <b>Acción:</b> {ticket.action}
+          </div>
+          <div>
+            <b>Fecha:</b> {new Date(ticket.date_iso).toLocaleString("es-AR")}
+          </div>
+        </div>
+
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+        <div className="text-sm" style={{ lineHeight: 1.35 }}>
+          POR FAVOR ESPERE A VER SU NÚMERO EN PANTALLA PARA INGRESAR A HACER SU PEDIDO
+          O GESTIONAR SU DEVOLUCIÓN.
+        </div>
+
+        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+      </div>
+    </div>
+  );
+}
+
+// ==== PLANTILLA: FACTURA ====
+const paidCash = parseNum(inv?.payments?.cash || 0);
+const paidTransf = parseNum(inv?.payments?.transfer || 0);
+const change = parseNum(inv?.payments?.change || 0);
 const paid   = paidCash + paidTransf;                   // lo que entregó
 const net    = Math.max(0, paid - change);              // lo que aplica
 const balance = Math.max(0, parseNum(inv.total) - net);
 const fullyPaid = balance <= 0.009;
 
- 
-  const clientDebtTotal = parseNum(inv?.client_debt_total ?? 0);
+const clientDebtTotal = parseNum(inv?.client_debt_total ?? 0);
 
- return (
+return (
   <div className="only-print print-area p-14">
     <div className="max-w-[780px] mx-auto text-black">
       <div className="flex items-start justify-between">
@@ -5241,27 +5400,27 @@ const fullyPaid = balance <= 0.009;
             <th style={{ width: "18%" }}>Total</th>
           </tr>
         </thead>
-  <tbody>
-  {inv.items.map((it: any, i: number) => (
-    <tr key={i}>
-      <td style={{ textAlign: "right" }}>{i + 1}</td>
-      
-      <td>
-        {it.name}
-        {/* 👇 AQUÍ ESTÁ EL CAMBIO - Agregar la sección */}
-        <div style={{ fontSize: "10px", color: "#666", fontStyle: "italic" }}>
-          {it.section || "General"}
-        </div>
-      </td>
-      
-      <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
-      <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
-      <td style={{ textAlign: "right" }}>
-        {money(parseNum(it.qty) * parseNum(it.unitPrice))}
-      </td>
-    </tr>
-  ))}
-</tbody>
+        <tbody>
+        {inv.items.map((it: any, i: number) => (
+          <tr key={i}>
+            <td style={{ textAlign: "right" }}>{i + 1}</td>
+            
+            <td>
+              {it.name}
+              {/* 👇 AQUÍ ESTÁ EL CAMBIO - Agregar la sección */}
+              <div style={{ fontSize: "10px", color: "#666", fontStyle: "italic" }}>
+                {it.section || "General"}
+              </div>
+            </td>
+            
+            <td style={{ textAlign: "right" }}>{parseNum(it.qty)}</td>
+            <td style={{ textAlign: "right" }}>{money(parseNum(it.unitPrice))}</td>
+            <td style={{ textAlign: "right" }}>
+              {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+            </td>
+          </tr>
+        ))}
+        </tbody>
 
         {/* ===== tfoot corregido (un solo tfoot, sin anidar) ===== */}
         <tfoot>
@@ -5350,7 +5509,7 @@ const fullyPaid = balance <= 0.009;
     </div>
   </div>
 );
-  } 
+}
 
 function Login({ onLogin, vendors, adminKey, clients }: any) {
   const [role, setRole] = useState("vendedor");
