@@ -3314,7 +3314,7 @@ async function updateGabiSpentForDay(gastado: number) {
       .eq("day", diaClave);
   }
 }
-
+}
   // ===== AQUÍ ESTÁ EL RETURN PRINCIPAL DEL COMPONENTE =====
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
