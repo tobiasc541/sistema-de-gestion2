@@ -1815,48 +1815,79 @@ const porAlias = (() => {
   return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
 })();
 
-  async function imprimirReporte() {
-    const data = {
-      type: "Reporte",
-      periodo,
-      rango: { start, end },
-      resumen: {
-        ventas: totalVentas,
-        efectivoCobrado: totalEfectivo,
-        vueltoEntregado: totalVuelto,
-        efectivoNeto: totalEfectivoNeto,
-        transferencias: totalTransf,
+ async function imprimirReporte() {
+  // 👇👇👇 CALCULAR DEUDA DEL DÍA
+  const deudaDelDia = invoices
+    .filter((f: any) => f.status === "No Pagada")
+    .reduce((s: number, f: any) => s + parseNum(f.total), 0);
 
-        gastosTotal: totalGastos,
-        gastosEfectivo: totalGastosEfectivo,
-        gastosTransfer: totalGastosTransferencia,
+  // 👇👇👇 PAGOS DE DEUDORES DEL DÍA (ya lo tienes)
+  const pagosDeudoresHoy = pagosDeudores.filter((p: any) => {
+    const pagoDate = new Date(p.date_iso).toDateString();
+    const hoy = new Date().toDateString();
+    return pagoDate === hoy;
+  });
 
-        devolucionesCantidad: devolucionesPeriodo.length,
-        devolucionesEfectivo: devolucionesMontoEfectivo,
-        devolucionesTransfer: devolucionesMontoTransfer,
-        devolucionesTotal: devolucionesMontoTotal,
+  // 👇👇👇 DEUDORES ACTIVOS (con deuda neta > 0)
+  const deudoresActivos = state.clients
+    .filter((c: any) => {
+      const deudaBruta = parseNum(c.debt);
+      const saldoFavor = parseNum(c.saldo_favor || 0);
+      return (deudaBruta - saldoFavor) > 0;
+    })
+    .map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      deuda: parseNum(c.debt),
+      saldoFavor: parseNum(c.saldo_favor || 0),
+      deudaNeta: Math.max(0, parseNum(c.debt) - parseNum(c.saldo_favor || 0))
+    }))
+    .sort((a: any, b: any) => b.deudaNeta - a.deudaNeta);
 
-        cashFloatTarget,
-        vueltoRestante,
+  const data = {
+    type: "Reporte",
+    periodo,
+    rango: { start, end },
+    resumen: {
+      ventas: totalVentas,
+      deudaDelDia: deudaDelDia, // 👈 NUEVO
+      efectivoCobrado: totalEfectivo,
+      vueltoEntregado: totalVuelto,
+      efectivoNeto: totalEfectivoNeto,
+      transferencias: totalTransf,
 
-        flujoCajaEfectivo: flujoCajaEfectivoFinal,
+      gastosTotal: totalGastos,
+      gastosEfectivo: totalGastosEfectivo,
+      gastosTransfer: totalGastosTransferencia,
 
-        comisionesPeriodo: commissionsPeriodo,
-      },
+      devolucionesCantidad: devolucionesPeriodo.length,
+      devolucionesEfectivo: devolucionesMontoEfectivo,
+      devolucionesTransfer: devolucionesMontoTransfer,
+      devolucionesTotal: devolucionesMontoTotal,
 
-      ventas: invoices,
-      gastos: gastosPeriodo,
-      devoluciones: devolucionesPeriodo,
-      porVendedor,
-      porSeccion,
-      transferenciasPorAlias: porAlias,
-      transferGastosPorAlias: transferenciasPorAlias,
-    };
+      cashFloatTarget,
+      vueltoRestante,
 
-    window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
-    await nextPaint();
-    window.print();
-      } 
+      flujoCajaEfectivo: flujoCajaEfectivoFinal,
+
+      comisionesPeriodo: commissionsPeriodo,
+    },
+
+    ventas: invoices,
+    gastos: gastosPeriodo,
+    devoluciones: devolucionesPeriodo,
+    pagosDeudores: pagosDeudoresHoy, // 👈 NUEVO
+    deudoresActivos: deudoresActivos, // 👈 NUEVO
+    porVendedor,
+    porSeccion,
+    transferenciasPorAlias: porAlias,
+    transferGastosPorAlias: transferenciasPorAlias,
+  };
+
+  window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
+  await nextPaint();
+  window.print();
+}
   // Función para guardar fondos iniciales de Gabi
 async function setGabiFundsForDay(nuevo: number) {
   const st = clone(state);
@@ -1921,6 +1952,19 @@ async function updateGabiSpentForDay(gastado: number) {
           {periodo === "anio" && <Input label="Año" type="number" value={anio} onChange={setAnio} />}
         </div>
       </Card>
+      {/* 👇👇👇 AGREGAR ESTA CARD NUEVA - JUSTO DESPUÉS DE LOS FILTROS */}
+<Card title="💰 Deuda Actual del Día">
+  <div className="text-2xl font-bold text-amber-400">
+    {money(
+      invoices
+        .filter((f: any) => f.status === "No Pagada")
+        .reduce((sum: number, f: any) => sum + parseNum(f.total), 0)
+    )}
+  </div>
+  <div className="text-xs text-slate-400 mt-1">
+    Total adeudado en facturas del día
+  </div>
+</Card>
 
       <Card title="Acciones" actions={
         <div className="flex gap-2">
@@ -2055,6 +2099,20 @@ async function updateGabiSpentForDay(gastado: number) {
 
 <div className="grid md:grid-cols-4 gap-3">
   <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
+    
+  {/* 👇👇👇 NUEVA CARD DE DEUDA */}
+  <Card title="💰 Deuda del Día">
+    <div className="text-2xl font-bold text-amber-400">
+      {money(
+        invoices
+          .filter((f: any) => f.status === "No Pagada")
+          .reduce((sum: number, f: any) => sum + parseNum(f.total), 0)
+      )}
+    </div>
+    <div className="text-xs text-slate-400 mt-1">
+      Facturas no pagadas del día
+    </div>
+  </Card>
   <Card title="Efectivo (cobrado)">
     <div className="text-2xl font-bold">{money(totalEfectivo + efectivoPagosDeudores)}</div>
     <div className="text-xs text-slate-400 mt-1">
@@ -4264,20 +4322,25 @@ if (inv?.type === "Reporte") {
         <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
 
         {/* RESUMEN PRINCIPAL */}
-        <div className="grid grid-cols-3 gap-3 text-sm mb-4">
-          <div>
-            <div style={{ fontWeight: 700 }}>Ventas totales</div>
-            <div>{fmt(inv.resumen.ventas)}</div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 700 }}>Efectivo neto</div>
-            <div>{fmt(inv.resumen.efectivoNeto)}</div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 700 }}>Transferencias</div>
-            <div>{fmt(inv.resumen.transferencias)}</div>
-          </div>
-        </div>
+        {/* RESUMEN PRINCIPAL */}
+<div className="grid grid-cols-4 gap-3 text-sm mb-4">
+  <div>
+    <div style={{ fontWeight: 700 }}>Ventas totales</div>
+    <div>{fmt(inv.resumen.ventas)}</div>
+  </div>
+  <div>
+    <div style={{ fontWeight: 700 }}>Deuda del día</div>
+    <div>{fmt(inv.resumen.deudaDelDia)}</div>
+  </div>
+  <div>
+    <div style={{ fontWeight: 700 }}>Efectivo neto</div>
+    <div>{fmt(inv.resumen.efectivoNeto)}</div>
+  </div>
+  <div>
+    <div style={{ fontWeight: 700 }}>Transferencias</div>
+    <div>{fmt(inv.resumen.transferencias)}</div>
+  </div>
+</div>
 
         {/* SECCIÓN: VENTAS */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
@@ -4316,6 +4379,36 @@ if (inv?.type === "Reporte") {
             )}
           </tbody>
         </table>
+        {/* 👇👇👇 NUEVA SECCIÓN: PAGOS DE DEUDORES DEL DÍA */}
+<div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+<div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Pagos de Deudores del Día</div>
+<table className="print-table text-sm">
+  <thead>
+    <tr>
+      <th style={{ width: "14%" }}>Fecha</th>
+      <th>Cliente</th>
+      <th style={{ width: "14%" }}>Efectivo</th>
+      <th style={{ width: "14%" }}>Transferencia</th>
+      <th style={{ width: "14%" }}>Total Pagado</th>
+      <th style={{ width: "20%" }}>Deuda Restante</th>
+    </tr>
+  </thead>
+  <tbody>
+    {(inv.pagosDeudores || []).map((pago: any, i: number) => (
+      <tr key={pago.id || i}>
+        <td>{new Date(pago.date_iso).toLocaleString("es-AR")}</td>
+        <td>{pago.client_name}</td>
+        <td style={{ textAlign: "right" }}>{fmt(pago.cash_amount)}</td>
+        <td style={{ textAlign: "right" }}>{fmt(pago.transfer_amount)}</td>
+        <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(pago.total_amount)}</td>
+        <td style={{ textAlign: "right" }}>{fmt(pago.debt_after)}</td>
+      </tr>
+    ))}
+    {(!inv.pagosDeudores || inv.pagosDeudores.length === 0) && (
+      <tr><td colSpan={6}>Sin pagos de deudores en el día.</td></tr>
+    )}
+  </tbody>
+</table>
 
         {/* SECCIÓN: GASTOS */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
@@ -4380,6 +4473,7 @@ if (inv?.type === "Reporte") {
         {/* SECCIÓN: Transferencias por alias (ventas) */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
         <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Transferencias por alias (ventas)</div>
+        
         <table className="print-table text-sm">
           <thead>
             <tr>
@@ -4399,6 +4493,32 @@ if (inv?.type === "Reporte") {
             )}
           </tbody>
         </table>
+        {/* 👇👇👇 NUEVA SECCIÓN: DEUDORES ACTIVOS */}
+<div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+<div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Deudores Activos</div>
+<table className="print-table text-sm">
+  <thead>
+    <tr>
+      <th>Cliente</th>
+      <th style={{ width: "18%" }}>Deuda Actual</th>
+      <th style={{ width: "18%" }}>Saldo a Favor</th>
+      <th style={{ width: "18%" }}>Deuda Neta</th>
+    </tr>
+  </thead>
+  <tbody>
+    {(inv.deudoresActivos || []).map((deudor: any, i: number) => (
+      <tr key={deudor.id || i}>
+        <td>{deudor.name}</td>
+        <td style={{ textAlign: "right" }}>{fmt(deudor.deuda)}</td>
+        <td style={{ textAlign: "right" }}>{fmt(deudor.saldoFavor)}</td>
+        <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(deudor.deudaNeta)}</td>
+      </tr>
+    ))}
+    {(!inv.deudoresActivos || inv.deudoresActivos.length === 0) && (
+      <tr><td colSpan={4}>No hay deudores activos.</td></tr>
+    )}
+  </tbody>
+</table>
 
         {/* FINAL: FLUJO DE CAJA (EFECTIVO) */}
         <div style={{ borderTop: "1px solid #000", margin: "14px 0 8px" }} />
