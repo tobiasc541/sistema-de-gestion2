@@ -465,6 +465,7 @@ function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
 // === Detalle de deudas por cliente - CORREGIDA ===
 // CORREGIR esta función - el problema está aquí
 // REEMPLAZAR esta función completa - ESTÁ EN LA LÍNEA ~460
+// REEMPLAZAR la función calcularDetalleDeudas por esta versión corregida:
 function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
   if (!clientId) return [];
   
@@ -511,15 +512,6 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
     const totalPagos = pagosDirectos + pagosAdicionales;
     const montoDebe = Math.max(0, totalFactura - totalPagos - devolucionesFactura);
 
-    console.log(`📋 Factura #${factura.number}:`, {
-      total: totalFactura,
-      pagosDirectos,
-      pagosAdicionales,
-      devoluciones: devolucionesFactura,
-      totalPagos,
-      debe: montoDebe
-    });
-
     return {
       factura_id: factura.id,
       factura_numero: factura.number,
@@ -532,9 +524,11 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
     };
   });
 
-  // Filtrar solo facturas con deuda pendiente
-  return detalleDeudas.filter(deuda => deuda.monto_debe > 0);
+  // ✅ CORRECCIÓN: Filtrar solo facturas con deuda pendiente REAL
+  return detalleDeudas.filter(deuda => deuda.monto_debe > 0.01); // Margen de error de 1 centavo
 }
+
+
 // === Deuda total del cliente - CORREGIDA ===
 function calcularDeudaTotal(detalleDeudas: DetalleDeuda[]): number {
   const deudaCalculada = detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
@@ -583,7 +577,7 @@ function obtenerHistorialCliente(state: any, clientId: string) {
     .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 }
 
-// REEMPLAZAR esta función completa
+// REEMPLAZAR la función obtenerDetallePagosAplicados por esta versión mejorada:
 function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
   const detallePagos: any[] = [];
 
@@ -591,8 +585,40 @@ function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
     const cliente = state.clients.find((c: any) => c.id === pago.client_id);
     if (!cliente) return;
 
-    // 👇 **USAR EL DETALLE REAL DE APLICACIONES QUE YA GUARDASTE**
-    const aplicaciones = pago.aplicaciones || [];
+    // Obtener el detalle REAL de deudas del cliente para este pago
+    const detalleDeudasCliente = calcularDetalleDeudas(state, pago.client_id);
+    
+    // Reconstruir las aplicaciones con información completa de cada factura
+    const aplicacionesCompletas = pago.aplicaciones?.map((app: any) => {
+      // Buscar la factura correspondiente para obtener información completa
+      const factura = state.invoices.find((f: any) => f.id === app.factura_id);
+      const deudaFactura = detalleDeudasCliente.find((d: any) => d.factura_id === app.factura_id);
+      
+      return {
+        factura_id: app.factura_id,
+        factura_numero: app.factura_numero || factura?.number || "N/E",
+        fecha_factura: factura?.date_iso || pago.date_iso,
+        total_factura: deudaFactura?.monto_total || factura?.total || 0,
+        deuda_antes: app.deuda_antes || deudaFactura?.monto_debe || 0,
+        monto_aplicado: app.monto_aplicado,
+        deuda_despues: app.deuda_despues || Math.max(0, (deudaFactura?.monto_debe || 0) - app.monto_aplicado),
+        tipo: "pago_factura"
+      };
+    }) || [];
+
+    // Si no hay aplicaciones específicas, crear una aplicación global
+    if (aplicacionesCompletas.length === 0) {
+      aplicacionesCompletas.push({
+        factura_numero: "No especificado",
+        fecha_factura: pago.date_iso,
+        total_factura: 0,
+        deuda_antes: pago.debt_before || 0,
+        monto_aplicado: pago.total_amount,
+        deuda_despues: pago.debt_after || 0,
+        descripcion: "Pago aplicado globalmente",
+        tipo: "global"
+      });
+    }
 
     detallePagos.push({
       pago_id: pago.id,
@@ -601,13 +627,10 @@ function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
       total_pagado: pago.total_amount,
       efectivo: pago.cash_amount,
       transferencia: pago.transfer_amount,
-      aplicaciones: aplicaciones.length > 0 ? aplicaciones : 
-        // Fallback si no hay aplicaciones guardadas
-        [{
-          factura_numero: "No especificado",
-          monto_aplicado: pago.total_amount,
-          descripcion: "Pago aplicado globalmente"
-        }]
+      alias: pago.alias || "",
+      deuda_antes_pago: pago.debt_before,
+      deuda_despues_pago: pago.debt_after,
+      aplicaciones: aplicacionesCompletas
     });
   });
 
@@ -1269,11 +1292,15 @@ function ProductosTab({ state, setState, role }: any) {
 /* Deudores */
 function DeudoresTab({ state, setState }: any) {
   // Filtrar clientes que tengan deuda NETO mayor a 0 (deuda - saldo a favor > 0)
-  const clients = state.clients.filter((c: any) => {
-    const deuda = parseNum(c.debt);
-    const saldoFavor = parseNum(c.saldo_favor || 0);
-    return (deuda - saldoFavor) > 0;
-  });
+const clients = state.clients.filter((c: any) => {
+  const detalleDeudas = calcularDetalleDeudas(state, c.id);
+  const deudaReal = calcularDeudaTotal(detalleDeudas);
+  const saldoFavor = parseNum(c.saldo_favor || 0);
+  const deudaNeta = Math.max(0, deudaReal - saldoFavor);
+  
+  // ✅ Solo mostrar si tiene deuda neta mayor a $1
+  return deudaNeta > 1;
+});
   
   const [active, setActive] = useState<string | null>(null);
   const [cash, setCash] = useState("");
@@ -4802,6 +4829,7 @@ if (inv?.type === "Reporte") {
           </tbody>
         </table>
             {/* 👇👇👇 NUEVA SECCIÓN: DETALLE DE APLICACIÓN DE PAGOS DE DEUDORES */}
+// EN EL COMPONENTE PrintArea, dentro del reporte, REEMPLAZAR esta sección:
 {(inv.detalleAplicacionPagos || []).length > 0 && (
   <>
     <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
@@ -4810,78 +4838,86 @@ if (inv?.type === "Reporte") {
     </div>
     
     {inv.detalleAplicacionPagos.map((pagoDetalle: any, index: number) => (
-      <div key={pagoDetalle.pago_id} style={{ marginBottom: 16, border: "1px solid #000", padding: 10 }}>
+      <div key={pagoDetalle.pago_id} style={{ marginBottom: 20, border: "1px solid #000", padding: 12, pageBreakInside: 'avoid' }}>
         {/* Encabezado del pago */}
-        <div className="flex justify-between items-start mb-3">
+        <div className="flex justify-between items-start mb-4">
           <div>
-            <div style={{ fontWeight: 700 }}>Pago de {pagoDetalle.cliente}</div>
-            <div style={{ fontSize: 11 }}>
-              {new Date(pagoDetalle.fecha_pago).toLocaleString("es-AR")}
+            <div style={{ fontWeight: 700, fontSize: 16 }}>Pago de {pagoDetalle.cliente}</div>
+            <div style={{ fontSize: 12 }}>
+              Fecha: {new Date(pagoDetalle.fecha_pago).toLocaleString("es-AR")}
+            </div>
+            <div style={{ fontSize: 12 }}>
+              Deuda antes: {fmt(pagoDetalle.deuda_antes_pago)} | Deuda después: {fmt(pagoDetalle.deuda_despues_pago)}
             </div>
           </div>
           <div className="text-right">
-            <div style={{ fontWeight: 700, fontSize: 16, color: "#10b981" }}>
+            <div style={{ fontWeight: 700, fontSize: 18, color: "#10b981" }}>
               {fmt(pagoDetalle.total_pagado)}
             </div>
-            <div style={{ fontSize: 11 }}>
+            <div style={{ fontSize: 12 }}>
               Efectivo: {fmt(pagoDetalle.efectivo)} • Transferencia: {fmt(pagoDetalle.transferencia)}
             </div>
+            {pagoDetalle.alias && (
+              <div style={{ fontSize: 11 }}>Alias: {pagoDetalle.alias}</div>
+            )}
           </div>
         </div>
 
-        {/* Detalle de aplicación por factura */}
-        <table className="print-table text-sm" style={{ width: "100%" }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", width: "15%" }}>Factura</th>
-              <th style={{ textAlign: "left", width: "20%" }}>Fecha Factura</th>
-              <th style={{ textAlign: "right", width: "15%" }}>Total Factura</th>
-              <th style={{ textAlign: "right", width: "15%" }}>Deuda Antes</th>
-              <th style={{ textAlign: "right", width: "15%" }}>Monto Aplicado</th>
-              <th style={{ textAlign: "right", width: "15%" }}>Deuda Después</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pagoDetalle.aplicaciones
-              .filter((app: any) => app.factura_numero)
-              .map((app: any, idx: number) => (
-                <tr key={idx}>
-                  <td style={{ textAlign: "left" }}>#{pad(app.factura_numero)}</td>
-                  <td style={{ textAlign: "left" }}>
-                    {new Date(app.fecha_factura).toLocaleDateString("es-AR")}
-                  </td>
-                  <td style={{ textAlign: "right" }}>{fmt(app.total_factura)}</td>
-                  <td style={{ textAlign: "right" }}>{fmt(app.deuda_antes)}</td>
-                  <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981" }}>
-                    {fmt(app.monto_aplicado)}
-                  </td>
-                  <td style={{ textAlign: "right" }}>{fmt(app.deuda_despues)}</td>
+        {/* Detalle de aplicación por factura - SOLO SI HAY FACTURAS ESPECÍFICAS */}
+        {pagoDetalle.aplicaciones.some((app: any) => app.factura_numero && app.factura_numero !== "No especificado") && (
+          <>
+            <div style={{ borderTop: "1px solid #ccc", margin: "8px 0", paddingTop: "8px" }} />
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Aplicación por Factura:</div>
+            
+            <table className="print-table text-sm" style={{ width: "100%", marginBottom: 8 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", width: "15%" }}>Factura</th>
+                  <th style={{ textAlign: "left", width: "15%" }}>Fecha</th>
+                  <th style={{ textAlign: "right", width: "14%" }}>Total Factura</th>
+                  <th style={{ textAlign: "right", width: "14%" }}>Deuda Antes</th>
+                  <th style={{ textAlign: "right", width: "14%" }}>Monto Aplicado</th>
+                  <th style={{ textAlign: "right", width: "14%" }}>Deuda Después</th>
+                  <th style={{ textAlign: "right", width: "14%" }}>Estado</th>
                 </tr>
-              ))}
-          </tbody>
-        </table>
-
-        {/* Saldo a favor aplicado */}
-        {pagoDetalle.aplicaciones.filter((app: any) => app.tipo === "saldo_favor").length > 0 && (
-          <div className="mt-2 text-sm">
-            <div style={{ fontWeight: 600 }}>Saldo a favor acreditado:</div>
-            {pagoDetalle.aplicaciones
-              .filter((app: any) => app.tipo === "saldo_favor")
-              .map((app: any, idx: number) => (
-                <div key={idx} style={{ color: "#3b82f6" }}>
-                  {fmt(app.monto_aplicado)} - {app.descripcion}
-                </div>
-              ))}
-          </div>
+              </thead>
+              <tbody>
+                {pagoDetalle.aplicaciones
+                  .filter((app: any) => app.factura_numero && app.factura_numero !== "No especificado")
+                  .map((app: any, idx: number) => (
+                    <tr key={idx}>
+                      <td style={{ textAlign: "left", fontWeight: 600 }}>#{pad(app.factura_numero)}</td>
+                      <td style={{ textAlign: "left" }}>
+                        {app.fecha_factura ? new Date(app.fecha_factura).toLocaleDateString("es-AR") : "N/E"}
+                      </td>
+                      <td style={{ textAlign: "right" }}>{fmt(app.total_factura)}</td>
+                      <td style={{ textAlign: "right" }}>{fmt(app.deuda_antes)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981" }}>
+                        {fmt(app.monto_aplicado)}
+                      </td>
+                      <td style={{ textAlign: "right" }}>{fmt(app.deuda_despues)}</td>
+                      <td style={{ textAlign: "center" }}>
+                        {app.deuda_despues <= 0.01 ? "✅ Pagada" : "⏳ Pendiente"}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </>
         )}
 
         {/* Resumen del pago */}
-        <div style={{ borderTop: "1px solid #000", marginTop: 8, paddingTop: 8 }}>
+        <div style={{ borderTop: "2px solid #000", marginTop: 8, paddingTop: 8 }}>
           <div className="flex justify-between items-center text-sm">
-            <span style={{ fontWeight: 700 }}>TOTAL APLICADO:</span>
-            <span style={{ fontWeight: 700, color: "#10b981" }}>
-              {fmt(pagoDetalle.aplicaciones.reduce((sum: number, app: any) => sum + app.monto_aplicado, 0))}
-            </span>
+            <div>
+              <span style={{ fontWeight: 700 }}>TOTAL APLICADO: </span>
+              <span style={{ fontWeight: 700, color: "#10b981" }}>
+                {fmt(pagoDetalle.aplicaciones.reduce((sum: number, app: any) => sum + app.monto_aplicado, 0))}
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: "#666" }}>
+              {pagoDetalle.aplicaciones.length} factura(s) afectada(s)
+            </div>
           </div>
         </div>
       </div>
