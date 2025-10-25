@@ -473,52 +473,49 @@ function groupBy(arr: any[], key: string) {
   }, {} as any);
 }
 /* ===== FUNCIONES PARA COMPROBANTES ===== */
-// Función para subir comprobante a Supabase Storage - CORREGIDA
 async function subirComprobante(archivo: File, tipo: 'factura' | 'debt_payment', id: string): Promise<string> {
   if (!hasSupabase) {
     throw new Error('Supabase no está configurado');
   }
 
   try {
-    console.log('=== INICIANDO SUBIDA ===');
+    console.log('=== DIAGNÓSTICO COMPLETO ===');
     
-    // 1. Verificar autenticación
-    const { data: authData } = await supabase.auth.getSession();
-    console.log('Usuario autenticado:', !!authData.session);
+    // 1. Verificar sesión
+    const { data: { session } } = await supabase.auth.getSession();
+    console.log('🔐 Sesión:', session);
+    
+    if (!session) {
+      throw new Error('Usuario no autenticado');
+    }
 
-    // 2. Crear nombre único para el archivo (SIN la carpeta comprobantes/)
-    const extension = archivo.name.split('.').pop();
+    // 2. Preparar archivo
+    const extension = archivo.name.split('.').pop() || 'jpg';
     const nombreArchivo = `${tipo}_${id}_${Date.now()}.${extension}`;
     
-    console.log('Subiendo archivo:', {
-      nombreArchivo,
-      bucket: 'comprobantes',
-      tamaño: archivo.size,
-      tipo: archivo.type
-    });
+    console.log('📤 Subiendo:', nombreArchivo);
 
-    // 3. Subir archivo a Supabase Storage (SIN la carpeta comprobantes/)
+    // 3. Intentar subir al NUEVO bucket 'documentos'
     const { data, error } = await supabase.storage
-      .from('comprobantes')
-      .upload(nombreArchivo, archivo); // ← QUITAR 'comprobantes/'
+      .from('documentos')  // ← NUEVO BUCKET
+      .upload(nombreArchivo, archivo);
 
     if (error) {
-      console.error('ERROR Supabase:', error);
+      console.error('💥 ERROR:', error);
       throw new Error(`Error al subir archivo: ${error.message}`);
     }
 
-    console.log('Archivo subido exitosamente:', data);
-
-    // 4. Obtener URL pública
+    console.log('✅ Archivo subido:', data);
+    
+    // 4. Obtener URL
     const { data: urlData } = supabase.storage
-      .from('comprobantes')
-      .getPublicUrl(nombreArchivo); // ← QUITAR 'comprobantes/'
-
-    console.log('URL pública generada:', urlData.publicUrl);
+      .from('documentos')
+      .getPublicUrl(nombreArchivo);
+    
     return urlData.publicUrl;
 
   } catch (error) {
-    console.error('Error subiendo comprobante:', error);
+    console.error('Error:', error);
     throw error;
   }
 }
