@@ -520,7 +520,7 @@ function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
     const detalleDeudasCliente = calcularDetalleDeudas(state, pago.client_id);
     
     // Calcular deuda total ANTES del pago
-const deudaTotalAntes = calcularDeudaTotal(detalleDeudasCliente, cliente);
+const deudaTotalAntes = cliente ? calcularDeudaTotal(detalleDeudasCliente, cliente) : 0;
     
     // Reconstruir las aplicaciones con información completa
     const aplicacionesCompletas = pago.aplicaciones?.map((app: any) => {
