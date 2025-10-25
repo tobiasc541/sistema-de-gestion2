@@ -500,17 +500,19 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
 }
 // === Deuda total del cliente - CORREGIDA Y SEGURA ===
 function calcularDeudaTotal(detalleDeudas: DetalleDeuda[], cliente: any): number {
+  if (!cliente) return 0;
+  
   // ✅ SOLO calcular deuda de facturas pendientes
   const deudaFacturas = detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
   
-  // ✅ CORRECCIÓN: Verificar que cliente existe antes de acceder a sus propiedades
-  if (cliente) {
-    console.log(`💰 Deuda calculada: Facturas=${deudaFacturas}, Cliente=${cliente.name}`);
-  } else {
-    console.log(`💰 Deuda calculada: Facturas=${deudaFacturas}, Cliente=No encontrado`);
-  }
+  // ✅ SUMAR la deuda manual del cliente (si existe)
+  const deudaManual = parseNum(cliente.debt || 0);
   
-  return deudaFacturas;
+  const deudaTotal = deudaFacturas + deudaManual;
+  
+  console.log(`💰 Cliente ${cliente.name}: Facturas=${deudaFacturas}, Manual=${deudaManual}, Total=${deudaTotal}`);
+  
+  return deudaTotal;
 }
 // 👇👇👇 AGREGAR ESTA FUNCIÓN NUEVA
 function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
@@ -884,9 +886,15 @@ const toPay = Math.max(0, total - applied);
               onChange={setVendorId}
               options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))}
             />
-      <div className="col-span-2 text-xs text-slate-300 mt-1">
+     <div className="col-span-2 text-xs text-slate-300 mt-1">
   Deuda del cliente: <span className="font-semibold">
-    {money(state.clients.find((c:any)=>c.id===clientId)?.debt || 0)}
+    {(() => {
+      const cliente = state.clients.find((c:any) => c.id === clientId);
+      if (!cliente) return money(0);
+      const detalleDeudas = calcularDetalleDeudas(state, clientId);
+      const deudaReal = calcularDeudaTotal(detalleDeudas, cliente);
+      return money(deudaReal);
+    })()}
   </span>
   <span className="mx-2">·</span>
   Saldo a favor: <span className="font-semibold">
@@ -1113,7 +1121,7 @@ function ClientesTab({ state, setState, session }: any) {
       saldo_favor: modoAdmin ? parseNum(saldoFavorInicial) : 0,
       creado_por: session?.name || "admin",
       fecha_creacion: todayISO(),
-      deuda_manual: modoAdmin && parseNum(deudaInicial) > 0 // 👈 Marcar si tiene deuda manual
+deuda_manual: modoAdmin && parseNum(deudaInicial) > 0
     };
 
     const st = clone(state);
@@ -1150,8 +1158,8 @@ async function agregarDeudaManual(clienteId: string) {
     
     // ✅ CORRECCIÓN: SIMPLEMENTE SUMAR LA DEUDA SIN COMPENSAR
     cliente.debt = deudaAnterior + montoDeuda;
-    cliente.deuda_manual = true; // 👈 Marcar como deuda manual
-    
+// Solo marcar como deuda manual si realmente se está agregando deuda manualmente
+cliente.deuda_manual = montoDeuda > 0;    
     setState(st);
 
     if (hasSupabase) {
@@ -1379,13 +1387,17 @@ async function cancelarDeuda(clienteId: string) {
                       </div>
                     )}
                   </td>
-                  <td className="py-2 pr-4">
-                    <div className={`font-medium ${
-                      c.debt > 0 ? "text-amber-400" : "text-slate-300"
-                    }`}>
-                      {money(c.debt || 0)}
-                    </div>
-                  </td>
+                <td className="py-2 pr-4">
+  <div className={`font-medium ${
+    c.debt > 0 ? "text-amber-400" : "text-slate-300"
+  }`}>
+    {(() => {
+      const detalleDeudas = calcularDetalleDeudas(state, c.id);
+      const deudaReal = calcularDeudaTotal(detalleDeudas, c);
+      return money(deudaReal);
+    })()}
+  </div>
+</td>
                   <td className="py-2 pr-4">
                     <div className={`font-medium ${
                       c.saldo_favor > 0 ? "text-emerald-400" : "text-slate-300"
@@ -1449,12 +1461,13 @@ async function cancelarDeuda(clienteId: string) {
       </div>
       
       <div className="grid md:grid-cols-3 gap-4 text-sm">
-        <div className="p-3 bg-slate-800/50 rounded-lg">
-          <div className="font-semibold">Clientes con deuda manual</div>
-          <div className="text-amber-400 font-bold">
-            {clients.filter((c: any) => c.deuda_manual).length}
-          </div>
-        </div>
+       // En el panel de control del admin, cambia el cálculo de "Clientes con deuda manual"
+<div className="p-3 bg-slate-800/50 rounded-lg">
+  <div className="font-semibold">Clientes con deuda manual</div>
+  <div className="text-amber-400 font-bold">
+    {clients.filter((c: any) => c.deuda_manual && parseNum(c.debt) > 0).length}
+  </div>
+</div>
         
         <div className="p-3 bg-slate-800/50 rounded-lg">
           <div className="font-semibold">Deuda manual total</div>
