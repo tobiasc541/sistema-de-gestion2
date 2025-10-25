@@ -1737,11 +1737,16 @@ function ProductosTab({ state, setState, role }: any) {
 
 /* Deudores */
 function DeudoresTab({ state, setState }: any) {
-  // Filtrar clientes que tengan deuda NETO mayor a 0 (deuda - saldo a favor > 0)
+  // Filtrar clientes que tengan deuda NETO mayor a 0 O tengan deuda manual
   const clients = state.clients.filter((c: any) => {
     const deuda = parseNum(c.debt);
     const saldoFavor = parseNum(c.saldo_favor || 0);
-    return (deuda - saldoFavor) > 0;
+    const deudaNeta = deuda - saldoFavor;
+    
+    // Incluir si:
+    // 1. Tiene deuda neta > 0 (lo normal) O
+    // 2. Tiene deuda manual (aunque esté compensada por saldo)
+    return deudaNeta > 0 || c.deuda_manual === true;
   });
   
   const [active, setActive] = useState<string | null>(null);
@@ -2042,58 +2047,81 @@ async function registrarPago() {
       <Card title="Deudores">
         {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas netas.</div>}
         <div className="divide-y divide-slate-800">
-          {clients.map((c: any) => {
-            const detalleDeudas = calcularDetalleDeudas(state, c.id);
-            const deudaReal = calcularDeudaTotal(detalleDeudas);
-            const saldoFavor = parseNum(c.saldo_favor || 0);
-            const deudaNeta = Math.max(0, deudaReal - saldoFavor);
-            
-            if (deudaNeta <= 0) return null;
-            
-            return (
-              <div key={c.id} className="border border-slate-700 rounded-lg p-4 mb-3">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="font-semibold">{c.name} (N° {c.number})</div>
-                    <div className="text-sm text-slate-400 mt-1">
-                      Deuda neta: <span className="text-red-400 font-semibold">{money(deudaNeta)}</span>
-                      {saldoFavor > 0 && (
-                        <span className="ml-2">
-                          (Deuda real: {money(deudaReal)} - Saldo a favor: {money(saldoFavor)})
-                        </span>
-                      )}
-                    </div>
-                    
-                    {/* Detalle de facturas pendientes */}
-                    <div className="mt-2 text-xs">
-                      {detalleDeudas.slice(0, 3).map((deuda, idx) => (
-                        <div key={idx} className="flex justify-between">
-                          <span>Factura #{deuda.factura_numero}</span>
-                          <span>{money(deuda.monto_debe)}</span>
-                        </div>
-                      ))}
-                      {detalleDeudas.length > 3 && (
-                        <div className="text-slate-500">
-                          +{detalleDeudas.length - 3} facturas más...
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-2 shrink-0">
-                    <Button tone="slate" onClick={() => verDetalleDeudas(c.id)}>
-                      📋 Detalle
-                    </Button>
-                    <Button tone="slate" onClick={() => setActive(c.id)}>
-                      💳 Pagar
-                    </Button>
-                  </div>
-                </div>
+     {clients.map((c: any) => {
+  const detalleDeudas = calcularDetalleDeudas(state, c.id);
+  const deudaReal = calcularDeudaTotal(detalleDeudas);
+  const saldoFavor = parseNum(c.saldo_favor || 0);
+  const deudaNeta = Math.max(0, deudaReal - saldoFavor);
+  
+  // NO hacer return null aquí - mostrar todos los que pasaron el filtro
+  return (
+    <div key={c.id} className="border border-slate-700 rounded-lg p-4 mb-3">
+      <div className="flex justify-between items-start">
+        <div className="flex-1">
+          <div className="font-semibold flex items-center gap-2">
+            {c.name} (N° {c.number})
+            {c.deuda_manual && (
+              <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-amber-800 text-amber-200 border border-amber-700">
+                ⚠️ Deuda Manual
+              </span>
+            )}
+          </div>
+          
+          <div className="text-sm text-slate-400 mt-1">
+            {/* Mostrar información clara de la deuda */}
+            {deudaNeta > 0 ? (
+              <>
+                Deuda neta: <span className="text-red-400 font-semibold">{money(deudaNeta)}</span>
+                <span className="ml-2 text-slate-500">
+                  (Deuda: {money(deudaReal)} - Saldo: {money(saldoFavor)})
+                </span>
+              </>
+            ) : c.deuda_manual ? (
+              <>
+                <span className="text-amber-400 font-semibold">Deuda compensada: {money(deudaReal)}</span>
+                <span className="ml-2 text-slate-500">
+                  - Saldo a favor: {money(saldoFavor)} = <span className="text-green-400">$0 neto</span>
+                </span>
+              </>
+            ) : null}
+          </div>
+          
+          {/* Detalle de facturas pendientes */}
+          <div className="mt-2 text-xs">
+            {detalleDeudas.slice(0, 3).map((deuda, idx) => (
+              <div key={idx} className="flex justify-between">
+                <span>Factura #{deuda.factura_numero}</span>
+                <span>{money(deuda.monto_debe)}</span>
               </div>
-            );
-          })}
+            ))}
+            {detalleDeudas.length > 3 && (
+              <div className="text-slate-500">
+                +{detalleDeudas.length - 3} facturas más...
+              </div>
+            )}
+            
+            {/* Mensaje especial para deudas compensadas */}
+            {deudaNeta <= 0 && c.deuda_manual && (
+              <div className="mt-2 p-2 bg-amber-900/20 border border-amber-700/50 rounded text-amber-300">
+                ⚠️ Este cliente tiene deuda manual compensada por saldo a favor.
+                Puede registrar pagos para reducir el saldo a favor.
+              </div>
+            )}
+          </div>
         </div>
-      </Card>
+        
+        <div className="flex gap-2 shrink-0">
+          <Button tone="slate" onClick={() => verDetalleDeudas(c.id)}>
+            📋 Detalle
+          </Button>
+          <Button tone="slate" onClick={() => setActive(c.id)}>
+            💳 Pagar
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+})}
 
       {active && (
         <Card title="Registrar pago">
