@@ -6500,52 +6500,29 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
   const [loading, setLoading] = useState(false);
 
   const APP_TITLE = "Sistema de Gestión y Facturación — By Tobias Carrizo";
+async function handleSubmit(e: any) {
+  e.preventDefault();
+  setLoading(true);
 
-  async function handleSubmit(e: any) {
-    e.preventDefault();
-    setLoading(true);
+  try {
+    // ✅ SIEMPRE usar el login local, aunque tenga Supabase
+    console.log('🔐 Intentando login con:', { role, email });
 
-    try {
-      if (!hasSupabase) {
-        // Fallback al sistema local si no hay Supabase
-        handleLocalLogin();
-        setLoading(false);
-        return;
-      }
-
-      console.log('🔐 Intentando login con:', email);
-
-      // Autenticación REAL con Supabase
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: password
-      });
-
-      if (error) {
-        console.error('❌ Error de login:', error);
-        alert(`Error de autenticación: ${error.message}`);
-        setLoading(false);
-        return;
-      }
-
-      if (data.session) {
-        console.log('✅ Login exitoso:', data.session.user.email);
-        
-        // Usar datos básicos del usuario (por ahora sin perfil)
-        onLogin({
-          role: 'admin', // Por defecto admin
-          name: data.session.user.email,
-          id: data.session.user.id,
-          email: data.session.user.email
-        });
-      }
-    } catch (error) {
-      console.error('💥 Error en login:', error);
-      alert('Error al iniciar sesión');
-    } finally {
-      setLoading(false);
+    if (hasSupabase) {
+      // Solo verificar conexión, pero NO usar auth de Supabase
+      console.log('✅ Conectado a Supabase, usando login local');
     }
+
+    // 🔥 EJECUTAR SIEMPRE EL LOGIN LOCAL
+    handleLocalLogin();
+    
+  } catch (error) {
+    console.error('💥 Error en login:', error);
+    alert('Error al iniciar sesión');
+  } finally {
+    setLoading(false);
   }
+}
 
   // Función de login local (backup)
   function handleLocalLogin() {
@@ -6613,81 +6590,55 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
 
         <Card title="Ingreso">
           <form className="space-y-3" onSubmit={handleSubmit}>
-            {!hasSupabase ? (
-              // Login local
-              <>
-                <Select
-                  label="Rol"
-                  value={role}
-                  onChange={setRole}
-                  options={[
-                    { value: "vendedor", label: "Vendedor" },
-                    { value: "admin", label: "Admin" },
-                    { value: "cliente", label: "Cliente - Panel Presencial" },
-                    { value: "pedido-online", label: "Hacer Pedido Online" },
-                  ]}
-                />
+          {/* SIEMPRE mostrar el login local */}
+<Select
+  label="Rol"
+  value={role}
+  onChange={setRole}
+  options={[
+    { value: "vendedor", label: "Vendedor" },
+    { value: "admin", label: "Admin" },
+    { value: "cliente", label: "Cliente - Panel Presencial" },
+    { value: "pedido-online", label: "Hacer Pedido Online" },
+  ]}
+/>
 
-                {role === "vendedor" && (
-                  <>
-                    <Input
-                      label="Vendedor (nombre o ID)"
-                      value={email}
-                      onChange={setEmail}
-                      placeholder="Ej: Tobi o v1"
-                    />
-                    <Input
-                      label="Clave"
-                      value={password}
-                      onChange={setPassword}
-                      placeholder="Clave asignada"
-                      type="password"
-                    />
-                  </>
-                )}
+{role === "vendedor" && (
+  <>
+    <Input
+      label="Vendedor (nombre o ID)"
+      value={email}
+      onChange={setEmail}
+      placeholder="Ej: Tobi o v1"
+    />
+    <Input
+      label="Clave"
+      value={password}
+      onChange={setPassword}
+      placeholder="Clave asignada"
+      type="password"
+    />
+  </>
+)}
 
-                {role === "admin" && (
-                  <Input
-                    label="Clave admin"
-                    value={password}
-                    onChange={setPassword}
-                    placeholder="Clave de administrador"
-                    type="password"
-                  />
-                )}
+{role === "admin" && (
+  <Input
+    label="Clave admin"
+    value={password}
+    onChange={setPassword}
+    placeholder="Clave de administrador"
+    type="password"
+  />
+)}
 
-                {(role === "cliente" || role === "pedido-online") && (
-                  <Input
-                    label="N° de cliente"
-                    value={email}
-                    onChange={setEmail}
-                    placeholder="Ej: 1001"
-                  />
-                )}
-              </>
-            ) : (
-              // Login con Supabase
-              <>
-                <div className="text-xs text-slate-400 mb-2">
-                  Usa: admin@mitobicel.com / 123456
-                </div>
-                <Input
-                  label="Email"
-                  value={email}
-                  onChange={setEmail}
-                  placeholder="admin@mitobicel.com"
-                  type="email"
-                />
-                <Input
-                  label="Contraseña"
-                  value={password}
-                  onChange={setPassword}
-                  placeholder="123456"
-                  type="password"
-                />
-              </>
-            )}
-
+{(role === "cliente" || role === "pedido-online") && (
+  <Input
+    label="N° de cliente"
+    value={email}
+    onChange={setEmail}
+    placeholder="Ej: 1001"
+  />
+)}
             <div className="flex items-center justify-end">
               <Button type="submit" disabled={loading}>
                 {loading ? "Iniciando sesión..." : "Entrar"}
