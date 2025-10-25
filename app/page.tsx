@@ -1086,65 +1086,72 @@ function ProductosTab({ state, setState, role }: any) {
   const [stockMinimo, setStockMinimo] = useState("");
   const [cost, setCost] = useState("");
   const [editando, setEditando] = useState<string | null>(null);
-  const [ingresoStock, setIngresoStock] = useState({ productoId: "", cantidad: "", costo: "" });
+  
+  // 👇👇👇 ESTADO PARA INGRESO DE STOCK
+  const [ingresoStock, setIngresoStock] = useState({ 
+    productoId: "", 
+    cantidad: "", 
+    costo: "" 
+  });
 
   const productosBajoStock = state.products.filter(
     (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
   );
-// 👇👇👇 FUNCIÓN COMPLETA DE INGRESO DE STOCK CON COMPARACIONES
-async function agregarStock() {
-  const producto = state.products.find((p: any) => p.id === ingresoStock.productoId);
-  if (!producto) return alert("Selecciona un producto");
-  
-  const cantidad = parseNum(ingresoStock.cantidad);
-  const nuevoCosto = parseNum(ingresoStock.costo);
-  
-  if (cantidad <= 0) return alert("La cantidad debe ser mayor a 0");
-  if (nuevoCosto < 0) return alert("El costo no puede ser negativo");
 
-  const st = clone(state);
-  const prod = st.products.find((p: any) => p.id === ingresoStock.productoId);
-  
-  if (prod) {
-    const stockAnterior = parseNum(prod.stock);
-    const costoAnterior = parseNum(prod.cost || 0);
+  // 👇👇👇 FUNCIÓN COMPLETA DE INGRESO DE STOCK CON COMPARACIONES
+  async function agregarStock() {
+    const producto = state.products.find((p: any) => p.id === ingresoStock.productoId);
+    if (!producto) return alert("Selecciona un producto");
     
-    // Actualizar stock
-    prod.stock = stockAnterior + cantidad;
+    const cantidad = parseNum(ingresoStock.cantidad);
+    const nuevoCosto = parseNum(ingresoStock.costo);
     
-    // Manejar costo - solo actualizar si se ingresó un valor > 0
-    let mensajeCosto = "";
-    if (nuevoCosto > 0) {
-      if (costoAnterior > 0 && nuevoCosto !== costoAnterior) {
-        mensajeCosto = `\n⚠️ ATENCIÓN: Costo cambiado\nAnterior: ${money(costoAnterior)}\nNuevo: ${money(nuevoCosto)}`;
-        prod.cost = nuevoCosto;
-      } else if (costoAnterior === 0) {
-        mensajeCosto = `\n✅ Costo asignado: ${money(nuevoCosto)}`;
-        prod.cost = nuevoCosto;
+    if (cantidad <= 0) return alert("La cantidad debe ser mayor a 0");
+    if (nuevoCosto < 0) return alert("El costo no puede ser negativo");
+
+    const st = clone(state);
+    const prod = st.products.find((p: any) => p.id === ingresoStock.productoId);
+    
+    if (prod) {
+      const stockAnterior = parseNum(prod.stock);
+      const costoAnterior = parseNum(prod.cost || 0);
+      
+      // Actualizar stock
+      prod.stock = stockAnterior + cantidad;
+      
+      // Manejar costo - solo actualizar si se ingresó un valor > 0
+      let mensajeCosto = "";
+      if (nuevoCosto > 0) {
+        if (costoAnterior > 0 && nuevoCosto !== costoAnterior) {
+          mensajeCosto = `\n⚠️ ATENCIÓN: Costo cambiado\nAnterior: ${money(costoAnterior)}\nNuevo: ${money(nuevoCosto)}`;
+          prod.cost = nuevoCosto;
+        } else if (costoAnterior === 0) {
+          mensajeCosto = `\n✅ Costo asignado: ${money(nuevoCosto)}`;
+          prod.cost = nuevoCosto;
+        }
       }
-    }
-    
-    setState(st);
+      
+      setState(st);
 
-    if (hasSupabase) {
-      await supabase
-        .from("products")
-        .update({ 
-          stock: prod.stock,
-          ...(nuevoCosto > 0 && { cost: nuevoCosto })
-        })
-        .eq("id", ingresoStock.productoId);
+      if (hasSupabase) {
+        await supabase
+          .from("products")
+          .update({ 
+            stock: prod.stock,
+            ...(nuevoCosto > 0 && { cost: nuevoCosto })
+          })
+          .eq("id", ingresoStock.productoId);
+      }
+      
+      // Mostrar comparación COMPLETA
+      const mensaje = `✅ STOCK ACTUALIZADO\n\n📦 ${producto.name}\n\n📊 Stock:\nAnterior: ${stockAnterior}\nAgregado: +${cantidad}\nNuevo: ${prod.stock}\nMínimo: ${prod.stock_minimo || 0}\n\n${mensajeCosto}\n\n${prod.stock >= (prod.stock_minimo || 0) ? '✅ Stock suficiente' : '⚠️ Stock por debajo del mínimo'}`;
+      
+      alert(mensaje);
+      
+      // Limpiar formulario
+      setIngresoStock({ productoId: "", cantidad: "", costo: "" });
     }
-    
-    // Mostrar comparación COMPLETA
-    const mensaje = `✅ STOCK ACTUALIZADO\n\n📦 ${producto.name}\n\n📊 Stock:\nAnterior: ${stockAnterior}\nAgregado: +${cantidad}\nNuevo: ${prod.stock}\nMínimo: ${prod.stock_minimo || 0}\n\n${mensajeCosto}\n\n${prod.stock >= (prod.stock_minimo || 0) ? '✅ Stock suficiente' : '⚠️ Stock por debajo del mínimo'}`;
-    
-    alert(mensaje);
-    
-    // Limpiar formulario
-    setIngresoStock({ productoId: "", cantidad: "", costo: "" });
   }
-}
 
   async function addProduct() {
     if (!name.trim()) return;
@@ -1164,11 +1171,13 @@ async function agregarStock() {
     const st = clone(state);
     
     if (editando) {
+      // Editar producto existente
       const index = st.products.findIndex((p: any) => p.id === editando);
       if (index !== -1) {
         st.products[index] = { ...st.products[index], ...product };
       }
     } else {
+      // Agregar nuevo producto
       st.products.push(product);
     }
     
@@ -1244,7 +1253,7 @@ async function agregarStock() {
       )}
       
       {/* 👇👇👇 SECCIÓN DE INGRESO DE STOCK RESTAURADA */}
-      <Card title="Ingresar Stock">
+      <Card title="📦 Ingresar Stock">
         <div className="grid md:grid-cols-4 gap-3">
           <Select
             label="Producto"
@@ -1271,14 +1280,20 @@ async function agregarStock() {
             placeholder="0"
           />
           <div className="pt-6">
-            <Button onClick={agregarStock} disabled={!ingresoStock.productoId || !ingresoStock.cantidad}>
+            <Button 
+              onClick={agregarStock} 
+              disabled={!ingresoStock.productoId || !ingresoStock.cantidad}
+            >
               Ingresar Stock
             </Button>
           </div>
         </div>
+        <div className="mt-2 text-xs text-slate-400">
+          💡 El costo solo se actualizará si es diferente al actual o si no tenía costo asignado.
+        </div>
       </Card>
 
-      <Card title={editando ? "Editar producto" : "Crear producto"}>
+      <Card title={editando ? "✏️ Editar producto" : "➕ Crear producto"}>
         <div className="grid md:grid-cols-6 gap-3">
           <Input label="Nombre" value={name} onChange={setName} />
           <Input label="Sección" value={section} onChange={setSection} placeholder="General" />
@@ -1309,7 +1324,7 @@ async function agregarStock() {
         </div>
       </Card>
 
-      <Card title="Listado de productos">
+      <Card title="📋 Listado de productos">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-slate-400">
