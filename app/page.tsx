@@ -1083,58 +1083,141 @@ function ProductosTab({ state, setState, role }: any) {
   const [price1, setPrice1] = useState("");
   const [price2, setPrice2] = useState("");
   const [stock, setStock] = useState("");
+  const [stockMinimo, setStockMinimo] = useState("");
+  const [cost, setCost] = useState("");
+  const [editando, setEditando] = useState<string | null>(null);
+  const [ingresoStock, setIngresoStock] = useState({ productoId: "", cantidad: "", costo: "" });
 
   const productosBajoStock = state.products.filter(
     (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
   );
 
+  // 👇👇👇 FUNCIÓN ORIGINAL DE INGRESO DE STOCK
+  async function agregarStock() {
+    const producto = state.products.find((p: any) => p.id === ingresoStock.productoId);
+    if (!producto) return alert("Selecciona un producto");
+    
+    const cantidad = parseNum(ingresoStock.cantidad);
+    const costo = parseNum(ingresoStock.costo);
+    
+    if (cantidad <= 0) return alert("La cantidad debe ser mayor a 0");
+    if (costo < 0) return alert("El costo no puede ser negativo");
+
+    const st = clone(state);
+    const prod = st.products.find((p: any) => p.id === ingresoStock.productoId);
+    
+    if (prod) {
+      const stockAnterior = parseNum(prod.stock);
+      prod.stock = stockAnterior + cantidad;
+      
+      // Solo actualizar costo si se ingresó un valor
+      if (costo > 0) {
+        prod.cost = costo;
+      }
+      
+      setState(st);
+
+      if (hasSupabase) {
+        await supabase
+          .from("products")
+          .update({ 
+            stock: prod.stock,
+            ...(costo > 0 && { cost: costo })
+          })
+          .eq("id", ingresoStock.productoId);
+      }
+      
+      // Mostrar comparación de stock
+      const mensaje = `✅ Stock actualizado:\n${producto.name}\nStock anterior: ${stockAnterior}\nStock nuevo: ${prod.stock}\n${costo > 0 ? `Costo actualizado: ${money(costo)}` : ''}`;
+      
+      alert(mensaje);
+      
+      // Limpiar formulario
+      setIngresoStock({ productoId: "", cantidad: "", costo: "" });
+    }
+  }
+
   async function addProduct() {
     if (!name.trim()) return;
 
     const product = {
-      id: "p" + Math.random().toString(36).slice(2, 8),
+      id: editando || "p" + Math.random().toString(36).slice(2, 8),
       name: name.trim(),
       section: section.trim() || "General",
       price1: parseNum(price1),
       price2: parseNum(price2),
       stock: parseNum(stock),
-      stock_minimo: 0,
+      stock_minimo: parseNum(stockMinimo),
+      cost: parseNum(cost),
+      list_label: "General"
     };
- // 👇👇👇 AGREGAR ESTO JUSTO AQUÍ 👇👇👇
-  console.log("🔍 PRODUCTO A GUARDAR:", product);
-  console.log("🔍 hasSupabase:", hasSupabase);
-  
-    
+
     const st = clone(state);
-    st.products.push(product);
+    
+    if (editando) {
+      const index = st.products.findIndex((p: any) => p.id === editando);
+      if (index !== -1) {
+        st.products[index] = { ...st.products[index], ...product };
+      }
+    } else {
+      st.products.push(product);
+    }
+    
     setState(st);
     
+    // Limpiar formulario
     setName("");
     setPrice1("");
     setPrice2("");
     setStock("");
+    setStockMinimo("");
+    setCost("");
     setSection("");
+    setEditando(null);
 
     if (hasSupabase) {
-      
-      const { error } = await supabase.from("products").insert({
-        id: product.id,
-        name: product.name,
-        section: product.section,
-        list_label: "General",
-        price1: product.price1,
-        price2: product.price2,
-        cost: 0,
-        stock: product.stock,
-        stock_min: 0
-      });
-
-      if (error) {
-        console.error("Error guardando producto:", error);
-        alert("Error al guardar: " + error.message);
-        return;
+      if (editando) {
+        await supabase
+          .from("products")
+          .update({
+            name: product.name,
+            section: product.section,
+            price1: product.price1,
+            price2: product.price2,
+            stock: product.stock,
+            stock_min: product.stock_minimo,
+            cost: product.cost
+          })
+          .eq("id", product.id);
+      } else {
+        await supabase.from("products").insert(product);
       }
     }
+  }
+
+  function editarProducto(producto: any) {
+    setName(producto.name);
+    setSection(producto.section);
+    setPrice1(String(producto.price1));
+    setPrice2(String(producto.price2));
+    setStock(String(producto.stock));
+    setStockMinimo(String(producto.stock_minimo || ""));
+    setCost(String(producto.cost || ""));
+    setEditando(producto.id);
+  }
+
+  async function eliminarProducto(productoId: string) {
+    if (!confirm("¿Estás seguro de eliminar este producto?")) return;
+    
+    const st = clone(state);
+    st.products = st.products.filter((p: any) => p.id !== productoId);
+    setState(st);
+
+    if (hasSupabase) {
+      await supabase.from("products").delete().eq("id", productoId);
+    }
+    
+    alert("Producto eliminado correctamente");
   }
 
   return (
@@ -1151,15 +1234,68 @@ function ProductosTab({ state, setState, role }: any) {
         </Card>
       )}
       
-      <Card title="Crear producto">
-        <div className="grid md:grid-cols-5 gap-3">
+      {/* 👇👇👇 SECCIÓN DE INGRESO DE STOCK RESTAURADA */}
+      <Card title="Ingresar Stock">
+        <div className="grid md:grid-cols-4 gap-3">
+          <Select
+            label="Producto"
+            value={ingresoStock.productoId}
+            onChange={(v: string) => setIngresoStock({...ingresoStock, productoId: v})}
+            options={[
+              { value: "", label: "— Seleccionar —" },
+              ...state.products.map((p: any) => ({
+                value: p.id,
+                label: `${p.name} (Stock: ${p.stock})`
+              }))
+            ]}
+          />
+          <NumberInput
+            label="Cantidad a agregar"
+            value={ingresoStock.cantidad}
+            onChange={(v: string) => setIngresoStock({...ingresoStock, cantidad: v})}
+            placeholder="0"
+          />
+          <NumberInput
+            label="Costo unitario (opcional)"
+            value={ingresoStock.costo}
+            onChange={(v: string) => setIngresoStock({...ingresoStock, costo: v})}
+            placeholder="0"
+          />
+          <div className="pt-6">
+            <Button onClick={agregarStock} disabled={!ingresoStock.productoId || !ingresoStock.cantidad}>
+              Ingresar Stock
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card title={editando ? "Editar producto" : "Crear producto"}>
+        <div className="grid md:grid-cols-6 gap-3">
           <Input label="Nombre" value={name} onChange={setName} />
           <Input label="Sección" value={section} onChange={setSection} placeholder="General" />
           <NumberInput label="Precio 1" value={price1} onChange={setPrice1} />
           <NumberInput label="Precio 2" value={price2} onChange={setPrice2} />
-          <NumberInput label="Stock" value={stock} onChange={setStock} />
-          <div className="md:col-span-5">
-            <Button onClick={addProduct}>Agregar</Button>
+          <NumberInput label="Stock inicial" value={stock} onChange={setStock} />
+          <NumberInput label="Stock mínimo" value={stockMinimo} onChange={setStockMinimo} placeholder="0" />
+          <NumberInput label="Costo" value={cost} onChange={setCost} placeholder="0" />
+          <div className="md:col-span-6 flex gap-2">
+            <Button onClick={addProduct}>
+              {editando ? "Actualizar" : "Agregar"}
+            </Button>
+            {editando && (
+              <Button tone="slate" onClick={() => {
+                setEditando(null);
+                setName("");
+                setPrice1("");
+                setPrice2("");
+                setStock("");
+                setStockMinimo("");
+                setCost("");
+                setSection("");
+              }}>
+                Cancelar
+              </Button>
+            )}
           </div>
         </div>
       </Card>
@@ -1174,16 +1310,43 @@ function ProductosTab({ state, setState, role }: any) {
                 <th className="py-2 pr-4">Precio 1</th>
                 <th className="py-2 pr-4">Precio 2</th>
                 <th className="py-2 pr-4">Stock</th>
+                <th className="py-2 pr-4">Mínimo</th>
+                <th className="py-2 pr-4">Costo</th>
+                <th className="py-2 pr-4">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
               {state.products.map((p: any) => (
-                <tr key={p.id}>
+                <tr key={p.id} className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "bg-red-900/20" : ""}>
                   <td className="py-2 pr-4">{p.name}</td>
                   <td className="py-2 pr-4">{p.section}</td>
                   <td className="py-2 pr-4">{money(p.price1)}</td>
                   <td className="py-2 pr-4">{money(p.price2)}</td>
-                  <td className="py-2 pr-4">{p.stock}</td>
+                  <td className="py-2 pr-4">
+                    <span className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "text-red-400 font-bold" : ""}>
+                      {p.stock}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4">{p.stock_minimo || 0}</td>
+                  <td className="py-2 pr-4">{money(p.cost || 0)}</td>
+                  <td className="py-2 pr-4">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => editarProducto(p)}
+                        className="text-blue-400 hover:text-blue-300 text-sm"
+                        title="Editar"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => eliminarProducto(p.id)}
+                        className="text-red-400 hover:text-red-300 text-sm"
+                        title="Eliminar"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1224,17 +1387,22 @@ function DeudoresTab({ state, setState }: any) {
 async function registrarPago() {
   const cl = state.clients.find((c: any) => c.id === active);
   if (!cl) return;
+  
   const totalPago = parseNum(cash) + parseNum(transf);
   if (totalPago <= 0) return alert("Importe inválido.");
 
   const st = clone(state);
   const client = st.clients.find((c: any) => c.id === active)!;
 
-  // 👇👇👇 CALCULO CORREGIDO - Usar el detalle REAL de deudas
+  // Calcular deuda REAL del cliente
   const detalleDeudas = calcularDetalleDeudas(st, active);
   const deudaReal = calcularDeudaTotal(detalleDeudas);
   
   console.log(`💳 Pago: ${totalPago}, Deuda real: ${deudaReal}`);
+
+  if (totalPago > deudaReal) {
+    return alert(`El pago (${money(totalPago)}) supera la deuda real (${money(deudaReal)})`);
+  }
 
   const aplicado = Math.min(totalPago, deudaReal);
   
@@ -1267,7 +1435,7 @@ async function registrarPago() {
 
   console.log(`📊 Deuda actualizada: ${deudaAnterior} -> ${nuevaDeuda}`);
 
-  // ⭐⭐ NUEVO: Guardar en debt_payments con el detalle de aplicación
+  // Guardar en debt_payments
   const number = st.meta.invoiceCounter++;
   const id = "dp_" + number;
 
@@ -1283,13 +1451,11 @@ async function registrarPago() {
     transfer_amount: parseNum(transf),
     total_amount: aplicado,
     alias: alias.trim(),
-    aplicaciones: aplicaciones, // 👈 NUEVO: Guardar el detalle de aplicación
+    aplicaciones: aplicaciones,
     debt_before: deudaAnterior,
     debt_after: nuevaDeuda,
-    deuda_real_antes: deudaReal, // 👈 NUEVO: Guardar la deuda real calculada
+    deuda_real_antes: deudaReal,
   };
-
-  console.log("💾 Guardando pago de deudor:", debtPayment);
 
   // Guardar en debt_payments
   st.debt_payments = st.debt_payments || [];
@@ -1300,50 +1466,13 @@ async function registrarPago() {
   // Persistencia en Supabase
   if (hasSupabase) {
     try {
-      console.log("📦 Intentando guardar en debt_payments...");
-      
-      const { data, error } = await supabase
-        .from("debt_payments")
-        .insert({
-          id: debtPayment.id,
-          number: debtPayment.number,
-          date_iso: debtPayment.date_iso,
-          client_id: debtPayment.client_id,
-          client_name: debtPayment.client_name,
-          vendor_id: debtPayment.vendor_id,
-          vendor_name: debtPayment.vendor_name,
-          cash_amount: debtPayment.cash_amount,
-          transfer_amount: debtPayment.transfer_amount,
-          total_amount: debtPayment.total_amount,
-          alias: debtPayment.alias,
-          aplicaciones: debtPayment.aplicaciones, // 👈 NUEVO
-          debt_before: debtPayment.debt_before,
-          debt_after: debtPayment.debt_after,
-          deuda_real_antes: debtPayment.deuda_real_antes, // 👈 NUEVO
-        })
-        .select();
-
-      if (error) {
-        console.error("❌ ERROR guardando en debt_payments:", error);
-        alert("Error al guardar el pago: " + error.message);
-        return;
-      }
-
-      // Actualizar cliente en Supabase
-      const { error: clientError } = await supabase.from("clients")
-        .update({ debt: client.debt })
-        .eq("id", client.id);
-
-      if (clientError) {
-        console.error("❌ Error actualizando cliente:", clientError);
-      }
-
-      // Actualizar contadores
+      await supabase.from("debt_payments").insert(debtPayment);
+      await supabase.from("clients").update({ debt: client.debt }).eq("id", client.id);
       await saveCountersSupabase(st.meta);
-
     } catch (error) {
-      console.error("💥 Error crítico:", error);
-      alert("Error completo: " + error.message);
+      console.error("Error guardando pago:", error);
+      alert("Error al guardar el pago: " + error.message);
+      return;
     }
   }
 
@@ -1352,16 +1481,7 @@ async function registrarPago() {
   setAlias("");
   setActive(null);
 
-  // Recargar datos para sincronizar
-  if (hasSupabase) {
-    setTimeout(async () => {
-      const refreshedState = await loadFromSupabase(seedState());
-      setState(refreshedState);
-      console.log("🔄 Datos recargados desde Supabase");
-    }, 1500);
-  }
-
-  // Imprimir comprobante de pago de deuda MEJORADO
+  // Imprimir comprobante
   window.dispatchEvent(new CustomEvent("print-invoice", { 
     detail: { 
       ...debtPayment, 
@@ -1382,7 +1502,7 @@ async function registrarPago() {
         alias: alias.trim()
       },
       status: "Pagado",
-      aplicaciones: aplicaciones, // 👈 NUEVO: Incluir detalle de aplicación
+      aplicaciones: aplicaciones,
       client_debt_total: nuevaDeuda
     } 
   } as any));
@@ -2393,6 +2513,7 @@ async function updateGabiSpentForDay(gastado: number) {
           Total adeudado en facturas del día
         </div>
       </Card>
+      
       {/* 👇👇👇 SECCIÓN GABI - AGREGAR JUSTO AQUÍ 👇👇👇 */}
      
 
