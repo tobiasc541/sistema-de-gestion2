@@ -1419,13 +1419,68 @@ async function cancelarDeuda(clienteId: string) {
               </div>
             </div>
 
-            <div className="text-xs text-slate-400 border-t border-slate-700 pt-2">
-              💡 Las deudas manuales se marcan con ⚠️ y solo deben usarse para casos especiales 
-              (ej: deudas heredadas, ajustes contables, etc.)
-            </div>
-          </div>
-        </Card>
-      )}
+       
+      {/* 👇👇👇 AQUÍ VA EL BOTÓN NUEVO - JUSTO AQUÍ */}
+      <div className="border-t border-slate-700 pt-3">
+        <div className="text-xs text-slate-400 mb-2">
+          Herramientas de mantenimiento:
+        </div>
+        <Button 
+          tone="red" 
+          onClick={async () => {
+            if (!confirm("¿Estás seguro de limpiar todas las deudas inconsistentes? Esto revisará todos los clientes y ajustará las deudas según los pagos registrados.")) return;
+
+            const st = clone(state);
+            let clientesCorregidos = 0;
+
+            st.clients.forEach((cliente: any) => {
+              const detalleDeudas = calcularDetalleDeudas(st, cliente.id);
+              const deudaReal = calcularDeudaTotal(detalleDeudas, cliente);
+              const deudaActual = parseNum(cliente.debt);
+              
+              // Si hay diferencia, corregir
+              if (Math.abs(deudaReal - deudaActual) > 0.01) {
+                console.log(`🔧 Corrigiendo ${cliente.name}: ${money(deudaActual)} → ${money(deudaReal)}`);
+                cliente.debt = deudaReal;
+                clientesCorregidos++;
+              }
+            });
+
+            setState(st);
+
+            if (hasSupabase && clientesCorregidos > 0) {
+              try {
+                // Actualizar todos los clientes corregidos
+                for (const cliente of st.clients) {
+                  await supabase
+                    .from("clients")
+                    .update({ debt: cliente.debt })
+                    .eq("id", cliente.id);
+                }
+                
+                alert(`✅ ${clientesCorregidos} clientes corregidos. Deudas actualizadas según pagos registrados.`);
+              } catch (error) {
+                console.error("Error al actualizar clientes:", error);
+                alert("Error al guardar las correcciones en la base de datos.");
+              }
+            } else if (clientesCorregidos === 0) {
+              alert("✅ No se encontraron deudas inconsistentes.");
+            }
+          }}
+          className="w-full"
+        >
+          🧹 Limpiar Deudas Inconsistentes
+        </Button>
+      </div>
+      {/* 👆👆👆 HASTA AQUÍ EL BOTÓN NUEVO */}
+
+      <div className="text-xs text-slate-400 border-t border-slate-700 pt-2">
+        💡 Las deudas manuales se marcan con ⚠️ y solo deben usarse para casos especiales 
+        (ej: deudas heredadas, ajustes contables, etc.)
+      </div>
+    </div>
+  </Card>
+)}
     </div>
   );
 }
@@ -1739,7 +1794,7 @@ function ProductosTab({ state, setState, role }: any) {
   );
 }
 
-
+// 👇👇👇 REEMPLAZAR LA FUNCIÓN DeudoresTab COMPLETA con esta versión corregida
 function DeudoresTab({ state, setState }: any) {
   // Filtrar clientes que tengan deuda (facturas O manual)
   const clients = state.clients.filter((c: any) => {
@@ -1756,7 +1811,7 @@ function DeudoresTab({ state, setState }: any) {
   const [alias, setAlias] = useState("");
   const [verDetalle, setVerDetalle] = useState<string | null>(null);
 
-  // Función para ver detalle de deudas
+  // Función para ver detalle de deudas - CORREGIDA
   function verDetalleDeudas(clientId: string) {
     setVerDetalle(clientId);
   }
@@ -1765,6 +1820,23 @@ function DeudoresTab({ state, setState }: any) {
   const detalleDeudasCliente = verDetalle ? calcularDetalleDeudas(state, verDetalle) : [];
   const clienteDetalle = state.clients.find((c: any) => c.id === verDetalle);
   const deudaTotalCliente = calcularDeudaTotal(detalleDeudasCliente, clienteDetalle);
+
+  // 👇👇👇 NUEVA FUNCIÓN: Imprimir detalle de deudas
+  async function imprimirDetalleDeudas() {
+    if (!verDetalle || !clienteDetalle) return;
+    
+    const detalleData = {
+      type: "DetalleDeuda",
+      cliente: clienteDetalle,
+      detalleDeudas: detalleDeudasCliente,
+      deudaTotal: deudaTotalCliente,
+      saldoFavor: parseNum(clienteDetalle.saldo_favor || 0)
+    };
+
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: detalleData } as any));
+    await nextPaint();
+    window.print();
+  }
 
   async function registrarPago() {
     const cl = state.clients.find((c: any) => c.id === active);
@@ -1935,7 +2007,103 @@ function DeudoresTab({ state, setState }: any) {
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
-      {/* ... (el resto del código del modal y UI permanece igual) ... */}
+      {/* MODAL DE DETALLE DE DEUDAS - NUEVO */}
+      {verDetalle && clienteDetalle && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 rounded-2xl border border-slate-700 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-xl font-bold">
+                    Detalle de Deudas - {clienteDetalle.name}
+                  </h2>
+                  <p className="text-slate-400">
+                    N° Cliente: {clienteDetalle.number} | 
+                    Deuda Total: <span className="text-amber-400 font-semibold">{money(deudaTotalCliente)}</span>
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={imprimirDetalleDeudas}>
+                    📄 Imprimir Detalle
+                  </Button>
+                  <Button tone="slate" onClick={() => setVerDetalle(null)}>
+                    ✕ Cerrar
+                  </Button>
+                </div>
+              </div>
+
+              {/* DETALLE DE FACTURAS PENDIENTES */}
+              <div className="space-y-4">
+                {detalleDeudasCliente.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400">
+                    No hay facturas pendientes
+                  </div>
+                ) : (
+                  detalleDeudasCliente.map((deuda: any, index: number) => (
+                    <div key={deuda.factura_id} className="border border-slate-700 rounded-lg p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h3 className="font-semibold">
+                            Factura #{pad(deuda.factura_numero)}
+                          </h3>
+                          <p className="text-sm text-slate-400">
+                            Fecha: {new Date(deuda.fecha).toLocaleDateString("es-AR")}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-amber-400">
+                            {money(deuda.monto_debe)}
+                          </div>
+                          <div className="text-sm text-slate-400">
+                            Total: {money(deuda.monto_total)} | Pagado: {money(deuda.monto_pagado)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ITEMS DE LA FACTURA */}
+                      <div className="text-sm">
+                        <div className="font-semibold mb-2">Productos:</div>
+                        <div className="space-y-1">
+                          {deuda.items.map((item: any, idx: number) => (
+                            <div key={idx} className="flex justify-between">
+                              <span>{item.name} × {item.qty}</span>
+                              <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* RESUMEN FINAL */}
+              <div className="mt-6 p-4 bg-slate-800/50 rounded-lg">
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-2xl font-bold text-amber-400">
+                      {money(deudaTotalCliente)}
+                    </div>
+                    <div className="text-sm text-slate-400">Deuda Total</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold">
+                      {detalleDeudasCliente.length}
+                    </div>
+                    <div className="text-sm text-slate-400">Facturas Pendientes</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-emerald-400">
+                      {money(parseNum(clienteDetalle.saldo_favor || 0))}
+                    </div>
+                    <div className="text-sm text-slate-400">Saldo a Favor</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Card title="Deudores">
         {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas.</div>}
@@ -5987,7 +6155,47 @@ function Login({ onLogin, vendors, adminKey, clients }: any) {
     </div>
   );
 }
+// 👇👇👇 AGREGAR ESTA FUNCIÓN EN ClientesTab (en el panel de admin)
+async function limpiarDeudasInconsistentes() {
+  if (!confirm("¿Estás seguro de limpiar todas las deudas inconsistentes? Esto revisará todos los clientes y ajustará las deudas según los pagos registrados.")) return;
 
+  const st = clone(state);
+  let clientesCorregidos = 0;
+
+  st.clients.forEach((cliente: any) => {
+    const detalleDeudas = calcularDetalleDeudas(st, cliente.id);
+    const deudaReal = calcularDeudaTotal(detalleDeudas, cliente);
+    const deudaActual = parseNum(cliente.debt);
+    
+    // Si hay diferencia, corregir
+    if (Math.abs(deudaReal - deudaActual) > 0.01) {
+      console.log(`🔧 Corrigiendo ${cliente.name}: ${money(deudaActual)} → ${money(deudaReal)}`);
+      cliente.debt = deudaReal;
+      clientesCorregidos++;
+    }
+  });
+
+  setState(st);
+
+  if (hasSupabase && clientesCorregidos > 0) {
+    try {
+      // Actualizar todos los clientes corregidos
+      for (const cliente of st.clients) {
+        await supabase
+          .from("clients")
+          .update({ debt: cliente.debt })
+          .eq("id", cliente.id);
+      }
+      
+      alert(`✅ ${clientesCorregidos} clientes corregidos. Deudas actualizadas según pagos registrados.`);
+    } catch (error) {
+      console.error("Error al actualizar clientes:", error);
+      alert("Error al guardar las correcciones en la base de datos.");
+    }
+  } else if (clientesCorregidos === 0) {
+    alert("✅ No se encontraron deudas inconsistentes.");
+  }
+}
 /* ===== Página principal ===== */
 export default function Page() {
   const [state, setState] = useState<any>(seedState());
