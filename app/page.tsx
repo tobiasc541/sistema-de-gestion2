@@ -473,37 +473,50 @@ function groupBy(arr: any[], key: string) {
   }, {} as any);
 }
 /* ===== FUNCIONES PARA COMPROBANTES ===== */
-// Función para subir comprobante a Supabase Storage
+// Función para subir comprobante a Supabase Storage - CORREGIDA
 async function subirComprobante(archivo: File, tipo: 'factura' | 'debt_payment', id: string): Promise<string> {
   if (!hasSupabase) {
     throw new Error('Supabase no está configurado');
   }
 
   try {
-    // Crear nombre único para el archivo
+    console.log('=== INICIANDO SUBIDA ===');
+    
+    // 1. Verificar autenticación
+    const { data: authData } = await supabase.auth.getSession();
+    console.log('Usuario autenticado:', !!authData.session);
+
+    // 2. Crear nombre único para el archivo (SIN la carpeta comprobantes/)
     const extension = archivo.name.split('.').pop();
     const nombreArchivo = `${tipo}_${id}_${Date.now()}.${extension}`;
-    const rutaStorage = `comprobantes/${nombreArchivo}`;
+    
+    console.log('Subiendo archivo:', {
+      nombreArchivo,
+      bucket: 'comprobantes',
+      tamaño: archivo.size,
+      tipo: archivo.type
+    });
 
-    // Subir archivo a Supabase Storage
+    // 3. Subir archivo a Supabase Storage (SIN la carpeta comprobantes/)
     const { data, error } = await supabase.storage
       .from('comprobantes')
-      .upload(rutaStorage, archivo);
+      .upload(nombreArchivo, archivo); // ← QUITAR 'comprobantes/'
 
     if (error) {
+      console.error('ERROR Supabase:', error);
       throw new Error(`Error al subir archivo: ${error.message}`);
     }
 
-    // Obtener URL pública
+    console.log('Archivo subido exitosamente:', data);
+
+    // 4. Obtener URL pública
     const { data: urlData } = supabase.storage
       .from('comprobantes')
-      .getPublicUrl(rutaStorage);
+      .getPublicUrl(nombreArchivo); // ← QUITAR 'comprobantes/'
 
-    if (!urlData.publicUrl) {
-      throw new Error('No se pudo obtener la URL pública del archivo');
-    }
-
+    console.log('URL pública generada:', urlData.publicUrl);
     return urlData.publicUrl;
+
   } catch (error) {
     console.error('Error subiendo comprobante:', error);
     throw error;
