@@ -52,6 +52,16 @@ type DebtPayment = {
   aplicaciones?: any[];  // 👈 ESTA LÍNEA ES CRÍTICA
   deuda_real_antes?: number;
 };
+type Cliente = {
+  id: string;
+  number: number;
+  name: string;
+  debt: number;
+  saldo_favor: number;
+  creado_por?: string; // Para saber quién creó el cliente
+  fecha_creacion?: string;
+  deuda_manual?: boolean; // Para identificar si la deuda fue asignada manualmente
+};
 /* ===== helpers ===== */
 const pad = (n: number, width = 8) => String(n).padStart(width, "0");
 const money = (n: number) =>
@@ -327,6 +337,7 @@ const Chip = ({ children, tone = "slate" }: any) => (
 
 /* ===== helpers de negocio ===== */
 function ensureUniqueNumber(clients: any[]) {
+  if (!clients || clients.length === 0) return 1000;
   const max = clients.reduce((m, c) => Math.max(m, c.number || 0), 1000);
   return max + 1;
 }
@@ -1011,84 +1022,346 @@ const toPay = Math.max(0, total - applied);
 }
 
 /* Clientes */
-function ClientesTab({ state, setState }: any) {
+function ClientesTab({ state, setState, session }: any) {
   const [name, setName] = useState("");
   const [number, setNumber] = useState(ensureUniqueNumber(state.clients));
+  const [deudaInicial, setDeudaInicial] = useState(""); // 👈 NUEVO ESTADO
+  const [saldoFavorInicial, setSaldoFavorInicial] = useState(""); // 👈 NUEVO ESTADO
+  const [modoAdmin, setModoAdmin] = useState(false); // 👈 NUEVO ESTADO
 
   async function addClient() {
     if (!name.trim()) return;
-  const newClient = {
-  id: "c" + Math.random().toString(36).slice(2, 8),
-  number: parseInt(String(number), 10),
-  name: name.trim(),
-  debt: 0,
-  saldo_favor: 0, // <--- NUEVO (saldo a favor)
-};
-
+    
+    const newClient = {
+      id: "c" + Math.random().toString(36).slice(2, 8),
+      number: parseInt(String(number), 10),
+      name: name.trim(),
+      debt: modoAdmin ? parseNum(deudaInicial) : 0,
+      saldo_favor: modoAdmin ? parseNum(saldoFavorInicial) : 0,
+      creado_por: session?.name || "admin",
+      fecha_creacion: todayISO(),
+      deuda_manual: modoAdmin && parseNum(deudaInicial) > 0 // 👈 Marcar si tiene deuda manual
+    };
 
     const st = clone(state);
     st.clients.push(newClient);
     setState(st);
+    
+    // Limpiar formulario
     setName("");
     setNumber(ensureUniqueNumber(st.clients));
+    setDeudaInicial("");
+    setSaldoFavorInicial("");
+    setModoAdmin(false);
 
     if (hasSupabase) {
       await supabase.from("clients").insert(newClient);
     }
+
+    alert(`Cliente agregado ${modoAdmin ? 'con deuda/saldo manual' : 'correctamente'}`);
   }
 
-  // Ordeno opcionalmente por número para que quede prolijo
+  // Función para que admin agregue deuda manualmente a cliente existente
+  async function agregarDeudaManual(clienteId: string) {
+    const deuda = prompt("Ingrese el monto de deuda a agregar:", "0");
+    if (deuda === null) return;
+    
+    const montoDeuda = parseNum(deuda);
+    if (montoDeuda < 0) return alert("El monto no puede ser negativo");
+
+    const st = clone(state);
+    const cliente = st.clients.find((c: any) => c.id === clienteId);
+    
+    if (cliente) {
+      const deudaAnterior = parseNum(cliente.debt);
+      cliente.debt = deudaAnterior + montoDeuda;
+      cliente.deuda_manual = true; // 👈 Marcar como deuda manual
+      
+      setState(st);
+
+      if (hasSupabase) {
+        await supabase
+          .from("clients")
+          .update({ 
+            debt: cliente.debt,
+            deuda_manual: true 
+          })
+          .eq("id", clienteId);
+      }
+
+      alert(`Deuda agregada: ${money(deudaAnterior)} → ${money(cliente.debt)}`);
+    }
+  }
+
+  // Función para que admin ajuste saldo a favor manualmente
+  async function ajustarSaldoFavor(clienteId: string) {
+    const saldo = prompt("Ingrese el nuevo saldo a favor:", "0");
+    if (saldo === null) return;
+    
+    const montoSaldo = parseNum(saldo);
+    if (montoSaldo < 0) return alert("El monto no puede ser negativo");
+
+    const st = clone(state);
+    const cliente = st.clients.find((c: any) => c.id === clienteId);
+    
+    if (cliente) {
+      const saldoAnterior = parseNum(cliente.saldo_favor);
+      cliente.saldo_favor = montoSaldo;
+      
+      setState(st);
+
+      if (hasSupabase) {
+        await supabase
+          .from("clients")
+          .update({ saldo_favor: cliente.saldo_favor })
+          .eq("id", clienteId);
+      }
+
+      alert(`Saldo a favor ajustado: ${money(saldoAnterior)} → ${money(cliente.saldo_favor)}`);
+    }
+  }
+
+  // Función para que admin cancele deuda manualmente
+  async function cancelarDeuda(clienteId: string) {
+    const cliente = state.clients.find((c: any) => c.id === clienteId);
+    if (!cliente) return;
+    
+    const confirmacion = confirm(
+      `¿Está seguro de cancelar la deuda de ${cliente.name}?\nDeuda actual: ${money(cliente.debt)}`
+    );
+    
+    if (!confirmacion) return;
+
+    const st = clone(state);
+    const clienteActualizado = st.clients.find((c: any) => c.id === clienteId);
+    
+    if (clienteActualizado) {
+      const deudaCancelada = parseNum(clienteActualizado.debt);
+      clienteActualizado.debt = 0;
+      
+      setState(st);
+
+      if (hasSupabase) {
+        await supabase
+          .from("clients")
+          .update({ debt: 0 })
+          .eq("id", clienteId);
+      }
+
+      alert(`Deuda cancelada: ${money(deudaCancelada)} → $0`);
+    }
+  }
+
   const clients = Array.isArray(state.clients)
     ? [...state.clients].sort((a: any, b: any) => (a.number || 0) - (b.number || 0))
     : [];
 
   return (
     <div className="max-w-5xl mx-auto p-4 space-y-4">
+      {/* Card para agregar cliente normal */}
       <Card title="Agregar cliente">
-        <div className="grid md:grid-cols-3 gap-3">
-          <NumberInput label="N° cliente" value={number} onChange={setNumber} />
-          <Input label="Nombre" value={name} onChange={setName} placeholder="Ej: Kiosco 9 de Julio" />
-          <div className="pt-6">
-            <Button onClick={addClient}>Agregar</Button>
+        <div className="space-y-3">
+          {/* Solo admin puede activar modo avanzado */}
+          {session?.role === "admin" && (
+            <div className="flex items-center gap-2 p-3 bg-slate-800/50 rounded-lg">
+              <input
+                type="checkbox"
+                id="modoAdmin"
+                checked={modoAdmin}
+                onChange={(e) => setModoAdmin(e.target.checked)}
+                className="rounded"
+              />
+              <label htmlFor="modoAdmin" className="text-sm font-medium">
+                Modo Admin: Agregar con deuda/saldo inicial
+              </label>
+            </div>
+          )}
+
+          <div className="grid md:grid-cols-3 gap-3">
+            <NumberInput 
+              label="N° cliente" 
+              value={number} 
+              onChange={setNumber} 
+            />
+            <Input 
+              label="Nombre" 
+              value={name} 
+              onChange={setName} 
+              placeholder="Ej: Kiosco 9 de Julio" 
+            />
+            <div className="pt-6">
+              <Button onClick={addClient}>
+                Agregar
+              </Button>
+            </div>
           </div>
+
+          {/* Campos solo para admin en modo avanzado */}
+          {session?.role === "admin" && modoAdmin && (
+            <div className="grid md:grid-cols-2 gap-3 p-4 bg-amber-900/20 border border-amber-700/50 rounded-lg">
+              <NumberInput
+                label="Deuda inicial"
+                value={deudaInicial}
+                onChange={setDeudaInicial}
+                placeholder="0"
+              />
+              <NumberInput
+                label="Saldo a favor inicial"
+                value={saldoFavorInicial}
+                onChange={setSaldoFavorInicial}
+                placeholder="0"
+              />
+              <div className="md:col-span-2 text-xs text-amber-300">
+                ⚠️ Solo usar para casos especiales. La deuda manual se registrará en el sistema.
+              </div>
+            </div>
+          )}
         </div>
       </Card>
 
-     <Card title="Listado">
-  <div className="overflow-x-auto">
-    <table className="min-w-full text-sm">
-      <thead className="text-left text-slate-400">
-        <tr>
-          <th className="py-2 pr-4">N°</th>
-          <th className="py-2 pr-4">Nombre</th>
-          <th className="py-2 pr-4">Deuda</th>
-          <th className="py-2 pr-4">Saldo a favor</th>
-          <th className="py-2 pr-4">Gasto mes</th>
-        </tr>
-      </thead>
+      {/* Listado de clientes */}
+      <Card title="Listado de Clientes">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-4">N°</th>
+                <th className="py-2 pr-4">Nombre</th>
+                <th className="py-2 pr-4">Deuda</th>
+                <th className="py-2 pr-4">Saldo a favor</th>
+                <th className="py-2 pr-4">Gasto mes</th>
+                <th className="py-2 pr-4">Acciones</th>
+              </tr>
+            </thead>
 
-      <tbody className="divide-y divide-slate-800">
-        {clients.map((c: any) => (
-          <tr key={c.id}>
-            <td className="py-2 pr-4">{c.number}</td>
-            <td className="py-2 pr-4">{c.name}</td>
-            <td className="py-2 pr-4">{money(c.debt || 0)}</td>
-            <td className="py-2 pr-4">{money(c.saldo_favor || 0)}</td> {/* aquí va */}
-            <td className="py-2 pr-4">{money(gastoMesCliente(state, c.id))}</td>
-          </tr>
-        ))}
+            <tbody className="divide-y divide-slate-800">
+              {clients.map((c: any) => (
+                <tr key={c.id} className={c.deuda_manual ? "bg-amber-900/10" : ""}>
+                  <td className="py-2 pr-4">{c.number}</td>
+                  <td className="py-2 pr-4">
+                    <div className="flex items-center gap-2">
+                      {c.name}
+                      {c.deuda_manual && (
+                        <span 
+                          className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-amber-800 text-amber-200 border border-amber-700"
+                          title="Deuda manualmente asignada"
+                        >
+                          ⚠️ Manual
+                        </span>
+                      )}
+                    </div>
+                    {session?.role === "admin" && c.creado_por && (
+                      <div className="text-xs text-slate-500">
+                        Creado por: {c.creado_por}
+                      </div>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4">
+                    <div className={`font-medium ${
+                      c.debt > 0 ? "text-amber-400" : "text-slate-300"
+                    }`}>
+                      {money(c.debt || 0)}
+                    </div>
+                  </td>
+                  <td className="py-2 pr-4">
+                    <div className={`font-medium ${
+                      c.saldo_favor > 0 ? "text-emerald-400" : "text-slate-300"
+                    }`}>
+                      {money(c.saldo_favor || 0)}
+                    </div>
+                  </td>
+                  <td className="py-2 pr-4">{money(gastoMesCliente(state, c.id))}</td>
+                  <td className="py-2 pr-4">
+                    <div className="flex gap-1">
+                      {/* Solo admin puede gestionar deuda manual */}
+                      {session?.role === "admin" && (
+                        <>
+                          <button
+                            onClick={() => agregarDeudaManual(c.id)}
+                            className="text-amber-400 hover:text-amber-300 text-sm px-2 py-1 border border-amber-700 rounded"
+                            title="Agregar deuda manual"
+                          >
+                            + Deuda
+                          </button>
+                          <button
+                            onClick={() => ajustarSaldoFavor(c.id)}
+                            className="text-blue-400 hover:text-blue-300 text-sm px-2 py-1 border border-blue-700 rounded"
+                            title="Ajustar saldo a favor"
+                          >
+                            💰 Saldo
+                          </button>
+                          {c.debt > 0 && (
+                            <button
+                              onClick={() => cancelarDeuda(c.id)}
+                              className="text-red-400 hover:text-red-300 text-sm px-2 py-1 border border-red-700 rounded"
+                              title="Cancelar deuda"
+                            >
+                              ✕ Deuda
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
 
-        {clients.length === 0 && (
-          <tr>
-            <td className="py-2 pr-4 text-slate-400" colSpan={5}>
-              Sin clientes cargados.
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  </div>
+              {clients.length === 0 && (
+                <tr>
+                  <td className="py-2 pr-4 text-slate-400" colSpan={6}>
+                    Sin clientes cargados.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
+
+      {/* Panel de control para admin */}
+      {session?.role === "admin" && (
+        <Card title="🛠️ Panel de Control - Administrador">
+          <div className="space-y-3">
+            <div className="text-sm text-slate-300">
+              Gestión avanzada de clientes y deudas
+            </div>
+            
+            <div className="grid md:grid-cols-3 gap-4 text-sm">
+              <div className="p-3 bg-slate-800/50 rounded-lg">
+                <div className="font-semibold">Clientes con deuda manual</div>
+                <div className="text-amber-400 font-bold">
+                  {clients.filter((c: any) => c.deuda_manual).length}
+                </div>
+              </div>
+              
+              <div className="p-3 bg-slate-800/50 rounded-lg">
+                <div className="font-semibold">Deuda manual total</div>
+                <div className="text-amber-400 font-bold">
+                  {money(
+                    clients
+                      .filter((c: any) => c.deuda_manual)
+                      .reduce((sum: number, c: any) => sum + parseNum(c.debt), 0)
+                  )}
+                </div>
+              </div>
+              
+              <div className="p-3 bg-slate-800/50 rounded-lg">
+                <div className="font-semibold">Saldo a favor total</div>
+                <div className="text-emerald-400 font-bold">
+                  {money(
+                    clients.reduce((sum: number, c: any) => sum + parseNum(c.saldo_favor), 0)
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-400 border-t border-slate-700 pt-2">
+              💡 Las deudas manuales se marcan con ⚠️ y solo deben usarse para casos especiales 
+              (ej: deudas heredadas, ajustes contables, etc.)
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -5859,9 +6132,9 @@ export default function Page() {
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Facturación" && (
               <FacturacionTab state={state} setState={setState} session={session} />
             )}
-            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Clientes" && (
-              <ClientesTab state={state} setState={setState} />
-            )}
+           {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Clientes" && (
+  <ClientesTab state={state} setState={setState} session={session} /> // 👈 Agregar session aquí
+)}
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Productos" && (
               <ProductosTab state={state} setState={setState} role={session.role} />
             )}
