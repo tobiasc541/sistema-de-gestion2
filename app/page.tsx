@@ -46,6 +46,72 @@ const parseNum = (v: any) => {
 };
 const todayISO = () => new Date().toISOString();
 const clone = (obj: any) => JSON.parse(JSON.stringify(obj));
+// AGREGAR esta función nueva después de las funciones helpers (línea ~200)
+async function repararInconsistenciasDeudas(state: any) {
+  console.log("🔧 INICIANDO REPARACIÓN DE INCONSISTENCIAS...");
+  
+  const clientesConProblemas = [];
+  
+  for (const cliente of state.clients) {
+    // Calcular deuda REAL según facturas y pagos
+    const detalleReal = calcularDetalleDeudas(state, cliente.id);
+    const deudaReal = calcularDeudaTotal(detalleReal);
+    const deudaActual = parseNum(cliente.debt);
+    
+    // Si hay diferencia, reportar
+    if (Math.abs(deudaReal - deudaActual) > 1) { // Margen de error de $1
+      clientesConProblemas.push({
+        cliente: cliente.name,
+        deudaActual,
+        deudaReal,
+        diferencia: deudaReal - deudaActual,
+        detalle: detalleReal
+      });
+      
+      console.warn(`❌ INCONSISTENCIA: ${cliente.name}`, {
+        deudaActual,
+        deudaReal,
+        diferencia: deudaReal - deudaActual
+      });
+    }
+  }
+  
+  if (clientesConProblemas.length > 0) {
+    console.table(clientesConProblemas);
+    
+    // Preguntar si quiere reparar automáticamente
+    const reparar = confirm(
+      `Se encontraron ${clientesConProblemas.length} clientes con inconsistencias.\n\n¿Deseas reparar automáticamente?`
+    );
+    
+    if (reparar) {
+      const st = clone(state);
+      
+      for (const problema of clientesConProblemas) {
+        const cliente = st.clients.find((c: any) => c.name === problema.cliente);
+        if (cliente) {
+          console.log(`🔧 Reparando ${cliente.name}: ${cliente.debt} → ${problema.deudaReal}`);
+          cliente.debt = problema.deudaReal;
+          
+          // Actualizar en Supabase
+          if (hasSupabase) {
+            await supabase.from("clients")
+              .update({ debt: problema.deudaReal })
+              .eq("id", cliente.id);
+          }
+        }
+      }
+      
+      alert(`✅ Reparados ${clientesConProblemas.length} clientes`);
+      return st;
+    }
+  } else {
+    console.log("✅ No se encontraron inconsistencias");
+    alert("✅ No se encontraron inconsistencias en las deudas");
+  }
+  
+  return state;
+}
 
 /* ===== seed inicial (solo UI mientras carga Supabase) ===== */
 function seedState() {
@@ -396,13 +462,12 @@ function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
 
   return Math.max(0, factMes - devRestables + extrasIntercambio);
 }
-// === Detalle de deudas por cliente ===
+// === Detalle de deudas por cliente - CORREGIDA ===
+// CORREGIR esta función - el problema está aquí
+// REEMPLAZAR esta función completa - ESTÁ EN LA LÍNEA ~460
 function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
   if (!clientId) return [];
   
-  console.log(`🔍 Calculando deudas para cliente: ${clientId}`);
-  
-  // Obtener TODAS las facturas del cliente (sin filtrar por status)
   const todasFacturas = (state.invoices || [])
     .filter((f: any) => 
       f.client_id === clientId && 
@@ -410,104 +475,124 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
     )
     .sort((a: any, b: any) => new Date(a.date_iso).getTime() - new Date(b.date_iso).getTime());
 
-  console.log(`📊 Encontradas ${todasFacturas.length} facturas para el cliente`);
-
   const detalleDeudas = todasFacturas.map((factura: any) => {
-    try {
-      const totalFactura = parseNum(factura.total);
-      const pagosEfectivo = parseNum(factura?.payments?.cash || 0);
-      const pagosTransferencia = parseNum(factura?.payments?.transfer || 0);
-      const saldoAplicado = parseNum(factura?.payments?.saldo_aplicado || 0);
-      
-      const totalPagos = pagosEfectivo + pagosTransferencia + saldoAplicado;
-      const montoDebe = Math.max(0, totalFactura - totalPagos);
+    const totalFactura = parseNum(factura.total);
+    
+    // 1. Pagos DIRECTOS de la factura (al momento de la compra)
+    const pagosDirectos = 
+      parseNum(factura?.payments?.cash || 0) + 
+      parseNum(factura?.payments?.transfer || 0) + 
+      parseNum(factura?.payments?.saldo_aplicado || 0);
 
-      console.log(`📋 Factura #${factura.number}: Total=${totalFactura}, Pagado=${totalPagos}, Debe=${montoDebe}`);
+    // 2. Pagos ADICIONALES desde debt_payments para ESTA factura específica
+    const pagosAdicionales = (state.debt_payments || [])
+      .filter((pago: any) => {
+        return pago.client_id === clientId && 
+               pago.aplicaciones?.some((app: any) => app.factura_id === factura.id);
+      })
+      .reduce((sum: number, pago: any) => {
+        const aplicacion = pago.aplicaciones.find((app: any) => app.factura_id === factura.id);
+        return aplicacion ? sum + parseNum(aplicacion.monto_aplicado) : sum;
+      }, 0);
 
-      // Incluir solo facturas con deuda pendiente
-      if (montoDebe > 0) {
-        return {
-          factura_id: factura.id,
-          factura_numero: factura.number,
-          fecha: factura.date_iso,
-          monto_total: totalFactura,
-          monto_pagado: totalPagos,
-          monto_debe: montoDebe,
-          items: factura.items || []
-        };
-      }
-      
-      return null;
-    } catch (error) {
-      console.error(`❌ Error procesando factura ${factura.number}:`, error);
-      return null;
-    }
-  }).filter((deuda): deuda is DetalleDeuda => deuda !== null);
+    // 3. Devoluciones que afectan esta factura específica
+    const devolucionesFactura = (state.devoluciones || [])
+      .filter((dev: any) => {
+        if (dev.client_id !== clientId) return false;
+        // Buscar si esta devolución incluye productos de esta factura
+        return dev.items?.some((item: any) => item.facturaId === factura.id);
+      })
+      .reduce((sum: number, dev: any) => {
+        const itemsEstaFactura = dev.items?.filter((item: any) => item.facturaId === factura.id) || [];
+        return sum + itemsEstaFactura.reduce((s: number, item: any) => 
+          s + (parseNum(item.qtyDevuelta) * parseNum(item.unitPrice)), 0);
+      }, 0);
 
-  console.log(`💰 Deudas pendientes encontradas: ${detalleDeudas.length}`);
-  
-  return detalleDeudas;
+    const totalPagos = pagosDirectos + pagosAdicionales;
+    const montoDebe = Math.max(0, totalFactura - totalPagos - devolucionesFactura);
+
+    console.log(`📋 Factura #${factura.number}:`, {
+      total: totalFactura,
+      pagosDirectos,
+      pagosAdicionales,
+      devoluciones: devolucionesFactura,
+      totalPagos,
+      debe: montoDebe
+    });
+
+    return {
+      factura_id: factura.id,
+      factura_numero: factura.number,
+      fecha: factura.date_iso,
+      monto_total: totalFactura,
+      monto_pagado: totalPagos,
+      monto_debe: montoDebe,
+      items: factura.items || [],
+      devoluciones: devolucionesFactura
+    };
+  });
+
+  // Filtrar solo facturas con deuda pendiente
+  return detalleDeudas.filter(deuda => deuda.monto_debe > 0);
 }
-// === Deuda total del cliente ===
+// === Deuda total del cliente - CORREGIDA ===
 function calcularDeudaTotal(detalleDeudas: DetalleDeuda[]): number {
-  return detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
+  const deudaCalculada = detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
+  console.log(`💰 Deuda total calculada: ${deudaCalculada}`);
+  return deudaCalculada;
+}
+// 👇👇👇 AGREGAR ESTA FUNCIÓN NUEVA
+function obtenerHistorialCliente(state: any, clientId: string) {
+  const historial = [];
+  
+  // Facturas
+  const facturas = (state.invoices || [])
+    .filter((f: any) => f.client_id === clientId && f.type === "Factura")
+    .map((f: any) => ({
+      tipo: 'FACTURA',
+      fecha: f.date_iso,
+      descripcion: `Factura #${f.number}`,
+      monto: parseNum(f.total),
+      detalle: f.items.map((it: any) => `${it.name} x${it.qty}`).join(', ')
+    }));
+  
+  // Pagos de deudores
+  const pagos = (state.debt_payments || [])
+    .filter((p: any) => p.client_id === clientId)
+    .map((p: any) => ({
+      tipo: 'PAGO_DEUDA',
+      fecha: p.date_iso,
+      descripcion: `Pago de deuda #${p.number}`,
+      monto: -parseNum(p.total_amount),
+      detalle: p.aplicaciones?.map((app: any) => `Aplicado a Factura #${app.factura_numero}: ${money(app.monto_aplicado)}`).join(', ') || 'Sin detalle'
+    }));
+  
+  // Devoluciones
+  const devoluciones = (state.devoluciones || [])
+    .filter((d: any) => d.client_id === clientId)
+    .map((d: any) => ({
+      tipo: 'DEVOLUCION',
+      fecha: d.date_iso,
+      descripcion: `Devolución - ${d.metodo}`,
+      monto: -parseNum(d.total),
+      detalle: d.items.map((it: any) => `${it.name} x${it.qtyDevuelta}`).join(', ')
+    }));
+  
+  // Combinar y ordenar por fecha
+  return [...facturas, ...pagos, ...devoluciones]
+    .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 }
 
-// 👇👇👇 NUEVA FUNCIÓN: Obtener detalle de pagos aplicados por factura
+// REEMPLAZAR esta función completa
 function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
   const detallePagos: any[] = [];
 
   pagosDeudores.forEach((pago: any) => {
-    // Obtener el cliente
     const cliente = state.clients.find((c: any) => c.id === pago.client_id);
     if (!cliente) return;
 
-    // Obtener facturas pendientes del cliente antes del pago
-    const facturasPendientes = (state.invoices || [])
-      .filter((f: any) => 
-        f.client_id === pago.client_id && 
-        f.type === "Factura" && 
-        f.status === "No Pagada" &&
-        new Date(f.date_iso) <= new Date(pago.date_iso)
-      )
-      .sort((a: any, b: any) => new Date(a.date_iso).getTime() - new Date(b.date_iso).getTime());
-
-    let saldoRestante = pago.total_amount;
-    const aplicaciones: any[] = [];
-
-    // Aplicar el pago a las facturas más antiguas primero
-    for (const factura of facturasPendientes) {
-      if (saldoRestante <= 0) break;
-
-      const deudaFactura = parseNum(factura.total) - 
-                          parseNum(factura?.payments?.cash || 0) - 
-                          parseNum(factura?.payments?.transfer || 0) -
-                          parseNum(factura?.payments?.saldo_aplicado || 0);
-
-      if (deudaFactura > 0) {
-        const montoAplicado = Math.min(saldoRestante, deudaFactura);
-        
-        aplicaciones.push({
-          factura_numero: factura.number,
-          fecha_factura: factura.date_iso,
-          total_factura: parseNum(factura.total),
-          deuda_antes: deudaFactura,
-          monto_aplicado: montoAplicado,
-          deuda_despues: deudaFactura - montoAplicado
-        });
-
-        saldoRestante -= montoAplicado;
-      }
-    }
-
-    // Si sobró saldo, se aplicó a saldo a favor
-    if (saldoRestante > 0) {
-      aplicaciones.push({
-        tipo: "saldo_favor",
-        monto_aplicado: saldoRestante,
-        descripcion: "Acreditado como saldo a favor"
-      });
-    }
+    // 👇 **USAR EL DETALLE REAL DE APLICACIONES QUE YA GUARDASTE**
+    const aplicaciones = pago.aplicaciones || [];
 
     detallePagos.push({
       pago_id: pago.id,
@@ -516,7 +601,13 @@ function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
       total_pagado: pago.total_amount,
       efectivo: pago.cash_amount,
       transferencia: pago.transfer_amount,
-      aplicaciones: aplicaciones
+      aplicaciones: aplicaciones.length > 0 ? aplicaciones : 
+        // Fallback si no hay aplicaciones guardadas
+        [{
+          factura_numero: "No especificado",
+          monto_aplicado: pago.total_amount,
+          descripcion: "Pago aplicado globalmente"
+        }]
     });
   });
 
@@ -1209,33 +1300,45 @@ async function registrarPago() {
   const st = clone(state);
   const client = st.clients.find((c: any) => c.id === active)!;
 
-  // CALCULAR DEUDA NETA (considerando saldo a favor)
-  const deudaBruta = parseNum(client.debt);
-  const saldoFavor = parseNum(client.saldo_favor || 0);
-  const deudaNeta = Math.max(0, deudaBruta - saldoFavor);
+  // 👇👇👇 CALCULO CORREGIDO - Usar el detalle REAL de deudas
+  const detalleDeudas = calcularDetalleDeudas(st, active);
+  const deudaReal = calcularDeudaTotal(detalleDeudas);
+  
+  console.log(`💳 Pago: ${totalPago}, Deuda real: ${deudaReal}`);
 
-  const aplicado = Math.min(totalPago, deudaNeta);
+  const aplicado = Math.min(totalPago, deudaReal);
   
-  // Aplicar el pago PRIMERO al saldo a favor si existe, luego a la deuda
-  let saldoRestante = saldoFavor;
-  let deudaRestante = deudaBruta;
-  
-  if (saldoFavor > 0) {
-    const saldoUsado = Math.min(aplicado, saldoFavor);
-    saldoRestante = saldoFavor - saldoUsado;
-    deudaRestante = deudaBruta - saldoUsado;
+  // Aplicar el pago a las facturas más antiguas primero
+  let saldoRestante = aplicado;
+  const aplicaciones: any[] = [];
+
+  for (const deuda of detalleDeudas) {
+    if (saldoRestante <= 0) break;
+
+    if (deuda.monto_debe > 0) {
+      const montoAplicado = Math.min(saldoRestante, deuda.monto_debe);
+      
+      aplicaciones.push({
+        factura_id: deuda.factura_id,
+        factura_numero: deuda.factura_numero,
+        monto_aplicado: montoAplicado,
+        deuda_antes: deuda.monto_debe,
+        deuda_despues: deuda.monto_debe - montoAplicado
+      });
+
+      saldoRestante -= montoAplicado;
+    }
   }
-  
-  // Aplicar el resto del pago directamente a la deuda
-  const pagoRestante = aplicado - (saldoFavor - saldoRestante);
-  deudaRestante = Math.max(0, deudaRestante - pagoRestante);
 
-  // Actualizar el cliente
-  client.debt = deudaRestante;
-  client.saldo_favor = saldoRestante;
+  // Actualizar la deuda del cliente
+  const deudaAnterior = parseNum(client.debt);
+  const nuevaDeuda = Math.max(0, deudaAnterior - aplicado);
+  client.debt = nuevaDeuda;
 
-  // ⭐⭐ NUEVO: Usar la tabla debt_payments en lugar de invoices
-  const number = st.meta.invoiceCounter++; // Seguimos usando el mismo contador
+  console.log(`📊 Deuda actualizada: ${deudaAnterior} -> ${nuevaDeuda}`);
+
+  // ⭐⭐ NUEVO: Guardar en debt_payments con el detalle de aplicación
+  const number = st.meta.invoiceCounter++;
   const id = "dp_" + number;
 
   const debtPayment = {
@@ -1250,25 +1353,25 @@ async function registrarPago() {
     transfer_amount: parseNum(transf),
     total_amount: aplicado,
     alias: alias.trim(),
-    saldo_aplicado: (saldoFavor - saldoRestante),
-    debt_before: deudaBruta,
-    debt_after: deudaRestante,
+    aplicaciones: aplicaciones, // 👈 NUEVO: Guardar el detalle de aplicación
+    debt_before: deudaAnterior,
+    debt_after: nuevaDeuda,
+    deuda_real_antes: deudaReal, // 👈 NUEVO: Guardar la deuda real calculada
   };
 
-  console.log("💾 Guardando pago de deudor en debt_payments:", debtPayment);
+  console.log("💾 Guardando pago de deudor:", debtPayment);
 
-  // ⭐⭐ NUEVO: Guardar en debt_payments en lugar de invoices
+  // Guardar en debt_payments
   st.debt_payments = st.debt_payments || [];
   st.debt_payments.push(debtPayment);
   st.meta.lastSavedInvoiceId = id;
   setState(st);
 
-  // ⭐⭐ NUEVO: Persistencia en la tabla debt_payments
+  // Persistencia en Supabase
   if (hasSupabase) {
     try {
       console.log("📦 Intentando guardar en debt_payments...");
       
-      // 1. Guardar en debt_payments (SOLO con columnas existentes)
       const { data, error } = await supabase
         .from("debt_payments")
         .insert({
@@ -1283,9 +1386,10 @@ async function registrarPago() {
           transfer_amount: debtPayment.transfer_amount,
           total_amount: debtPayment.total_amount,
           alias: debtPayment.alias,
-          saldo_aplicado: debtPayment.saldo_aplicado,
+          aplicaciones: debtPayment.aplicaciones, // 👈 NUEVO
           debt_before: debtPayment.debt_before,
           debt_after: debtPayment.debt_after,
+          deuda_real_antes: debtPayment.deuda_real_antes, // 👈 NUEVO
         })
         .select();
 
@@ -1294,24 +1398,18 @@ async function registrarPago() {
         alert("Error al guardar el pago: " + error.message);
         return;
       }
-      console.log("✅ Pago guardado en debt_payments:", data);
 
-      // 2. Actualizar cliente en Supabase
+      // Actualizar cliente en Supabase
       const { error: clientError } = await supabase.from("clients")
-        .update({ 
-          debt: client.debt, 
-          saldo_favor: client.saldo_favor 
-        })
+        .update({ debt: client.debt })
         .eq("id", client.id);
 
       if (clientError) {
         console.error("❌ Error actualizando cliente:", clientError);
       }
 
-      // 3. Actualizar contadores
+      // Actualizar contadores
       await saveCountersSupabase(st.meta);
-
-      console.log("✅ Todo guardado correctamente en debt_payments");
 
     } catch (error) {
       console.error("💥 Error crítico:", error);
@@ -1333,7 +1431,7 @@ async function registrarPago() {
     }, 1500);
   }
 
-  // ⭐⭐ NUEVO: Imprimir comprobante de pago de deuda - CORREGIDO
+  // Imprimir comprobante de pago de deuda MEJORADO
   window.dispatchEvent(new CustomEvent("print-invoice", { 
     detail: { 
       ...debtPayment, 
@@ -1351,11 +1449,11 @@ async function registrarPago() {
         cash: parseNum(cash), 
         transfer: parseNum(transf), 
         change: 0,
-        alias: alias.trim(),
-        saldo_aplicado: (saldoFavor - saldoRestante)
+        alias: alias.trim()
       },
       status: "Pagado",
-      client_debt_total: deudaRestante
+      aplicaciones: aplicaciones, // 👈 NUEVO: Incluir detalle de aplicación
+      client_debt_total: nuevaDeuda
     } 
   } as any));
   await nextPaint();
@@ -1481,41 +1579,74 @@ async function registrarPago() {
         </div>
       )}
 
-      <Card title="Deudores">
-        {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas netas.</div>}
-        <div className="divide-y divide-slate-800">
-          {clients.map((c: any) => {
-            const deudaBruta = parseNum(c.debt);
-            const saldoFavor = parseNum(c.saldo_favor || 0);
-            const deudaNeta = Math.max(0, deudaBruta - saldoFavor);
-            const detalleDeudas = calcularDetalleDeudas(state, c.id);
-            const cantidadFacturas = detalleDeudas.length;
-            
-            return (
-              <div key={c.id} className="flex items-center justify-between py-3">
-                <div className="text-sm flex-1">
-                  <div className="font-medium">{c.name}</div>
-                  <div className="text-xs text-slate-400 mt-1">
-                    Deuda neta: <span className="text-slate-300">{money(deudaNeta)}</span>
-                    {saldoFavor > 0 && (
-                      <span className="ml-2">
-                        (Deuda: {money(deudaBruta)} - Saldo a favor: {money(saldoFavor)})
-                      </span>
-                    )}
-                    <span className="ml-2">• {cantidadFacturas} factura(s) pendiente(s)</span>
-                  </div>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <Button tone="slate" onClick={() => verDetalleDeudas(c.id)}>
-                    📋 Ver Detalle
-                  </Button>
-                  <Button tone="slate" onClick={() => setActive(c.id)}>
-                    Registrar pago
-                  </Button>
-                </div>
+     <Card title="Deudores" actions={
+  <div className="flex gap-2">
+    <Button tone="slate" onClick={async () => {
+      const confirmar = confirm(
+        "¿Ejecutar reparación de inconsistencias?\n\nEsto comparará la deuda actual con el cálculo real basado en facturas y pagos."
+      );
+      if (confirmar) {
+        const nuevoEstado = await repararInconsistenciasDeudas(state);
+        setState(nuevoEstado);
+      }
+    }}>
+      🔧 Reparar Inconsistencias
+    </Button>
+  </div>
+}>
+  {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas netas.</div>}
+  <div className="divide-y divide-slate-800">
+// En el map de clients, actualiza esta parte:
+{clients.map((c: any) => {
+  const detalleDeudas = calcularDetalleDeudas(state, c.id);
+  const deudaReal = calcularDeudaTotal(detalleDeudas);
+  const saldoFavor = parseNum(c.saldo_favor || 0);
+  const deudaNeta = Math.max(0, deudaReal - saldoFavor);
+  
+  if (deudaNeta <= 0) return null;
+  
+  return (
+    <div key={c.id} className="border border-slate-700 rounded-lg p-4 mb-3">
+      <div className="flex justify-between items-start">
+        <div className="flex-1">
+          <div className="font-semibold">{c.name} (N° {c.number})</div>
+          <div className="text-sm text-slate-400 mt-1">
+            Deuda neta: <span className="text-red-400 font-semibold">{money(deudaNeta)}</span>
+            {saldoFavor > 0 && (
+              <span className="ml-2">
+                (Deuda real: {money(deudaReal)} - Saldo a favor: {money(saldoFavor)})
+              </span>
+            )}
+          </div>
+          
+          {/* Detalle de facturas pendientes */}
+          <div className="mt-2 text-xs">
+            {detalleDeudas.slice(0, 3).map((deuda, idx) => (
+              <div key={idx} className="flex justify-between">
+                <span>Factura #{deuda.factura_numero}</span>
+                <span>{money(deuda.monto_debe)}</span>
               </div>
-            );
-          })}
+            ))}
+            {detalleDeudas.length > 3 && (
+              <div className="text-slate-500">
+                +{detalleDeudas.length - 3} facturas más...
+              </div>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex gap-2 shrink-0">
+          <Button tone="slate" onClick={() => verDetalleDeudas(c.id)}>
+            📋 Detalle
+          </Button>
+          <Button tone="slate" onClick={() => setActive(c.id)}>
+            💳 Pagar
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+})}
         </div>
       </Card>
 
@@ -4984,7 +5115,107 @@ if (inv?.type === "DetalleDeuda") {
     </div>
   );
 }
+  // ==== PLANTILLA: PAGO DE DEUDA CON DETALLE ====
+  if (inv?.type === "Pago de Deuda" && inv.aplicaciones) {
+    const fmt = (n: number) => money(parseNum(n));
+    
+    return (
+      <div className="only-print print-area p-14">
+        <div className="max-w-[780px] mx-auto text-black">
+          <div className="flex items-start justify-between">
+            <div>
+              <div style={{ fontWeight: 800, letterSpacing: 1 }}>COMPROBANTE DE PAGO DE DEUDA</div>
+              <div style={{ marginTop: 2 }}>MITOBICEL</div>
+            </div>
+            <div className="text-right">
+              <div><b>Fecha:</b> {new Date(inv.date_iso).toLocaleString("es-AR")}</div>
+              <div><b>N° Comprobante:</b> {inv.id}</div>
+            </div>
+          </div>
 
+          <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+          {/* Información del cliente y pago */}
+          <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+            <div>
+              <div style={{ fontWeight: 700 }}>Cliente</div>
+              <div>{inv.client_name}</div>
+            </div>
+            <div className="text-right">
+              <div style={{ fontWeight: 700, fontSize: 18, color: "#10b981" }}>
+                {fmt(inv.total_amount)}
+              </div>
+              <div>
+                Efectivo: {fmt(inv.cash_amount)} • Transferencia: {fmt(inv.transfer_amount)}
+              </div>
+              {inv.alias && (
+                <div>Alias/CVU: {inv.alias}</div>
+              )}
+            </div>
+          </div>
+
+          {/* DETALLE DE APLICACIÓN */}
+          <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+          <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>
+            DETALLE DE APLICACIÓN DEL PAGO
+          </div>
+          
+          <table className="print-table text-sm" style={{ width: "100%" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", width: "15%" }}>Factura</th>
+                <th style={{ textAlign: "right", width: "20%" }}>Deuda Antes</th>
+                <th style={{ textAlign: "right", width: "20%" }}>Monto Aplicado</th>
+                <th style={{ textAlign: "right", width: "20%" }}>Deuda Después</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inv.aplicaciones.map((app: any, idx: number) => (
+                <tr key={idx}>
+                  <td style={{ textAlign: "left" }}>#{pad(app.factura_numero)}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(app.deuda_antes)}</td>
+                  <td style={{ textAlign: "right", fontWeight: 600, color: "#10b981" }}>
+                    {fmt(app.monto_aplicado)}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmt(app.deuda_despues)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={4} style={{ textAlign: "right", fontWeight: 700, borderTop: "2px solid #000", paddingTop: "8px" }}>
+                  TOTAL APLICADO: {fmt(inv.aplicaciones.reduce((sum: number, app: any) => sum + app.monto_aplicado, 0))}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+
+          {/* Resumen de deuda */}
+          <div style={{ borderTop: "1px solid #000", margin: "16px 0 8px", paddingTop: "8px" }}>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div>Deuda antes del pago:</div>
+                <div style={{ fontWeight: 600 }}>{fmt(inv.debt_before)}</div>
+              </div>
+              <div>
+                <div>Deuda después del pago:</div>
+                <div style={{ fontWeight: 600, color: inv.debt_after > 0 ? "#f59e0b" : "#10b981" }}>
+                  {fmt(inv.debt_after)} {inv.debt_after <= 0 ? "✅" : ""}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 text-center text-sm">
+            <div style={{ fontWeight: 700 }}>¡Gracias por su pago!</div>
+            <div>Para consultas, presente este comprobante</div>
+          </div>
+
+          <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+        </div>
+      </div>
+    );
+  }
 // ==== PLANTILLA: COMPROBANTE DE DEVOLUCIÓN ====
 if (inv?.type === "Devolucion") {
   const fmt = (n: number) => money(parseNum(n));
