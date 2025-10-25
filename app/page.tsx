@@ -3315,7 +3315,7 @@ const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c);      const saldoF
   await nextPaint();
   window.print();
 }
-
+}
   // ===== AQUÍ ESTÁ EL RETURN PRINCIPAL DEL COMPONENTE =====
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
