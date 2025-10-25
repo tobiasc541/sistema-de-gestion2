@@ -2616,13 +2616,13 @@ async function imprimirReporte() {
     }, 0);
 
   // 👇👇👇 DEUDORES ACTIVOS CON DETALLE COMPLETO
-  const deudoresActivos = state.clients
-    .filter((c: any) => {
-      const detalleDeudasCliente = calcularDetalleDeudas(state, c.id);
-      const deudaNeta = calcularDeudaTotal(detalleDeudasCliente);
-      return deudaNeta > 0.01;
-    })
-    .map((c: any) => {
+const deudoresActivos = state.clients
+  .filter((c: any) => {
+    const detalleDeudasCliente = calcularDetalleDeudas(state, c.id);
+    const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c); // ← AGREGAR 'c' COMO SEGUNDO PARÁMETRO
+    return deudaNeta > 0.01;
+  })
+  .map((c: any) => {
       const detalleDeudasCliente = calcularDetalleDeudas(state, c.id);
       const deudaNeta = calcularDeudaTotal(detalleDeudasCliente);
       const saldoFavor = parseNum(c.saldo_favor || 0);
