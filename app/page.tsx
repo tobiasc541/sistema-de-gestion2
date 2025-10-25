@@ -499,16 +499,14 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
   return detalleDeudas.filter(deuda => deuda.monto_debe > 0.01);
 }
 
-// === Deuda total del cliente - CORREGIDA PARA INCLUIR DEUDA MANUAL ===
+// === Deuda total del cliente - CORREGIDA PARA EVITAR DUPLICACIÓN ===
 function calcularDeudaTotal(detalleDeudas: DetalleDeuda[], cliente: any): number {
+  // ✅ SOLO calcular deuda de facturas pendientes
   const deudaFacturas = detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
   
-  // ✅ INCLUIR DEUDA MANUAL del cliente
-  const deudaManual = parseNum(cliente?.debt || 0);
+  console.log(`💰 Deuda calculada: Facturas=${deudaFacturas}, Cliente=${cliente.name}`);
   
-  console.log(`💰 Deuda calculada: Facturas=${deudaFacturas}, Manual=${deudaManual}, Total=${deudaFacturas + deudaManual}`);
-  
-  return deudaFacturas + deudaManual;
+  return deudaFacturas;
 }
 // 👇👇👇 AGREGAR ESTA FUNCIÓN NUEVA
 function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
@@ -742,15 +740,17 @@ const [alias, setAlias] = useState("");
     else setItems([...items, { productId: p.id, name: p.name, section: p.section, qty: 1, unitPrice: unit, cost: p.cost }]);
   }
 
- async function saveAndPrint() {
+async function saveAndPrint() {
   if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
   if (items.length === 0) return alert("Agregá productos al carrito.");
-   // ✅ VALIDAR STOCK ANTES DE CONTINUAR
+  
+  // ✅ VALIDAR STOCK ANTES DE CONTINUAR
   const validacionStock = validarStockDisponible(state.products, items);
   if (!validacionStock.valido) {
     const mensajeError = `No hay suficiente stock para los siguientes productos:\n\n${validacionStock.productosSinStock.join('\n')}`;
     return alert(mensajeError);
   }
+  
   const total = calcInvoiceTotal(items);
   const cash  = parseNum(payCash);
   const transf = parseNum(payTransf);
@@ -773,12 +773,17 @@ const [alias, setAlias] = useState("");
 
   // 3) Deuda que queda luego de aplicar saldo y pagos
   const debtDelta = Math.max(0, totalTrasSaldo - applied);
+  
+  // ✅ CORRECCIÓN: NO sumar deuda manualmente si ya se calcula automáticamente
+  // Solo actualizar si realmente hay deuda pendiente
   const status = debtDelta > 0 ? "No Pagada" : "Pagada";
 
-  // 4) Actualizar cliente: bajar saldo_favor, subir deuda si corresponde
+  // 4) Actualizar cliente: bajar saldo_favor, NO sumar deuda manualmente
   cl.saldo_favor = saldoActual - saldoAplicado;
-  cl.debt = parseNum(cl.debt) + debtDelta;
-
+  
+  // ✅ CORRECCIÓN IMPORTANTE: No modificar cl.debt aquí
+  // La deuda se calculará automáticamente desde las facturas pendientes
+  
   // ⭐⭐⭐⭐ NUEVO: DESCONTAR STOCK DE PRODUCTOS VENDIDOS ⭐⭐⭐⭐⭐
   items.forEach(item => {
     const product = st.products.find((p: any) => p.id === item.productId);
@@ -802,7 +807,7 @@ const [alias, setAlias] = useState("");
     payments: { cash, transfer: transf, change, alias: alias.trim(), saldo_aplicado: saldoAplicado },
     status,
     type: "Factura",
-    client_debt_total: cl.debt,
+    // ✅ REMOVER: client_debt_total: cl.debt, // Esto causa duplicación
   };
 
   st.invoices.push(invoice);
@@ -811,7 +816,12 @@ const [alias, setAlias] = useState("");
 
   if (hasSupabase) {
     await supabase.from("invoices").insert(invoice);
-    await supabase.from("clients").update({ debt: cl.debt, saldo_favor: cl.saldo_favor }).eq("id", client.id);
+    
+    // ✅ CORRECCIÓN: Solo actualizar saldo_favor, NO la deuda
+    await supabase.from("clients").update({ 
+      saldo_favor: cl.saldo_favor 
+      // ❌ NO actualizar debt aquí
+    }).eq("id", client.id);
     
     // ⭐⭐⭐⭐ ACTUALIZAR STOCK EN SUPABASE ⭐⭐⭐⭐⭐
     for (const item of items) {
@@ -1427,7 +1437,6 @@ async function cancelarDeuda(clienteId: string) {
         </div>
       </Card>
 
-// 👇👇👇 DENTRO DE ClientesTab, en el Card del Panel de Control del Admin
 {session?.role === "admin" && (
   <Card title="🛠️ Panel de Control - Administrador">
     <div className="space-y-3">
@@ -1842,16 +1851,16 @@ function ProductosTab({ state, setState, role }: any) {
   );
 }
 
-// 👇👇👇 REEMPLAZAR LA FUNCIÓN DeudoresTab COMPLETA con esta versión corregida
 function DeudoresTab({ state, setState, session }: any) {
-  // Filtrar clientes que tengan deuda (facturas O manual)
+  // ✅ FILTRAR MEJORADO: Usar deuda REAL calculada, no solo el campo debt
   const clients = state.clients.filter((c: any) => {
     const detalleDeudas = calcularDetalleDeudas(state, c.id);
-    const deudaFacturas = calcularDeudaTotal(detalleDeudas, { debt: 0 }); // Solo facturas
-    const deudaManual = parseNum(c.debt || 0);
+    const deudaReal = calcularDeudaTotal(detalleDeudas, c);
     
-    return deudaFacturas > 0 || deudaManual > 0;
+    // Solo mostrar si tiene deuda REAL mayor a 0.01
+    return deudaReal > 0.01;
   });
+  
   
   const [active, setActive] = useState<string | null>(null);
   const [cash, setCash] = useState("");
@@ -1869,57 +1878,77 @@ function DeudoresTab({ state, setState, session }: any) {
   const clienteDetalle = state.clients.find((c: any) => c.id === verDetalle);
   const deudaTotalCliente = calcularDeudaTotal(detalleDeudasCliente, clienteDetalle);
     // 👇👇👇 AGREGAR ESTA FUNCIÓN NUEVA - SOLO PARA ADMIN
-  async function eliminarDeudaCliente(clienteId: string) {
-    const cliente = state.clients.find((c: any) => c.id === clienteId);
-    if (!cliente) return;
-    
-    const confirmacion = confirm(
-      `¿Está seguro de ELIMINAR COMPLETAMENTE la deuda de ${cliente.name}?\n\nDeuda actual: ${money(cliente.debt)}\n\n⚠️ Esta acción NO se puede deshacer.`
-    );
-    
-    if (!confirmacion) return;
+  // 👇👇👇 REEMPLAZAR LA FUNCIÓN ELIMINAR DEUDA CON ESTA VERSIÓN MEJORADA
+async function eliminarDeudaCliente(clienteId: string) {
+  const cliente = state.clients.find((c: any) => c.id === clienteId);
+  if (!cliente) return;
+  
+  // Calcular deuda REAL antes de eliminar
+  const detalleDeudas = calcularDetalleDeudas(state, clienteId);
+  const deudaReal = calcularDeudaTotal(detalleDeudas, cliente);
+  
+  const confirmacion = confirm(
+    `¿Está seguro de ELIMINAR COMPLETAMENTE la deuda de ${cliente.name}?\n\n` +
+    `Deuda actual en sistema: ${money(cliente.debt)}\n` +
+    `Deuda real calculada: ${money(deudaReal)}\n\n` +
+    `⚠️ Esta acción NO se puede deshacer.`
+  );
+  
+  if (!confirmacion) return;
 
-    const st = clone(state);
-    const clienteActualizado = st.clients.find((c: any) => c.id === clienteId);
+  const st = clone(state);
+  const clienteActualizado = st.clients.find((c: any) => c.id === clienteId);
+  
+  if (clienteActualizado) {
+    const deudaEliminada = parseNum(clienteActualizado.debt);
     
-    if (clienteActualizado) {
-      const deudaEliminada = parseNum(clienteActualizado.debt);
-      clienteActualizado.debt = 0;
-      clienteActualizado.deuda_manual = false; // También quitamos el flag de deuda manual
-      
-      setState(st);
+    // ✅ CORRECCIÓN COMPLETA: Resetear completamente la deuda
+    clienteActualizado.debt = 0;
+    clienteActualizado.deuda_manual = false; // También quitamos el flag de deuda manual
+    
+    setState(st);
 
-      if (hasSupabase) {
-        try {
-          const { error } = await supabase
-            .from("clients")
-            .update({ 
-              debt: 0,
-              deuda_manual: false 
-            })
-            .eq("id", clienteId);
+    if (hasSupabase) {
+      try {
+        const { error } = await supabase
+          .from("clients")
+          .update({ 
+            debt: 0,
+            deuda_manual: false 
+          })
+          .eq("id", clienteId);
 
-          if (error) {
-            console.error("❌ Error al eliminar deuda:", error);
-            alert("Error al eliminar la deuda en la base de datos.");
-            // Recargar para evitar inconsistencias
-            const refreshedState = await loadFromSupabase(seedState());
-            setState(refreshedState);
-            return;
-          }
+        if (error) {
+          console.error("❌ Error al eliminar deuda:", error);
+          alert("Error al eliminar la deuda en la base de datos.");
           
-          console.log("✅ Deuda eliminada en Supabase");
-        } catch (error) {
-          console.error("💥 Error crítico:", error);
-          alert("Error al eliminar la deuda.");
+          // Recargar para evitar inconsistencias
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
           return;
         }
+        
+        console.log("✅ Deuda eliminada en Supabase");
+        
+        // ✅ FORZAR ACTUALIZACIÓN DEL ESTADO para que el cliente desaparezca de deudores
+        setTimeout(async () => {
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+        }, 500);
+        
+      } catch (error) {
+        console.error("💥 Error crítico:", error);
+        alert("Error al eliminar la deuda.");
+        return;
       }
-
-      alert(`✅ Deuda eliminada completamente\nCliente: ${cliente.name}\nDeuda eliminada: ${money(deudaEliminada)}`);
     }
-  }
 
+    alert(`✅ Deuda eliminada completamente\nCliente: ${cliente.name}\nDeuda eliminada: ${money(deudaEliminada)}`);
+    
+    // ✅ ACTUALIZAR INMEDIATAMENTE LA VISTA
+    setState({...st});
+  }
+}
   // 👇👇👇 NUEVA FUNCIÓN: Imprimir detalle de deudas
   async function imprimirDetalleDeudas() {
     if (!verDetalle || !clienteDetalle) return;
