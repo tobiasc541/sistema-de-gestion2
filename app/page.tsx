@@ -2083,11 +2083,23 @@ const porAlias = (() => {
   return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
 })();
 
- async function imprimirReporte() {
-  // 👇👇👇 CALCULAR DEUDA DEL DÍA
+async function imprimirReporte() {
+  // 👇👇👇 CALCULAR DEUDA DEL DÍA CORRECTAMENTE
   const deudaDelDia = invoices
-    .filter((f: any) => f.status === "No Pagada")
-    .reduce((s: number, f: any) => s + parseNum(f.total), 0);
+    .filter((f: any) => {
+      const total = parseNum(f.total);
+      const pagos = parseNum(f?.payments?.cash || 0) + 
+                   parseNum(f?.payments?.transfer || 0) + 
+                   parseNum(f?.payments?.saldo_aplicado || 0);
+      return (total - pagos) > 0; // Tiene deuda pendiente
+    })
+    .reduce((s: number, f: any) => {
+      const total = parseNum(f.total);
+      const pagos = parseNum(f?.payments?.cash || 0) + 
+                   parseNum(f?.payments?.transfer || 0) + 
+                   parseNum(f?.payments?.saldo_aplicado || 0);
+      return s + (total - pagos);
+    }, 0);
 
   // 👇👇👇 PAGOS DE DEUDORES DEL DÍA (ya lo tienes)
   const pagosDeudoresHoy = pagosDeudores.filter((p: any) => {
@@ -2099,20 +2111,27 @@ const porAlias = (() => {
   // 👇👇👇 NUEVO: Detalle de aplicación de pagos
   const detalleAplicacionPagos = obtenerDetallePagosAplicados(pagosDeudoresHoy, state);
 
-  // 👇👇👇 DEUDORES ACTIVOS (con deuda neta > 0)
+  // 👇👇👇 DEUDORES ACTIVOS (con deuda neta > 0) - CORREGIDO
   const deudoresActivos = state.clients
     .filter((c: any) => {
       const deudaBruta = parseNum(c.debt);
       const saldoFavor = parseNum(c.saldo_favor || 0);
       return (deudaBruta - saldoFavor) > 0;
     })
-    .map((c: any) => ({
-      id: c.id,
-      name: c.name,
-      deuda: parseNum(c.debt),
-      saldoFavor: parseNum(c.saldo_favor || 0),
-      deudaNeta: Math.max(0, parseNum(c.debt) - parseNum(c.saldo_favor || 0))
-    }))
+    .map((c: any) => {
+      // Calcular detalle REAL de deudas para cada cliente
+      const detalleDeudasCliente = calcularDetalleDeudas(state, c.id);
+      const deudaNeta = calcularDeudaTotal(detalleDeudasCliente);
+      
+      return {
+        id: c.id,
+        name: c.name,
+        deuda: parseNum(c.debt),
+        saldoFavor: parseNum(c.saldo_favor || 0),
+        deudaNeta: deudaNeta,
+        cantidadFacturas: detalleDeudasCliente.length // 👈 NUEVO: cantidad de facturas
+      };
+    })
     .sort((a: any, b: any) => b.deudaNeta - a.deudaNeta);
 
   const data = {
@@ -2121,7 +2140,7 @@ const porAlias = (() => {
     rango: { start, end },
     resumen: {
       ventas: totalVentas,
-      deudaDelDia: deudaDelDia, // 👈 NUEVO
+      deudaDelDia: deudaDelDia, // 👈 AHORA CORRECTO
       efectivoCobrado: totalEfectivo,
       vueltoEntregado: totalVuelto,
       efectivoNeto: totalEfectivoNeto,
@@ -2147,9 +2166,9 @@ const porAlias = (() => {
     ventas: invoices,
     gastos: gastosPeriodo,
     devoluciones: devolucionesPeriodo,
-    pagosDeudores: pagosDeudoresHoy, // 👈 NUEVO
-    deudoresActivos: deudoresActivos, // 👈 NUEVO
-      detalleAplicacionPagos: detalleAplicacionPagos, // 👈👈👈 NUEVA LÍNEA - AGREGAR ESTO
+    pagosDeudores: pagosDeudoresHoy,
+    deudoresActivos: deudoresActivos,
+    detalleAplicacionPagos: detalleAplicacionPagos,
     porVendedor,
     porSeccion,
     transferenciasPorAlias: porAlias,
@@ -4830,29 +4849,31 @@ if (inv?.type === "Reporte") {
             )}
           </tbody>
         </table>
-        {/* 👇👇👇 NUEVA SECCIÓN: DEUDORES ACTIVOS */}
+      {/* 👇👇👇 MEJORADA: Tabla de Deudores Activos con más detalles */}
 <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
 <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Deudores Activos</div>
 <table className="print-table text-sm">
   <thead>
     <tr>
       <th>Cliente</th>
-      <th style={{ width: "18%" }}>Deuda Actual</th>
-      <th style={{ width: "18%" }}>Saldo a Favor</th>
-      <th style={{ width: "18%" }}>Deuda Neta</th>
+      <th style={{ width: "15%" }}>Facturas</th>
+      <th style={{ width: "15%" }}>Deuda Actual</th>
+      <th style={{ width: "15%" }}>Saldo a Favor</th>
+      <th style={{ width: "15%" }}>Deuda Neta</th>
     </tr>
   </thead>
   <tbody>
     {(inv.deudoresActivos || []).map((deudor: any, i: number) => (
       <tr key={deudor.id || i}>
         <td>{deudor.name}</td>
+        <td style={{ textAlign: "center" }}>{deudor.cantidadFacturas || 0}</td>
         <td style={{ textAlign: "right" }}>{fmt(deudor.deuda)}</td>
         <td style={{ textAlign: "right" }}>{fmt(deudor.saldoFavor)}</td>
         <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt(deudor.deudaNeta)}</td>
       </tr>
     ))}
     {(!inv.deudoresActivos || inv.deudoresActivos.length === 0) && (
-      <tr><td colSpan={4}>No hay deudores activos.</td></tr>
+      <tr><td colSpan={5}>No hay deudores activos.</td></tr>
     )}
   </tbody>
 </table>
