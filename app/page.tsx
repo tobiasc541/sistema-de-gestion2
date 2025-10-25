@@ -2624,8 +2624,7 @@ const deudoresActivos = state.clients
   })
   .map((c: any) => {
       const detalleDeudasCliente = calcularDetalleDeudas(state, c.id);
-      const deudaNeta = calcularDeudaTotal(detalleDeudasCliente);
-      const saldoFavor = parseNum(c.saldo_favor || 0);
+const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c);      const saldoFavor = parseNum(c.saldo_favor || 0);
       
       return {
         id: c.id,
