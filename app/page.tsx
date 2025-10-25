@@ -2866,7 +2866,7 @@ function ReportesTab({ state, setState, session }: any) {
   const [mes, setMes] = useState<string>(thisMonthStr);
   const [anio, setAnio] = useState<string>(String(today.getFullYear()));
   const [gabiInitial, setGabiInitial] = useState("");
-const [gabiSpent, setGabiSpent] = useState("");
+  const [gabiSpent, setGabiSpent] = useState("");
 
   // --- helpers para vuelto por día ---
   const diaClave = dia; // YYYY-MM-DD del selector
@@ -2913,50 +2913,51 @@ const [gabiSpent, setGabiSpent] = useState("");
       await saveCountersSupabase?.(st.meta);
     }
   }
-    // Función para guardar fondos iniciales de Gabi
-async function setGabiFundsForDay(nuevo: number) {
-  const st = clone(state);
-  st.meta.gabiFundsByDate = st.meta.gabiFundsByDate || {};
-  st.meta.gabiFundsByDate[diaClave] = nuevo;
-  setState(st);
 
-  if (hasSupabase) {
-    await supabase
-      .from("gabi_funds")
-      .upsert(
-        { 
-          id: `gabi_${diaClave}`,
-          day: diaClave, 
-          initial_amount: nuevo,
-          updated_at: todayISO()
-        },
-        { onConflict: "day" }
-      );
+  // Función para guardar fondos iniciales de Gabi
+  async function setGabiFundsForDay(nuevo: number) {
+    const st = clone(state);
+    st.meta.gabiFundsByDate = st.meta.gabiFundsByDate || {};
+    st.meta.gabiFundsByDate[diaClave] = nuevo;
+    setState(st);
+
+    if (hasSupabase) {
+      await supabase
+        .from("gabi_funds")
+        .upsert(
+          { 
+            id: `gabi_${diaClave}`,
+            day: diaClave, 
+            initial_amount: nuevo,
+            updated_at: todayISO()
+          },
+          { onConflict: "day" }
+        );
+    }
   }
-}
+
   // Función para actualizar gastos de Gabi
-async function updateGabiSpentForDay(gastado: number) {
-  if (!hasSupabase) return;
+  async function updateGabiSpentForDay(gastado: number) {
+    if (!hasSupabase) return;
 
-  const { data: existing } = await supabase
-    .from("gabi_funds")
-    .select("*")
-    .eq("day", diaClave)
-    .single();
-
-  if (existing) {
-    const remaining = parseNum(existing.initial_amount) - gastado;
-    await supabase
+    const { data: existing } = await supabase
       .from("gabi_funds")
-      .update({
-        spent_amount: gastado,
-        remaining_amount: remaining,
-        updated_at: todayISO()
-      })
-      .eq("day", diaClave);
-  }
-}
+      .select("*")
+      .eq("day", diaClave)
+      .single();
 
+    if (existing) {
+      const remaining = parseNum(existing.initial_amount) - gastado;
+      await supabase
+        .from("gabi_funds")
+        .update({
+          spent_amount: gastado,
+          remaining_amount: remaining,
+          updated_at: todayISO()
+        })
+        .eq("day", diaClave);
+    }
+  }
 
   // Rango según período
   function rangoActual() {
@@ -3057,265 +3058,267 @@ async function updateGabiSpentForDay(gastado: number) {
   }, [periodo, dia, mes, anio, state.meta?.lastSavedInvoiceId, state.gastos?.length]);
 
   // ✅ Ahora sí: comisiones del período usando start/end
-const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]) => {
-  const t = new Date(`${k}T00:00:00`).getTime();
-  return t >= start && t <= end ? sum + parseNum(v) : sum;
-}, 0);
+  const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]) => {
+    const t = new Date(`${k}T00:00:00`).getTime();
+    return t >= start && t <= end ? sum + parseNum(v) : sum;
+  }, 0);
 
-// Ventas (solo Facturas)
-const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
-const totalVentas = invoices.reduce((s: number, f: any) => s + parseNum(f.total), 0);
+  // Ventas (solo Facturas)
+  const invoices = docsEnRango.filter((f: any) => f.type === "Factura");
+  const totalVentas = invoices.reduce((s: number, f: any) => s + parseNum(f.total), 0);
 
-// 👇👇👇 PAGOS DE DEUDORES - AHORA desde debt_payments
-const pagosDeudores = (state.debt_payments || []).filter((p: any) => {
-  const pagoDate = new Date(p.date_iso).getTime();
-  return pagoDate >= start && pagoDate <= end;
-});
+  // 👇👇👇 PAGOS DE DEUDORES - AHORA desde debt_payments
+  const pagosDeudores = (state.debt_payments || []).filter((p: any) => {
+    const pagoDate = new Date(p.date_iso).getTime();
+    return pagoDate >= start && pagoDate <= end;
+  });
 
-// 👇👇👇 CÁLCULOS DE PAGOS PARA INCLUIR RECIBOS - ACTUALIZADO
-const totalVuelto = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.change || 0), 0);
-const totalEfectivo = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.cash || 0), 0);
-const totalEfectivoNeto = totalEfectivo - totalVuelto;
-const totalTransf = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.transfer || 0), 0);
+  // 👇👇👇 CÁLCULOS DE PAGOS PARA INCLUIR RECIBOS - ACTUALIZADO
+  const totalVuelto = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.change || 0), 0);
+  const totalEfectivo = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.cash || 0), 0);
+  const totalEfectivoNeto = totalEfectivo - totalVuelto;
+  const totalTransf = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.transfer || 0), 0);
 
-// 👇👇👇 CÁLCULO ESPECÍFICO PARA PAGOS DE DEUDORES - ACTUALIZADO
-const totalPagosDeudores = pagosDeudores.reduce((s: number, p: any) => {
-  const efectivo = parseNum(p?.cash_amount || p?.payments?.cash || 0);
-  const transferencia = parseNum(p?.transfer_amount || p?.payments?.transfer || 0);
-  return s + efectivo + transferencia;
-}, 0);
+  // 👇👇👇 CÁLCULO ESPECÍFICO PARA PAGOS DE DEUDORES - ACTUALIZADO
+  const totalPagosDeudores = pagosDeudores.reduce((s: number, p: any) => {
+    const efectivo = parseNum(p?.cash_amount || p?.payments?.cash || 0);
+    const transferencia = parseNum(p?.transfer_amount || p?.payments?.transfer || 0);
+    return s + efectivo + transferencia;
+  }, 0);
 
-const cantidadPagos = pagosDeudores.length;
+  const cantidadPagos = pagosDeudores.length;
 
-// 👇👇👇 EFECTIVO DE PAGOS DE DEUDORES (PARA FLUJO DE CAJA) - ACTUALIZADO
-const efectivoPagosDeudores = pagosDeudores.reduce((s: number, p: any) => 
-  s + parseNum(p?.cash_amount || p?.payments?.cash || 0), 0);
+  // 👇👇👇 EFECTIVO DE PAGOS DE DEUDORES (PARA FLUJO DE CAJA) - ACTUALIZADO
+  const efectivoPagosDeudores = pagosDeudores.reduce((s: number, p: any) => 
+    s + parseNum(p?.cash_amount || p?.payments?.cash || 0), 0);
+  
   // 👇👇👇 TRANSFERENCIAS DE PAGOS DE DEUDORES - NUEVO
-const transferenciasPagosDeudores = pagosDeudores.reduce((s: number, p: any) => 
-  s + parseNum(p?.transfer_amount || p?.payments?.transfer || 0), 0);
+  const transferenciasPagosDeudores = pagosDeudores.reduce((s: number, p: any) => 
+    s + parseNum(p?.transfer_amount || p?.payments?.transfer || 0), 0);
 
+  // Vuelto restante para el día (solo aplica si periodo === "dia")
+  const vueltoRestante = periodo === "dia" ? Math.max(0, cashFloatTarget - totalVuelto) : 0;
 
-// Vuelto restante para el día (solo aplica si periodo === "dia")
-const vueltoRestante = periodo === "dia" ? Math.max(0, cashFloatTarget - totalVuelto) : 0;
+  // Ganancia estimada
+  const ganancia = invoices.reduce((s: number, f: any) => s + (parseNum(f.total) - parseNum(f.cost)), 0);
 
-// Ganancia estimada
-const ganancia = invoices.reduce((s: number, f: any) => s + (parseNum(f.total) - parseNum(f.cost)), 0);
-
-// GASTOS del período
-const gastosPeriodo = (state.gastos || []).filter((g: any) => {
-  if (!g || !g.date_iso) return false;
-  const t = new Date(g.date_iso).getTime();
-  return t >= start && t <= end;
-});
-
-// Gastos de Gabi del día
-const gastosGabi = gastosPeriodo.filter((g: any) => g.tipo === "Gabi");
-const totalGastosGabi = gastosGabi.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
-
-// Fondos de Gabi
-const gabiFundsByDate = (state?.meta?.gabiFundsByDate ?? {}) as Record<string, number>;
-const gabiInitialTarget = periodo === "dia" ? parseNum(gabiFundsByDate[diaClave] ?? 0) : 0;
-const fondosGabiRestantes = Math.max(0, gabiInitialTarget - totalGastosGabi);
-
-const totalGastos = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
-const totalGastosEfectivo = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo), 0);
-const totalGastosTransferencia = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.transferencia), 0);
-
-// Transferencias de GASTOS agrupadas por alias
-const transferenciasPorAlias = (() => {
-  const m: Record<string, number> = {};
-  gastosPeriodo.forEach((g: any) => {
-    const tr = parseNum(g.transferencia);
-    if (tr > 0) {
-      const a = String(g.alias ?? "Sin alias");
-      m[a] = (m[a] ?? 0) + tr;
-    }
+  // GASTOS del período
+  const gastosPeriodo = (state.gastos || []).filter((g: any) => {
+    if (!g || !g.date_iso) return false;
+    const t = new Date(g.date_iso).getTime();
+    return t >= start && t <= end;
   });
-  return Object.entries(m).map(([alias, total]) => ({ alias, total }));
-})();
 
-const devolucionesMontoEfectivo = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.efectivo), 0);
-const devolucionesMontoTransfer = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.transferencia), 0);
-const devolucionesMontoTotal = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
+  // Gastos de Gabi del día
+  const gastosGabi = gastosPeriodo.filter((g: any) => g.tipo === "Gabi");
+  const totalGastosGabi = gastosGabi.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
 
-// 👇👇👇 FLUJO DE CAJA CORREGIDO - INCLUYE PAGOS DE DEUDORES
-const flujoCajaEfectivoFinal =
-  totalEfectivoNeto +                    // Efectivo neto de VENTAS (efectivo - vuelto)
-  efectivoPagosDeudores -                // Efectivo de PAGOS DE DEUDORES (NUEVO)
-  totalGastosEfectivo -                  // Gastos en efectivo
-  devolucionesMontoEfectivo -            // Devoluciones en efectivo
-  commissionsPeriodo +                   // Comisiones pagadas (se restan)
-  vueltoRestante +                       // Vuelto que queda en caja
-  fondosGabiRestantes;                   // Fondos restantes de Gabi que vuelven a caja
+  // Fondos de Gabi
+  const gabiFundsByDate = (state?.meta?.gabiFundsByDate ?? {}) as Record<string, number>;
+  const gabiInitialTarget = periodo === "dia" ? parseNum(gabiFundsByDate[diaClave] ?? 0) : 0;
+  const fondosGabiRestantes = Math.max(0, gabiInitialTarget - totalGastosGabi);
 
-// 👇👇👇 TRANSFERENCIAS TOTALES INCLUYENDO PAGOS DE DEUDORES - NUEVO
-const transferenciasTotales = totalTransf + transferenciasPagosDeudores;
-// Agrupados
-const porVendedor = Object.values(
-  invoices.reduce((acc: any, f: any) => {
-    const k = f.vendor_name || "Sin vendedor";
-    acc[k] = acc[k] || { vendedor: k, total: 0 };
-    acc[k].total += parseNum(f.total);
-    return acc;
-  }, {})
-).sort((a: any, b: any) => b.total - a.total);
+  const totalGastos = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
+  const totalGastosEfectivo = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.efectivo), 0);
+  const totalGastosTransferencia = gastosPeriodo.reduce((s: number, g: any) => s + parseNum(g.transferencia), 0);
 
-const porSeccion = (() => {
-  const m: Record<string, number> = {};
-  invoices.forEach((f: any) =>
-    (f.items || []).forEach((it: any) => {
-      m[it.section] = (m[it.section] || 0) + parseNum(it.qty) * parseNum(it.unitPrice);
-    })
-  );
-  return Object.entries(m).map(([section, total]) => ({ section, total })).sort((a, b) => b.total - a.total);
-})();
+  // Transferencias de GASTOS agrupadas por alias
+  const transferenciasPorAlias = (() => {
+    const m: Record<string, number> = {};
+    gastosPeriodo.forEach((g: any) => {
+      const tr = parseNum(g.transferencia);
+      if (tr > 0) {
+        const a = String(g.alias ?? "Sin alias");
+        m[a] = (m[a] ?? 0) + tr;
+      }
+    });
+    return Object.entries(m).map(([alias, total]) => ({ alias, total }));
+  })();
 
-// Transferencias por alias (ventas + pagos de deudores)
-const porAlias = (() => {
-  const m: Record<string, number> = {};
+  const devolucionesMontoEfectivo = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.efectivo), 0);
+  const devolucionesMontoTransfer = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.transferencia), 0);
+  const devolucionesMontoTotal = devolucionesPeriodo.reduce((s: number, d: any) => s + parseNum(d?.total), 0);
+
+  // 👇👇👇 FLUJO DE CAJA CORREGIDO - INCLUYE PAGOS DE DEUDORES
+  const flujoCajaEfectivoFinal =
+    totalEfectivoNeto +                    // Efectivo neto de VENTAS (efectivo - vuelto)
+    efectivoPagosDeudores -                // Efectivo de PAGOS DE DEUDORES (NUEVO)
+    totalGastosEfectivo -                  // Gastos en efectivo
+    devolucionesMontoEfectivo -            // Devoluciones en efectivo
+    commissionsPeriodo +                   // Comisiones pagadas (se restan)
+    vueltoRestante +                       // Vuelto que queda en caja
+    fondosGabiRestantes;                   // Fondos restantes de Gabi que vuelven a caja
+
+  // 👇👇👇 TRANSFERENCIAS TOTALES INCLUYENDO PAGOS DE DEUDORES - NUEVO
+  const transferenciasTotales = totalTransf + transferenciasPagosDeudores;
   
-  // Transferencias de ventas
-  docsEnRango.forEach((f: any) => {
-    const tr = parseNum(f?.payments?.transfer);
-    if (tr > 0) {
-      const alias = String(f?.payments?.alias || "Sin alias").trim() || "Sin alias";
-      m[alias] = (m[alias] || 0) + tr;
-    }
-  });
-  
-  // 👇👇👇 AGREGAR TRANSFERENCIAS DE PAGOS DE DEUDORES
-  pagosDeudores.forEach((p: any) => {
-    const tr = parseNum(p?.transfer_amount || p?.payments?.transfer || 0);
-    if (tr > 0) {
-      const alias = String(p?.alias || "Sin alias").trim() || "Sin alias";
-      m[alias] = (m[alias] || 0) + tr;
-    }
-  });
-  
-  return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
-})();
+  // Agrupados
+  const porVendedor = Object.values(
+    invoices.reduce((acc: any, f: any) => {
+      const k = f.vendor_name || "Sin vendedor";
+      acc[k] = acc[k] || { vendedor: k, total: 0 };
+      acc[k].total += parseNum(f.total);
+      return acc;
+    }, {})
+  ).sort((a: any, b: any) => b.total - a.total);
 
-async function imprimirReporte() {
-  // 👇👇👇 CALCULAR DEUDA DEL DÍA CORRECTAMENTE
-  const deudaDelDia = invoices
-    .filter((f: any) => {
-      const total = parseNum(f.total);
-      const pagos = parseNum(f?.payments?.cash || 0) + 
-                   parseNum(f?.payments?.transfer || 0) + 
-                   parseNum(f?.payments?.saldo_aplicado || 0);
-      return (total - pagos) > 0.01; // Tiene deuda pendiente
-    })
-    .reduce((s: number, f: any) => {
-      const total = parseNum(f.total);
-      const pagos = parseNum(f?.payments?.cash || 0) + 
-                   parseNum(f?.payments?.transfer || 0) + 
-                   parseNum(f?.payments?.saldo_aplicado || 0);
-      return s + (total - pagos);
-    }, 0);
+  const porSeccion = (() => {
+    const m: Record<string, number> = {};
+    invoices.forEach((f: any) =>
+      (f.items || []).forEach((it: any) => {
+        m[it.section] = (m[it.section] || 0) + parseNum(it.qty) * parseNum(it.unitPrice);
+      })
+    );
+    return Object.entries(m).map(([section, total]) => ({ section, total })).sort((a, b) => b.total - a.total);
+  })();
 
-  // 👇👇👇 DEUDORES ACTIVOS CON DETALLE COMPLETO
-const deudoresActivos = state.clients
-  .filter((c: any) => {
-    const detalleDeudasCliente = calcularDetalleDeudas(state, c.id);
-    const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c); // ← AGREGAR 'c' COMO SEGUNDO PARÁMETRO
-    return deudaNeta > 0.01;
-  })
-  .map((c: any) => {
-      const detalleDeudasCliente = calcularDetalleDeudas(state, c.id);
-const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c);      const saldoFavor = parseNum(c.saldo_favor || 0);
+  // Transferencias por alias (ventas + pagos de deudores)
+  const porAlias = (() => {
+    const m: Record<string, number> = {};
+    
+    // Transferencias de ventas
+    docsEnRango.forEach((f: any) => {
+      const tr = parseNum(f?.payments?.transfer);
+      if (tr > 0) {
+        const alias = String(f?.payments?.alias || "Sin alias").trim() || "Sin alias";
+        m[alias] = (m[alias] || 0) + tr;
+      }
+    });
+    
+    // 👇👇👇 AGREGAR TRANSFERENCIAS DE PAGOS DE DEUDORES
+    pagosDeudores.forEach((p: any) => {
+      const tr = parseNum(p?.transfer_amount || p?.payments?.transfer || 0);
+      if (tr > 0) {
+        const alias = String(p?.alias || "Sin alias").trim() || "Sin alias";
+        m[alias] = (m[alias] || 0) + tr;
+      }
+    });
+    
+    return Object.entries(m).map(([alias, total]) => ({ alias, total })).sort((a, b) => b.total - a.total);
+  })();
+
+  async function imprimirReporte() {
+    // 👇👇👇 CALCULAR DEUDA DEL DÍA CORRECTAMENTE
+    const deudaDelDia = invoices
+      .filter((f: any) => {
+        const total = parseNum(f.total);
+        const pagos = parseNum(f?.payments?.cash || 0) + 
+                     parseNum(f?.payments?.transfer || 0) + 
+                     parseNum(f?.payments?.saldo_aplicado || 0);
+        return (total - pagos) > 0.01; // Tiene deuda pendiente
+      })
+      .reduce((s: number, f: any) => {
+        const total = parseNum(f.total);
+        const pagos = parseNum(f?.payments?.cash || 0) + 
+                     parseNum(f?.payments?.transfer || 0) + 
+                     parseNum(f?.payments?.saldo_aplicado || 0);
+        return s + (total - pagos);
+      }, 0);
+
+    // 👇👇👇 DEUDORES ACTIVOS CON DETALLE COMPLETO
+    const deudoresActivos = state.clients
+      .filter((c: any) => {
+        const detalleDeudas = calcularDetalleDeudas(state, c.id);
+        const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
+        return deudaNeta > 0.01;
+      })
+      .map((c: any) => {
+        const detalleDeudas = calcularDetalleDeudas(state, c.id);
+        const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
+        const saldoFavor = parseNum(c.saldo_favor || 0);
+        
+        return {
+          id: c.id,
+          name: c.name,
+          number: c.number,
+          deuda_bruta: parseNum(c.debt),
+          saldo_favor: saldoFavor,
+          deuda_neta: deudaNeta,
+          detalle_facturas: detalleDeudas,
+          cantidad_facturas: detalleDeudas.length
+        };
+      })
+      .sort((a: any, b: any) => b.deuda_neta - a.deuda_neta);
+
+    // 👇👇👇 PAGOS DE DEUDORES CON DETALLE DE APLICACIÓN
+    const pagosDeudoresDetallados = pagosDeudores.map((pago: any) => {
+      const cliente = state.clients.find((c: any) => c.id === pago.client_id);
+      const detalleDeudasAntes = calcularDetalleDeudas(state, pago.client_id);
       
       return {
-        id: c.id,
-        name: c.name,
-        number: c.number,
-        deuda_bruta: parseNum(c.debt),
-        saldo_favor: saldoFavor,
-        deuda_neta: deudaNeta,
-        detalle_facturas: detalleDeudasCliente,
-        cantidad_facturas: detalleDeudasCliente.length
+        pago_id: pago.id,
+        fecha_pago: pago.date_iso,
+        cliente: pago.client_name,
+        total_pagado: pago.total_amount,
+        efectivo: pago.cash_amount,
+        transferencia: pago.transfer_amount,
+        alias: pago.alias || "",
+        deuda_antes_pago: pago.debt_before,
+        deuda_despues_pago: pago.debt_after,
+        aplicaciones: pago.aplicaciones || [],
+        detalle_deuda_antes: detalleDeudasAntes
       };
-    })
-    .sort((a: any, b: any) => b.deuda_neta - a.deuda_neta);
+    });
 
-  // 👇👇👇 PAGOS DE DEUDORES CON DETALLE DE APLICACIÓN
-  const pagosDeudoresDetallados = pagosDeudores.map((pago: any) => {
-    const cliente = state.clients.find((c: any) => c.id === pago.client_id);
-    const detalleDeudasAntes = calcularDetalleDeudas(state, pago.client_id);
-    
-    return {
-      pago_id: pago.id,
-      fecha_pago: pago.date_iso,
-      cliente: pago.client_name,
-      total_pagado: pago.total_amount,
-      efectivo: pago.cash_amount,
-      transferencia: pago.transfer_amount,
-      alias: pago.alias || "",
-      deuda_antes_pago: pago.debt_before,
-      deuda_despues_pago: pago.debt_after,
-      aplicaciones: pago.aplicaciones || [],
-      detalle_deuda_antes: detalleDeudasAntes
+    const data = {
+      type: "Reporte",
+      periodo,
+      rango: { start, end },
+      
+      // RESUMEN PRINCIPAL
+      resumen: {
+        ventas: totalVentas,
+        deudaDelDia: deudaDelDia,
+        efectivoCobrado: totalEfectivo,
+        vueltoEntregado: totalVuelto,
+        efectivoNeto: totalEfectivoNeto,
+        transferencias: totalTransf,
+        pagosDeudores: totalPagosDeudores,
+        cantidadPagosDeudores: pagosDeudores.length,
+
+        gastosTotal: totalGastos,
+        gastosEfectivo: totalGastosEfectivo,
+        gastosTransfer: totalGastosTransferencia,
+
+        devolucionesCantidad: devolucionesPeriodo.length,
+        devolucionesEfectivo: devolucionesMontoEfectivo,
+        devolucionesTransfer: devolucionesMontoTransfer,
+        devolucionesTotal: devolucionesMontoTotal,
+
+        cashFloatTarget,
+        vueltoRestante,
+        flujoCajaEfectivo: flujoCajaEfectivoFinal,
+        comisionesPeriodo: commissionsPeriodo,
+      },
+
+      // DETALLES COMPLETOS
+      ventas: invoices,
+      gastos: gastosPeriodo,
+      devoluciones: devolucionesPeriodo,
+      
+      // 👇👇👇 NUEVAS SECCIONES CON DETALLE
+      deudaDelDiaDetalle: invoices.filter((f: any) => {
+        const total = parseNum(f.total);
+        const pagos = parseNum(f?.payments?.cash || 0) + 
+                     parseNum(f?.payments?.transfer || 0) + 
+                     parseNum(f?.payments?.saldo_aplicado || 0);
+        return (total - pagos) > 0.01;
+      }),
+      
+      deudoresActivos: deudoresActivos,
+      pagosDeudoresDetallados: pagosDeudoresDetallados,
+      
+      porVendedor,
+      porSeccion,
+      transferenciasPorAlias: porAlias,
+      transferGastosPorAlias: transferenciasPorAlias,
     };
-  });
 
-  const data = {
-    type: "Reporte",
-    periodo,
-    rango: { start, end },
-    
-    // RESUMEN PRINCIPAL
-    resumen: {
-      ventas: totalVentas,
-      deudaDelDia: deudaDelDia, // 👈 AHORA SÍ INCLUIDA
-      efectivoCobrado: totalEfectivo,
-      vueltoEntregado: totalVuelto,
-      efectivoNeto: totalEfectivoNeto,
-      transferencias: totalTransf,
-      pagosDeudores: totalPagosDeudores,
-      cantidadPagosDeudores: pagosDeudores.length,
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
+    await nextPaint();
+    window.print();
+  }
 
-      gastosTotal: totalGastos,
-      gastosEfectivo: totalGastosEfectivo,
-      gastosTransfer: totalGastosTransferencia,
-
-      devolucionesCantidad: devolucionesPeriodo.length,
-      devolucionesEfectivo: devolucionesMontoEfectivo,
-      devolucionesTransfer: devolucionesMontoTransfer,
-      devolucionesTotal: devolucionesMontoTotal,
-
-      cashFloatTarget,
-      vueltoRestante,
-      flujoCajaEfectivo: flujoCajaEfectivoFinal,
-      comisionesPeriodo: commissionsPeriodo,
-    },
-
-    // DETALLES COMPLETOS
-    ventas: invoices,
-    gastos: gastosPeriodo,
-    devoluciones: devolucionesPeriodo,
-    
-    // 👇👇👇 NUEVAS SECCIONES CON DETALLE
-    deudaDelDiaDetalle: invoices.filter((f: any) => {
-      const total = parseNum(f.total);
-      const pagos = parseNum(f?.payments?.cash || 0) + 
-                   parseNum(f?.payments?.transfer || 0) + 
-                   parseNum(f?.payments?.saldo_aplicado || 0);
-      return (total - pagos) > 0.01;
-    }),
-    
-    deudoresActivos: deudoresActivos, // 👈 CON DETALLE COMPLETO
-    pagosDeudoresDetallados: pagosDeudoresDetallados, // 👈 CON DETALLE DE APLICACIÓN
-    
-    porVendedor,
-    porSeccion,
-    transferenciasPorAlias: porAlias,
-    transferGastosPorAlias: transferenciasPorAlias,
-  };
-
-  window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
-  await nextPaint();
-  window.print();
-}
-}
   // ===== AQUÍ ESTÁ EL RETURN PRINCIPAL DEL COMPONENTE =====
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
@@ -3352,7 +3355,6 @@ const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c);      const saldoF
         <div className="text-sm text-slate-400">Genera un reporte imprimible con el rango seleccionado.</div>
       </Card>
 
-      {/* ... el resto del JSX del componente permanece igual ... */}
       {periodo === "dia" && (
         <Card
           title="Vuelto en caja (por día)"
@@ -3428,7 +3430,8 @@ const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c);      const saldoF
           </div>
         </Card>
       )}
-          {/* 👇👇👇 AGREGAR ESTA CARD NUEVA - JUSTO DESPUÉS DE LOS FILTROS */}
+
+      {/* 👇👇👇 AGREGAR ESTA CARD NUEVA - JUSTO DESPUÉS DE LOS FILTROS */}
       <Card title="💰 Deuda Actual del Día">
         <div className="text-2xl font-bold text-amber-400">
           {money(
@@ -3443,170 +3446,164 @@ const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c);      const saldoF
       </Card>
       
       {/* 👇👇👇 SECCIÓN GABI - AGREGAR JUSTO AQUÍ 👇👇👇 */}
-     
-
-
-
-
-
-{periodo === "dia" && (
-  <Card
-    title="Fondos de Gabi (por día)"
-    actions={
-      <Button onClick={async () => {
-        await setGabiFundsForDay(parseNum(gabiInitial));
-        alert("Fondos de Gabi guardados.");
-      }}>
-        Guardar
-      </Button>
-    }
-  >
-    <div className="grid md:grid-cols-3 gap-3">
-      <NumberInput
-        label={`Dinero dado a Gabi para ${diaClave}`}
-        value={gabiInitial}
-        onChange={setGabiInitial}
-        placeholder="Ej: 50000"
-      />
-      <div className="md:col-span-2 grid grid-cols-2 gap-3">
-        <div>
-          <div className="text-xs text-slate-400 mb-1">Gastos de Gabi registrados</div>
-          <div className="text-xl font-bold">{money(totalGastosGabi)}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-400 mb-1">Fondos restantes de Gabi</div>
-          <div className="text-xl font-bold">{money(fondosGabiRestantes)}</div>
-        </div>
-      </div>
-    </div>
-  </Card>
-)}
-
-<div className="grid md:grid-cols-4 gap-3">
-  <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
-  <Card title="Efectivo (cobrado)">
-    <div className="text-2xl font-bold">{money(totalEfectivo + efectivoPagosDeudores)}</div>
-    <div className="text-xs text-slate-400 mt-1">
-      Ventas: {money(totalEfectivo)} + Deudores: {money(efectivoPagosDeudores)}
-    </div>
-  </Card>
-  <Card title="Vuelto entregado">
-    <div className="text-2xl font-bold">{money(totalVuelto)}</div>
-  </Card>
-  <Card title="Transferencias">
-    <div className="text-2xl font-bold">{money(transferenciasTotales)}</div>
-    <div className="text-xs text-slate-400 mt-1">
-      Ventas: {money(totalTransf)} + Deudores: {money(transferenciasPagosDeudores)}
-    </div>
-  </Card>
-  <Card title="Pagos de Deudores">
-    <div className="text-2xl font-bold">{money(totalPagosDeudores)}</div>
-    <div className="text-xs text-slate-400 mt-1">{cantidadPagos} pago(s)</div>
-  </Card>
-</div>
-
-{/* === TOP CLIENTES === */}
-{(() => {
-  const ventasPorCliente = invoices.reduce((acc: any, f: any) => {
-    const clienteId = f.client_id;
-    const clienteNombre = f.client_name;
-    const totalFactura = parseNum(f.total);
-    
-    if (!acc[clienteId]) {
-      acc[clienteId] = {
-        nombre: clienteNombre,
-        total: 0,
-        cantidadFacturas: 0
-      };
-    }
-    
-    acc[clienteId].total += totalFactura;
-    acc[clienteId].cantidadFacturas += 1;
-    
-    return acc;
-  }, {});
-
-  const clientesTop = Object.entries(ventasPorCliente)
-    .map(([id, data]: [string, any]) => ({
-      id,
-      nombre: data.nombre,
-      total: data.total,
-      cantidadFacturas: data.cantidadFacturas
-    }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 3); // Top 3 clientes
-
-  return (
-    <div className="grid md:grid-cols-3 gap-3">
-      {/* Top Clientes */}
-      <Card title="🏆 Top Clientes">
-        {clientesTop.length > 0 ? (
-          <div className="space-y-2">
-            {clientesTop.map((cliente, index) => (
-              <div key={cliente.id} className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs bg-emerald-600 rounded-full w-5 h-5 flex items-center justify-center">
-                    {index + 1}
-                  </span>
-                  <div className="text-sm truncate max-w-[120px]" title={cliente.nombre}>
-                    {cliente.nombre}
-                  </div>
-                </div>
-                <div className="text-sm font-semibold">
-                  {money(cliente.total)}
-                </div>
+      {periodo === "dia" && (
+        <Card
+          title="Fondos de Gabi (por día)"
+          actions={
+            <Button onClick={async () => {
+              await setGabiFundsForDay(parseNum(gabiInitial));
+              alert("Fondos de Gabi guardados.");
+            }}>
+              Guardar
+            </Button>
+          }
+        >
+          <div className="grid md:grid-cols-3 gap-3">
+            <NumberInput
+              label={`Dinero dado a Gabi para ${diaClave}`}
+              value={gabiInitial}
+              onChange={setGabiInitial}
+              placeholder="Ej: 50000"
+            />
+            <div className="md:col-span-2 grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-xs text-slate-400 mb-1">Gastos de Gabi registrados</div>
+                <div className="text-xl font-bold">{money(totalGastosGabi)}</div>
               </div>
-            ))}
+              <div>
+                <div className="text-xs text-slate-400 mb-1">Fondos restantes de Gabi</div>
+                <div className="text-xl font-bold">{money(fondosGabiRestantes)}</div>
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="text-sm text-slate-400">
-            Sin ventas en el período
+        </Card>
+      )}
+
+      <div className="grid md:grid-cols-4 gap-3">
+        <Card title="Ventas totales"><div className="text-2xl font-bold">{money(totalVentas)}</div></Card>
+        <Card title="Efectivo (cobrado)">
+          <div className="text-2xl font-bold">{money(totalEfectivo + efectivoPagosDeudores)}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            Ventas: {money(totalEfectivo)} + Deudores: {money(efectivoPagosDeudores)}
           </div>
-        )}
-      </Card>
-
-      {/* Las otras dos cards se mantienen igual */}
-      <Card title="Ganancia estimada">
-        <div className="text-2xl font-bold">{money(ganancia)}</div>
-        <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
-      </Card>
-
-      <Card title="Flujo final de caja (efectivo)">
-        <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
-        <div className="text-xs text-slate-400 mt-1">
-          Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante + Fondos Gabi restantes + Pago Deudores (ef.)
-        </div>
-      </Card>
-    </div>
-  );
-})()}
-
-<Card title="Gastos y Devoluciones">
-  <div className="space-y-3 text-sm">
-    <div>Total de gastos: <b>{money(totalGastos)}</b></div>
-    <div>- En efectivo: {money(totalGastosEfectivo)}</div>
-    <div>- En transferencia: {money(totalGastosTransferencia)}</div>
-    {/* 👇👇👇 SECCIÓN GABI EN GASTOS - AGREGAR JUSTO AQUÍ 👇👇👇 */}
-    {periodo === "dia" && (
-      <div className="mt-2 p-2 bg-slate-800/30 rounded">
-        <div className="font-semibold">Fondos de Gabi</div>
-        <div>- Dinero dado: {money(gabiInitialTarget)}</div>
-        <div>- Gastado: {money(totalGastosGabi)}</div>
-        <div>- Restante: <b>{money(fondosGabiRestantes)}</b></div>
+        </Card>
+        <Card title="Vuelto entregado">
+          <div className="text-2xl font-bold">{money(totalVuelto)}</div>
+        </Card>
+        <Card title="Transferencias">
+          <div className="text-2xl font-bold">{money(transferenciasTotales)}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            Ventas: {money(totalTransf)} + Deudores: {money(transferenciasPagosDeudores)}
+          </div>
+        </Card>
+        <Card title="Pagos de Deudores">
+          <div className="text-2xl font-bold">{money(totalPagosDeudores)}</div>
+          <div className="text-xs text-slate-400 mt-1">{cantidadPagos} pago(s)</div>
+        </Card>
       </div>
-    )}
-    {/* 👆👆👆 HASTA AQUÍ 👆👆👆 */}
 
-    <h4 className="mt-2 font-semibold">Transferencias por alias</h4>
-    {transferenciasPorAlias.length === 0 ? (
-      <div className="text-slate-400">Sin transferencias registradas.</div>
-    ) : (
-      <ul className="list-disc pl-5">
-        {transferenciasPorAlias.map((t) => (
-          <li key={t.alias}>{t.alias}: {money(t.total)}</li>
-        ))}
-      </ul>
-    )}
+      {/* === TOP CLIENTES === */}
+      {(() => {
+        const ventasPorCliente = invoices.reduce((acc: any, f: any) => {
+          const clienteId = f.client_id;
+          const clienteNombre = f.client_name;
+          const totalFactura = parseNum(f.total);
+          
+          if (!acc[clienteId]) {
+            acc[clienteId] = {
+              nombre: clienteNombre,
+              total: 0,
+              cantidadFacturas: 0
+            };
+          }
+          
+          acc[clienteId].total += totalFactura;
+          acc[clienteId].cantidadFacturas += 1;
+          
+          return acc;
+        }, {});
+
+        const clientesTop = Object.entries(ventasPorCliente)
+          .map(([id, data]: [string, any]) => ({
+            id,
+            nombre: data.nombre,
+            total: data.total,
+            cantidadFacturas: data.cantidadFacturas
+          }))
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 3); // Top 3 clientes
+
+        return (
+          <div className="grid md:grid-cols-3 gap-3">
+            {/* Top Clientes */}
+            <Card title="🏆 Top Clientes">
+              {clientesTop.length > 0 ? (
+                <div className="space-y-2">
+                  {clientesTop.map((cliente, index) => (
+                    <div key={cliente.id} className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs bg-emerald-600 rounded-full w-5 h-5 flex items-center justify-center">
+                          {index + 1}
+                        </span>
+                        <div className="text-sm truncate max-w-[120px]" title={cliente.nombre}>
+                          {cliente.nombre}
+                        </div>
+                      </div>
+                      <div className="text-sm font-semibold">
+                        {money(cliente.total)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-400">
+                  Sin ventas en el período
+                </div>
+              )}
+            </Card>
+
+            {/* Las otras dos cards se mantienen igual */}
+            <Card title="Ganancia estimada">
+              <div className="text-2xl font-bold">{money(ganancia)}</div>
+              <div className="text-xs text-slate-400 mt-1">Total - Costos</div>
+            </Card>
+
+            <Card title="Flujo final de caja (efectivo)">
+              <div className="text-2xl font-bold">{money(flujoCajaEfectivoFinal)}</div>
+              <div className="text-xs text-slate-400 mt-1">
+                Efectivo neto - Gastos (ef.) - Devoluciones (ef.) - Comisiones + Vuelto restante + Fondos Gabi restantes + Pago Deudores (ef.)
+              </div>
+            </Card>
+          </div>
+        );
+      })()}
+
+      <Card title="Gastos y Devoluciones">
+        <div className="space-y-3 text-sm">
+          <div>Total de gastos: <b>{money(totalGastos)}</b></div>
+          <div>- En efectivo: {money(totalGastosEfectivo)}</div>
+          <div>- En transferencia: {money(totalGastosTransferencia)}</div>
+          {/* 👇👇👇 SECCIÓN GABI EN GASTOS - AGREGAR JUSTO AQUÍ 👇👇👇 */}
+          {periodo === "dia" && (
+            <div className="mt-2 p-2 bg-slate-800/30 rounded">
+              <div className="font-semibold">Fondos de Gabi</div>
+              <div>- Dinero dado: {money(gabiInitialTarget)}</div>
+              <div>- Gastado: {money(totalGastosGabi)}</div>
+              <div>- Restante: <b>{money(fondosGabiRestantes)}</b></div>
+            </div>
+          )}
+          {/* 👆👆👆 HASTA AQUÍ 👆👆👆 */}
+
+          <h4 className="mt-2 font-semibold">Transferencias por alias</h4>
+          {transferenciasPorAlias.length === 0 ? (
+            <div className="text-slate-400">Sin transferencias registradas.</div>
+          ) : (
+            <ul className="list-disc pl-5">
+              {transferenciasPorAlias.map((t) => (
+                <li key={t.alias}>{t.alias}: {money(t.total)}</li>
+              ))}
+            </ul>
+          )}
 
           <h4 className="mt-4 font-semibold">Devoluciones registradas</h4>
           <div>Cantidad: <b>{devolucionesPeriodo.length}</b></div>
@@ -3659,23 +3656,23 @@ const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c);      const saldoF
       <Card title="Listado de facturas">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-          <thead className="text-left text-slate-400">
-  <tr>
-    <th className="py-2 pr-3">#</th>
-    <th className="py-2 pr-3">Fecha</th>
-    <th className="py-2 pr-3">Cliente</th>
-    <th className="py-2 pr-3">Vendedor</th>
-    <th className="py-2 pr-3">Total</th>
-    <th className="py-2 pr-3">Efectivo</th>
-    <th className="py-2 pr-3">Transf.</th>
-    <th className="py-2 pr-3">Vuelto</th>
-    <th className="py-2 pr-3">Alias/CVU</th>
-    <th className="py-2 pr-3">Tipo</th>
-    <th className="py-2 pr-3">Estado</th>
-    <th className="py-2 pr-3">Comprobante</th> {/* 👈 NUEVA COLUMNA */}
-    <th className="py-2 pr-3">Acciones</th>
-  </tr>
-</thead>
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-3">#</th>
+                <th className="py-2 pr-3">Fecha</th>
+                <th className="py-2 pr-3">Cliente</th>
+                <th className="py-2 pr-3">Vendedor</th>
+                <th className="py-2 pr-3">Total</th>
+                <th className="py-2 pr-3">Efectivo</th>
+                <th className="py-2 pr-3">Transf.</th>
+                <th className="py-2 pr-3">Vuelto</th>
+                <th className="py-2 pr-3">Alias/CVU</th>
+                <th className="py-2 pr-3">Tipo</th>
+                <th className="py-2 pr-3">Estado</th>
+                <th className="py-2 pr-3">Comprobante</th>
+                <th className="py-2 pr-3">Acciones</th>
+              </tr>
+            </thead>
             <tbody className="divide-y divide-slate-800">
               {docsEnRango
                 .slice()
@@ -3705,144 +3702,144 @@ const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c);      const saldoF
                       <td className="py-2 pr-3 truncate max-w-[180px]">{alias}</td>
                       <td className="py-2 pr-3">{f.type || "—"}</td>
                       <td className="py-2 pr-3">{f.status || "—"}</td>
-                  <td className="py-2 pr-3">
-  {/* COMPROBANTE - Solo si tiene transferencia */}
-  {(parseNum(f?.payments?.transfer) > 0) && (
-    <div className="flex gap-1 mb-1">
-      <SubirComprobante 
-        tipo="factura"
-        id={f.id}
-        session={session}
-        onComprobanteSubido={async () => {
-          const refreshedState = await loadFromSupabase(seedState());
-          setState(refreshedState);
-        }}
-      />
-      {f.comprobante_url && (
-        <a 
-          href={f.comprobante_url} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="text-green-400 hover:text-green-300 text-sm px-2 py-1 border border-green-700 rounded"
-          title="Ver comprobante"
-        >
-          👁️ Ver
-        </a>
-      )}
-    </div>
-  )}
-</td>
+                      <td className="py-2 pr-3">
+                        {/* COMPROBANTE - Solo si tiene transferencia */}
+                        {(parseNum(f?.payments?.transfer) > 0) && (
+                          <div className="flex gap-1 mb-1">
+                            <SubirComprobante 
+                              tipo="factura"
+                              id={f.id}
+                              session={session}
+                              onComprobanteSubido={async () => {
+                                const refreshedState = await loadFromSupabase(seedState());
+                                setState(refreshedState);
+                              }}
+                            />
+                            {f.comprobante_url && (
+                              <a 
+                                href={f.comprobante_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-green-400 hover:text-green-300 text-sm px-2 py-1 border border-green-700 rounded"
+                                title="Ver comprobante"
+                              >
+                                👁️ Ver
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </td>
 
-<td className="py-2 pr-3 space-x-2">
-  {/* Botón ver PDF */}
-  <button
-    onClick={() => viewInvoicePDF(f)}
-    className="text-blue-500 hover:text-blue-700"
-    title="Ver PDF"
-  >
-    📄
-  </button>
+                      <td className="py-2 pr-3 space-x-2">
+                        {/* Botón ver PDF */}
+                        <button
+                          onClick={() => viewInvoicePDF(f)}
+                          className="text-blue-500 hover:text-blue-700"
+                          title="Ver PDF"
+                        >
+                          📄
+                        </button>
 
-{/* Botón eliminar (solo admin) */}
-{session?.role === "admin" && (
-  <button
-    onClick={async () => {
-      if (!confirm(`¿Seguro que deseas eliminar la factura Nº ${pad(f.number)}? Esta acción REVERTIRÁ la deuda del cliente y el stock.`)) return;
-      
-      // 1. Encontrar el cliente afectado
-      const cliente = state.clients.find((c: any) => c.id === f.client_id);
-      if (!cliente) {
-        alert("Error: Cliente no encontrado.");
-        return;
-      }
+                        {/* Botón eliminar (solo admin) */}
+                        {session?.role === "admin" && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`¿Seguro que deseas eliminar la factura Nº ${pad(f.number)}? Esta acción REVERTIRÁ la deuda del cliente y el stock.`)) return;
+                              
+                              // 1. Encontrar el cliente afectado
+                              const cliente = state.clients.find((c: any) => c.id === f.client_id);
+                              if (!cliente) {
+                                alert("Error: Cliente no encontrado.");
+                                return;
+                              }
 
-      const st = clone(state);
-      
-      // 2. Cálculo PRECISO de la deuda a revertir
-      const totalFactura = parseNum(f.total);
-      const pagosEfectivo = parseNum(f?.payments?.cash || 0);
-      const pagosTransferencia = parseNum(f?.payments?.transfer || 0);
-      const saldoAplicado = parseNum(f?.payments?.saldo_aplicado || 0);
-      const totalPagos = pagosEfectivo + pagosTransferencia;
-      
-      // La deuda que generó esta factura es el total menos lo que ya pagó y el saldo aplicado
-      const deudaGeneradaPorFactura = Math.max(0, totalFactura - totalPagos - saldoAplicado);
-      
-      // Nueva deuda = deuda actual - deuda que generó esta factura
-      const deudaActual = parseNum(cliente.debt);
-      const nuevaDeuda = Math.max(0, deudaActual - deudaGeneradaPorFactura);
-      
-      // 3. Restaurar saldo a favor si se usó
-      const saldoActual = parseNum(cliente.saldo_favor);
-      const nuevoSaldo = saldoActual + saldoAplicado;
-      
-      // 4. Actualizar cliente
-      cliente.debt = nuevaDeuda;
-      cliente.saldo_favor = nuevoSaldo;
-      
-      // 5. Restaurar stock de productos
-      f.items.forEach((item: any) => {
-        const product = st.products.find((p: any) => p.id === item.productId);
-        if (product) {
-          product.stock = parseNum(product.stock) + parseNum(item.qty);
-        }
-      });
+                              const st = clone(state);
+                              
+                              // 2. Cálculo PRECISO de la deuda a revertir
+                              const totalFactura = parseNum(f.total);
+                              const pagosEfectivo = parseNum(f?.payments?.cash || 0);
+                              const pagosTransferencia = parseNum(f?.payments?.transfer || 0);
+                              const saldoAplicado = parseNum(f?.payments?.saldo_aplicado || 0);
+                              const totalPagos = pagosEfectivo + pagosTransferencia;
+                              
+                              // La deuda que generó esta factura es el total menos lo que ya pagó y el saldo aplicado
+                              const deudaGeneradaPorFactura = Math.max(0, totalFactura - totalPagos - saldoAplicado);
+                              
+                              // Nueva deuda = deuda actual - deuda que generó esta factura
+                              const deudaActual = parseNum(cliente.debt);
+                              const nuevaDeuda = Math.max(0, deudaActual - deudaGeneradaPorFactura);
+                              
+                              // 3. Restaurar saldo a favor si se usó
+                              const saldoActual = parseNum(cliente.saldo_favor);
+                              const nuevoSaldo = saldoActual + saldoAplicado;
+                              
+                              // 4. Actualizar cliente
+                              cliente.debt = nuevaDeuda;
+                              cliente.saldo_favor = nuevoSaldo;
+                              
+                              // 5. Restaurar stock de productos
+                              f.items.forEach((item: any) => {
+                                const product = st.products.find((p: any) => p.id === item.productId);
+                                if (product) {
+                                  product.stock = parseNum(product.stock) + parseNum(item.qty);
+                                }
+                              });
 
-      // 6. Eliminar factura del estado local
-      st.invoices = st.invoices.filter((x: any) => x.id !== f.id);
-      setState(st);
-      
-      // 7. Persistir en Supabase
-      if (hasSupabase) {
-        try {
-          // Eliminar factura
-          await supabase.from("invoices").delete().eq("id", f.id);
-          
-          // Actualizar cliente
-          await supabase.from("clients")
-            .update({ 
-              debt: nuevaDeuda,
-              saldo_favor: nuevoSaldo
-            })
-            .eq("id", f.client_id);
-          
-          // Actualizar stock de productos
-          for (const item of f.items) {
-            const product = st.products.find((p: any) => p.id === item.productId);
-            if (product) {
-              await supabase.from("products")
-                .update({ stock: product.stock })
-                .eq("id", item.productId);
-            }
-          }
-          
-          alert(`✅ Factura Nº ${pad(f.number)} eliminada.\nDeuda: ${money(deudaActual)} → ${money(nuevaDeuda)}\nStock restaurado.`);
-          
-        } catch (error) {
-          console.error("Error al eliminar factura:", error);
-          alert("Error al eliminar la factura. Los datos pueden estar inconsistentes.");
-          
-          // Recargar para evitar inconsistencias
-          const refreshedState = await loadFromSupabase(seedState());
-          setState(refreshedState);
-        }
-      } else {
-        alert(`✅ Factura Nº ${pad(f.number)} eliminada.\nDeuda: ${money(deudaActual)} → ${money(nuevaDeuda)}\nStock restaurado.`);
-      }
-    }}
-    className="text-red-500 hover:text-red-700"
-    title="Eliminar"
-  >
-    🗑️
-  </button>
-)}
+                              // 6. Eliminar factura del estado local
+                              st.invoices = st.invoices.filter((x: any) => x.id !== f.id);
+                              setState(st);
+                              
+                              // 7. Persistir en Supabase
+                              if (hasSupabase) {
+                                try {
+                                  // Eliminar factura
+                                  await supabase.from("invoices").delete().eq("id", f.id);
+                                  
+                                  // Actualizar cliente
+                                  await supabase.from("clients")
+                                    .update({ 
+                                      debt: nuevaDeuda,
+                                      saldo_favor: nuevoSaldo
+                                    })
+                                    .eq("id", f.client_id);
+                                  
+                                  // Actualizar stock de productos
+                                  for (const item of f.items) {
+                                    const product = st.products.find((p: any) => p.id === item.productId);
+                                    if (product) {
+                                      await supabase.from("products")
+                                        .update({ stock: product.stock })
+                                        .eq("id", item.productId);
+                                    }
+                                  }
+                                  
+                                  alert(`✅ Factura Nº ${pad(f.number)} eliminada.\nDeuda: ${money(deudaActual)} → ${money(nuevaDeuda)}\nStock restaurado.`);
+                                  
+                                } catch (error) {
+                                  console.error("Error al eliminar factura:", error);
+                                  alert("Error al eliminar la factura. Los datos pueden estar inconsistentes.");
+                                  
+                                  // Recargar para evitar inconsistencias
+                                  const refreshedState = await loadFromSupabase(seedState());
+                                  setState(refreshedState);
+                                }
+                              } else {
+                                alert(`✅ Factura Nº ${pad(f.number)} eliminada.\nDeuda: ${money(deudaActual)} → ${money(nuevaDeuda)}\nStock restaurado.`);
+                              }
+                            }}
+                            className="text-red-500 hover:text-red-700"
+                            title="Eliminar"
+                          >
+                            🗑️
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
                 })}
               {docsEnRango.length === 0 && (
                 <tr>
-                  <td className="py-3 text-slate-400" colSpan={12}>
+                  <td className="py-3 text-slate-400" colSpan={13}>
                     Sin documentos en el período.
                   </td>
                 </tr>
@@ -3903,155 +3900,155 @@ const deudaNeta = calcularDeudaTotal(detalleDeudasCliente, c);      const saldoF
           </table>
         </div>
       </Card>
- <Card title="Listado de Pagos de Deudores">
-  <div className="overflow-x-auto">
-    <table className="min-w-full text-sm">
-    <thead className="text-left text-slate-400">
-  <tr>
-    <th className="py-2 pr-3">Fecha y Hora</th>
-    <th className="py-2 pr-3">Cliente</th>
-    <th className="py-2 pr-3">Monto Pagado</th>
-    <th className="py-2 pr-3">Deuda Antes</th>
-    <th className="py-2 pr-3">Deuda Después</th>
-    <th className="py-2 pr-3">Método</th>
-    <th className="py-2 pr-3">Comprobante</th> {/* 👈 NUEVA COLUMNA */}
-    <th className="py-2 pr-3">Acciones</th>
-  </tr>
-</thead>
-      <tbody className="divide-y divide-slate-800">
-        {pagosDeudores
-          .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
-          .map((pago: any) => {
-            const efectivo = parseNum(pago?.cash_amount || pago?.payments?.cash || 0);
-            const transferencia = parseNum(pago?.transfer_amount || pago?.payments?.transfer || 0);
-            const montoTotal = efectivo + transferencia;
-            const metodo = efectivo > 0 && transferencia > 0 
-              ? "Mixto" 
-              : efectivo > 0 
-                ? "Efectivo" 
-                : "Transferencia";
 
-            return (
-              <tr key={pago.id}>
-                <td className="py-2 pr-3">
-                  {new Date(pago.date_iso).toLocaleString("es-AR")}
-                </td>
-                <td className="py-2 pr-3">{pago.client_name}</td>
-                <td className="py-2 pr-3">
-                  <span className="font-medium text-emerald-400">
-                    {money(montoTotal)}
-                  </span>
-                </td>
-                <td className="py-2 pr-3">
-                  <span className="text-amber-400">
-                    {money(parseNum(pago.debt_before))}
-                  </span>
-                </td>
-              <td className="py-2 pr-3">
-  <span className={(() => {
-    const cliente = state.clients.find((c: any) => c.id === pago.client_id);
-    if (cliente) {
-      const detalleDeudas = calcularDetalleDeudas(state, pago.client_id);
-      const deudaActual = calcularDeudaTotal(detalleDeudas, cliente);
-      return deudaActual > 0 ? "text-amber-400" : "text-emerald-400";
-    }
-    return parseNum(pago.debt_after) > 0 ? "text-amber-400" : "text-emerald-400";
-  })()}>
-    {(() => {
-      const cliente = state.clients.find((c: any) => c.id === pago.client_id);
-      if (cliente) {
-        const detalleDeudas = calcularDetalleDeudas(state, pago.client_id);
-        const deudaActual = calcularDeudaTotal(detalleDeudas, cliente);
-        return money(deudaActual);
-      }
-      return money(parseNum(pago.debt_after));
-    })()}
-  </span>
-</td>
-                <td className="py-2 pr-3">
-                  <Chip tone={metodo === "Efectivo" ? "emerald" : "slate"}>
-                    {metodo}
-                  </Chip>
-                </td>
-                <td className="py-2 pr-3">
-  {/* COMPROBANTE - Solo si tiene transferencia */}
-  {(parseNum(pago?.transfer_amount || pago?.payments?.transfer || 0) > 0) && (
-    <div className="flex gap-1 mb-1">
-      <SubirComprobante 
-        tipo="debt_payment"
-        id={pago.id}
-        session={session}
-        onComprobanteSubido={async () => {
-          const refreshedState = await loadFromSupabase(seedState());
-          setState(refreshedState);
-        }}
-      />
-      {pago.comprobante_url && (
-        <a 
-          href={pago.comprobante_url} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="text-green-400 hover:text-green-300 text-sm px-2 py-1 border border-green-700 rounded"
-          title="Ver comprobante"
-        >
-          👁️ Ver
-        </a>
-      )}
-    </div>
-  )}
-</td>
-                  {/* 👇👇👇 BOTÓN VER RECIBO */}
-                  <button
-                    onClick={() => {
-                      const reciboData = {
-                        ...pago,
-                        type: "Pago de Deuda",
-                        items: [{ 
-                          productId: "pago_deuda", 
-                          name: "Pago de deuda", 
-                          section: "Finanzas", 
-                          qty: 1, 
-                          unitPrice: montoTotal, 
-                          cost: 0 
-                        }],
-                        total: montoTotal,
-                        payments: { 
-                          cash: efectivo, 
-                          transfer: transferencia, 
-                          change: 0,
-                          alias: pago.alias || "",
-                          saldo_aplicado: pago.saldo_aplicado || 0
-                        },
-                        status: "Pagado"
-                      };
-                      window.dispatchEvent(new CustomEvent("print-invoice", { detail: reciboData } as any));
-                      setTimeout(() => window.print(), 0);
-                    }}
-                    className="text-blue-400 hover:text-blue-300 text-sm"
-                    title="Ver Recibo"
-                  >
-                    📄 Ver Recibo
-                  </button>
-                </td>
+      <Card title="Listado de Pagos de Deudores">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-3">Fecha y Hora</th>
+                <th className="py-2 pr-3">Cliente</th>
+                <th className="py-2 pr-3">Monto Pagado</th>
+                <th className="py-2 pr-3">Deuda Antes</th>
+                <th className="py-2 pr-3">Deuda Después</th>
+                <th className="py-2 pr-3">Método</th>
+                <th className="py-2 pr-3">Comprobante</th>
+                <th className="py-2 pr-3">Acciones</th>
               </tr>
-            );
-          })}
-        {pagosDeudores.length === 0 && (
-          <tr>
-            <td className="py-3 text-slate-400" colSpan={7}>
-              No hay pagos registrados en el período.
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  </div>
-</Card>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {pagosDeudores
+                .sort((a: any, b: any) => new Date(b.date_iso).getTime() - new Date(a.date_iso).getTime())
+                .map((pago: any) => {
+                  const efectivo = parseNum(pago?.cash_amount || pago?.payments?.cash || 0);
+                  const transferencia = parseNum(pago?.transfer_amount || pago?.payments?.transfer || 0);
+                  const montoTotal = efectivo + transferencia;
+                  const metodo = efectivo > 0 && transferencia > 0 
+                    ? "Mixto" 
+                    : efectivo > 0 
+                      ? "Efectivo" 
+                      : "Transferencia";
+
+                  return (
+                    <tr key={pago.id}>
+                      <td className="py-2 pr-3">
+                        {new Date(pago.date_iso).toLocaleString("es-AR")}
+                      </td>
+                      <td className="py-2 pr-3">{pago.client_name}</td>
+                      <td className="py-2 pr-3">
+                        <span className="font-medium text-emerald-400">
+                          {money(montoTotal)}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <span className="text-amber-400">
+                          {money(parseNum(pago.debt_before))}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <span className={(() => {
+                          const cliente = state.clients.find((c: any) => c.id === pago.client_id);
+                          if (cliente) {
+                            const detalleDeudas = calcularDetalleDeudas(state, pago.client_id);
+                            const deudaActual = calcularDeudaTotal(detalleDeudas, cliente);
+                            return deudaActual > 0 ? "text-amber-400" : "text-emerald-400";
+                          }
+                          return parseNum(pago.debt_after) > 0 ? "text-amber-400" : "text-emerald-400";
+                        })()}>
+                          {(() => {
+                            const cliente = state.clients.find((c: any) => c.id === pago.client_id);
+                            if (cliente) {
+                              const detalleDeudas = calcularDetalleDeudas(state, pago.client_id);
+                              const deudaActual = calcularDeudaTotal(detalleDeudas, cliente);
+                              return money(deudaActual);
+                            }
+                            return money(parseNum(pago.debt_after));
+                          })()}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <Chip tone={metodo === "Efectivo" ? "emerald" : "slate"}>
+                          {metodo}
+                        </Chip>
+                      </td>
+                      <td className="py-2 pr-3">
+                        {/* COMPROBANTE - Solo si tiene transferencia */}
+                        {(parseNum(pago?.transfer_amount || pago?.payments?.transfer || 0) > 0) && (
+                          <div className="flex gap-1 mb-1">
+                            <SubirComprobante 
+                              tipo="debt_payment"
+                              id={pago.id}
+                              session={session}
+                              onComprobanteSubido={async () => {
+                                const refreshedState = await loadFromSupabase(seedState());
+                                setState(refreshedState);
+                              }}
+                            />
+                            {pago.comprobante_url && (
+                              <a 
+                                href={pago.comprobante_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-green-400 hover:text-green-300 text-sm px-2 py-1 border border-green-700 rounded"
+                                title="Ver comprobante"
+                              >
+                                👁️ Ver
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {/* 👇👇👇 BOTÓN VER RECIBO */}
+                        <button
+                          onClick={() => {
+                            const reciboData = {
+                              ...pago,
+                              type: "Pago de Deuda",
+                              items: [{ 
+                                productId: "pago_deuda", 
+                                name: "Pago de deuda", 
+                                section: "Finanzas", 
+                                qty: 1, 
+                                unitPrice: montoTotal, 
+                                cost: 0 
+                              }],
+                              total: montoTotal,
+                              payments: { 
+                                cash: efectivo, 
+                                transfer: transferencia, 
+                                change: 0,
+                                alias: pago.alias || "",
+                                saldo_aplicado: pago.saldo_aplicado || 0
+                              },
+                              status: "Pagado"
+                            };
+                            window.dispatchEvent(new CustomEvent("print-invoice", { detail: reciboData } as any));
+                            setTimeout(() => window.print(), 0);
+                          }}
+                          className="text-blue-400 hover:text-blue-300 text-sm"
+                          title="Ver Recibo"
+                        >
+                          📄 Ver Recibo
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              {pagosDeudores.length === 0 && (
+                <tr>
+                  <td className="py-3 text-slate-400" colSpan={8}>
+                    No hay pagos registrados en el período.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
-  
-} // ← ESTE CIERRA EL COMPONENTE ReportesTab
-
+}
      
 
 /* Presupuestos */
