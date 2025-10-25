@@ -437,10 +437,6 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
 function calcularDeudaTotal(detalleDeudas: DetalleDeuda[]): number {
   return detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
 }
-// === Deuda total del cliente ===
-function calcularDeudaTotal(detalleDeudas: DetalleDeuda[]): number {
-  return detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
-}
 
 // 👇👇👇 NUEVA FUNCIÓN: Obtener detalle de pagos aplicados por factura
 function obtenerDetallePagosAplicados(pagosDeudores: any[], state: any) {
