@@ -1855,12 +1855,11 @@ function DeudoresTab({ state, setState, session }: any) {
   // ✅ FILTRAR MEJORADO: Usar deuda REAL calculada, no solo el campo debt
   const clients = state.clients.filter((c: any) => {
     const detalleDeudas = calcularDetalleDeudas(state, c.id);
-    const deudaReal = calcularDeudaTotal(detalleDeudas, c);
+    const deudaReal = calcularDeudaTotal(detalleDeudas, c); // ← c es el cliente
     
     // Solo mostrar si tiene deuda REAL mayor a 0.01
     return deudaReal > 0.01;
   });
-  
   
   const [active, setActive] = useState<string | null>(null);
   const [cash, setCash] = useState("");
@@ -2236,14 +2235,14 @@ async function eliminarDeudaCliente(clienteId: string) {
       <Card title="Deudores">
         {clients.length === 0 && <div className="text-sm text-slate-400">Sin deudas.</div>}
         <div className="divide-y divide-slate-800">
-          {clients.map((c: any) => {
-            const detalleDeudas = calcularDetalleDeudas(state, c.id);
-            const deudaFacturas = calcularDeudaTotal(detalleDeudas, { debt: 0 }); // Solo facturas
-            const deudaManual = parseNum(c.debt || 0);
-            const deudaTotal = deudaFacturas + deudaManual;
-            const saldoFavor = parseNum(c.saldo_favor || 0);
-            
-            return (
+        {clients.map((c: any) => {
+    const detalleDeudas = calcularDetalleDeudas(state, c.id);
+    const deudaFacturas = calcularDeudaTotal(detalleDeudas, c); // ← Pasar c, no {debt: 0}
+    const deudaManual = parseNum(c.debt || 0);
+    const deudaTotal = deudaFacturas + deudaManual;
+    const saldoFavor = parseNum(c.saldo_favor || 0);
+    
+    return (
               <div key={c.id} className="border border-slate-700 rounded-lg p-4 mb-3">
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
