@@ -498,13 +498,17 @@ function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
   // ✅ CORRECCIÓN: Filtrar solo facturas con deuda pendiente REAL
   return detalleDeudas.filter(deuda => deuda.monto_debe > 0.01);
 }
-
-// === Deuda total del cliente - CORREGIDA PARA EVITAR DUPLICACIÓN ===
+// === Deuda total del cliente - CORREGIDA Y SEGURA ===
 function calcularDeudaTotal(detalleDeudas: DetalleDeuda[], cliente: any): number {
   // ✅ SOLO calcular deuda de facturas pendientes
   const deudaFacturas = detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
   
-  console.log(`💰 Deuda calculada: Facturas=${deudaFacturas}, Cliente=${cliente.name}`);
+  // ✅ CORRECCIÓN: Verificar que cliente existe antes de acceder a sus propiedades
+  if (cliente) {
+    console.log(`💰 Deuda calculada: Facturas=${deudaFacturas}, Cliente=${cliente.name}`);
+  } else {
+    console.log(`💰 Deuda calculada: Facturas=${deudaFacturas}, Cliente=No encontrado`);
+  }
   
   return deudaFacturas;
 }
@@ -1852,15 +1856,16 @@ function ProductosTab({ state, setState, role }: any) {
 }
 
 function DeudoresTab({ state, setState, session }: any) {
-  // ✅ FILTRAR MEJORADO: Usar deuda REAL calculada, no solo el campo debt
-  const clients = state.clients.filter((c: any) => {
-    const detalleDeudas = calcularDetalleDeudas(state, c.id);
-    const deudaReal = calcularDeudaTotal(detalleDeudas, c); // ← c es el cliente
-    
-    // Solo mostrar si tiene deuda REAL mayor a 0.01
-    return deudaReal > 0.01;
-  });
+// ✅ FILTRAR MEJORADO: Con validación de cliente
+const clients = state.clients.filter((c: any) => {
+  if (!c || !c.id) return false; // ← Validación adicional
   
+  const detalleDeudas = calcularDetalleDeudas(state, c.id);
+  const deudaReal = calcularDeudaTotal(detalleDeudas, c);
+  
+  // Solo mostrar si tiene deuda REAL mayor a 0.01
+  return deudaReal > 0.01;
+});
   const [active, setActive] = useState<string | null>(null);
   const [cash, setCash] = useState("");
   const [transf, setTransf] = useState("");
