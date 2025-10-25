@@ -1071,7 +1071,7 @@ function ClientesTab({ state, setState, session }: any) {
     alert(`Cliente agregado ${modoAdmin ? 'con deuda/saldo manual' : 'correctamente'}`);
   }
 
- // Función para que admin agregue deuda manualmente a cliente existente
+// Función para que admin agregue deuda manualmente a cliente existente - CORREGIDA
 async function agregarDeudaManual(clienteId: string) {
   const deuda = prompt("Ingrese el monto de deuda a agregar:", "0");
   if (deuda === null) return;
@@ -1084,6 +1084,8 @@ async function agregarDeudaManual(clienteId: string) {
   
   if (cliente) {
     const deudaAnterior = parseNum(cliente.debt);
+    
+    // ✅ CORRECCIÓN: SIMPLEMENTE SUMAR LA DEUDA SIN COMPENSAR
     cliente.debt = deudaAnterior + montoDeuda;
     cliente.deuda_manual = true; // 👈 Marcar como deuda manual
     
