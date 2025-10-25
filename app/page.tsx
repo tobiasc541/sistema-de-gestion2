@@ -400,39 +400,54 @@ function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
 function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
   if (!clientId) return [];
   
-  // Obtener todas las facturas del cliente con estado "No Pagada"
-  const facturasCliente = (state.invoices || [])
+  console.log(`🔍 Calculando deudas para cliente: ${clientId}`);
+  
+  // Obtener TODAS las facturas del cliente (sin filtrar por status)
+  const todasFacturas = (state.invoices || [])
     .filter((f: any) => 
       f.client_id === clientId && 
-      f.type === "Factura" && 
-      f.status === "No Pagada"
+      f.type === "Factura"
     )
     .sort((a: any, b: any) => new Date(a.date_iso).getTime() - new Date(b.date_iso).getTime());
 
-  // Calcular detalle para cada factura
-  const detalleDeudas = facturasCliente.map((factura: any) => {
-    const totalFactura = parseNum(factura.total);
-    const pagosEfectivo = parseNum(factura?.payments?.cash || 0);
-    const pagosTransferencia = parseNum(factura?.payments?.transfer || 0);
-    const saldoAplicado = parseNum(factura?.payments?.saldo_aplicado || 0);
-    
-    const totalPagos = pagosEfectivo + pagosTransferencia + saldoAplicado;
-    const montoDebe = Math.max(0, totalFactura - totalPagos);
+  console.log(`📊 Encontradas ${todasFacturas.length} facturas para el cliente`);
 
-    return {
-      factura_id: factura.id,
-      factura_numero: factura.number,
-      fecha: factura.date_iso,
-      monto_total: totalFactura,
-      monto_pagado: totalPagos,
-      monto_debe: montoDebe,
-      items: factura.items || []
-    };
-  });
+  const detalleDeudas = todasFacturas.map((factura: any) => {
+    try {
+      const totalFactura = parseNum(factura.total);
+      const pagosEfectivo = parseNum(factura?.payments?.cash || 0);
+      const pagosTransferencia = parseNum(factura?.payments?.transfer || 0);
+      const saldoAplicado = parseNum(factura?.payments?.saldo_aplicado || 0);
+      
+      const totalPagos = pagosEfectivo + pagosTransferencia + saldoAplicado;
+      const montoDebe = Math.max(0, totalFactura - totalPagos);
 
-  return detalleDeudas.filter(deuda => deuda.monto_debe > 0);
+      console.log(`📋 Factura #${factura.number}: Total=${totalFactura}, Pagado=${totalPagos}, Debe=${montoDebe}`);
+
+      // Incluir solo facturas con deuda pendiente
+      if (montoDebe > 0) {
+        return {
+          factura_id: factura.id,
+          factura_numero: factura.number,
+          fecha: factura.date_iso,
+          monto_total: totalFactura,
+          monto_pagado: totalPagos,
+          monto_debe: montoDebe,
+          items: factura.items || []
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error(`❌ Error procesando factura ${factura.number}:`, error);
+      return null;
+    }
+  }).filter((deuda): deuda is DetalleDeuda => deuda !== null);
+
+  console.log(`💰 Deudas pendientes encontradas: ${detalleDeudas.length}`);
+  
+  return detalleDeudas;
 }
-
 // === Deuda total del cliente ===
 function calcularDeudaTotal(detalleDeudas: DetalleDeuda[]): number {
   return detalleDeudas.reduce((total, deuda) => total + deuda.monto_debe, 0);
