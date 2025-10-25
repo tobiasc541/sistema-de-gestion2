@@ -1843,7 +1843,7 @@ function ProductosTab({ state, setState, role }: any) {
 }
 
 // 👇👇👇 REEMPLAZAR LA FUNCIÓN DeudoresTab COMPLETA con esta versión corregida
-function DeudoresTab({ state, setState }: any) {
+function DeudoresTab({ state, setState, session }: any) {
   // Filtrar clientes que tengan deuda (facturas O manual)
   const clients = state.clients.filter((c: any) => {
     const detalleDeudas = calcularDetalleDeudas(state, c.id);
@@ -1868,6 +1868,57 @@ function DeudoresTab({ state, setState }: any) {
   const detalleDeudasCliente = verDetalle ? calcularDetalleDeudas(state, verDetalle) : [];
   const clienteDetalle = state.clients.find((c: any) => c.id === verDetalle);
   const deudaTotalCliente = calcularDeudaTotal(detalleDeudasCliente, clienteDetalle);
+    // 👇👇👇 AGREGAR ESTA FUNCIÓN NUEVA - SOLO PARA ADMIN
+  async function eliminarDeudaCliente(clienteId: string) {
+    const cliente = state.clients.find((c: any) => c.id === clienteId);
+    if (!cliente) return;
+    
+    const confirmacion = confirm(
+      `¿Está seguro de ELIMINAR COMPLETAMENTE la deuda de ${cliente.name}?\n\nDeuda actual: ${money(cliente.debt)}\n\n⚠️ Esta acción NO se puede deshacer.`
+    );
+    
+    if (!confirmacion) return;
+
+    const st = clone(state);
+    const clienteActualizado = st.clients.find((c: any) => c.id === clienteId);
+    
+    if (clienteActualizado) {
+      const deudaEliminada = parseNum(clienteActualizado.debt);
+      clienteActualizado.debt = 0;
+      clienteActualizado.deuda_manual = false; // También quitamos el flag de deuda manual
+      
+      setState(st);
+
+      if (hasSupabase) {
+        try {
+          const { error } = await supabase
+            .from("clients")
+            .update({ 
+              debt: 0,
+              deuda_manual: false 
+            })
+            .eq("id", clienteId);
+
+          if (error) {
+            console.error("❌ Error al eliminar deuda:", error);
+            alert("Error al eliminar la deuda en la base de datos.");
+            // Recargar para evitar inconsistencias
+            const refreshedState = await loadFromSupabase(seedState());
+            setState(refreshedState);
+            return;
+          }
+          
+          console.log("✅ Deuda eliminada en Supabase");
+        } catch (error) {
+          console.error("💥 Error crítico:", error);
+          alert("Error al eliminar la deuda.");
+          return;
+        }
+      }
+
+      alert(`✅ Deuda eliminada completamente\nCliente: ${cliente.name}\nDeuda eliminada: ${money(deudaEliminada)}`);
+    }
+  }
 
   // 👇👇👇 NUEVA FUNCIÓN: Imprimir detalle de deudas
   async function imprimirDetalleDeudas() {
@@ -2224,6 +2275,15 @@ function DeudoresTab({ state, setState }: any) {
                     <Button tone="slate" onClick={() => setActive(c.id)}>
                       💳 Pagar
                     </Button>
+                     {/* 👇👇👇 AGREGAR ESTE NUEVO BOTÓN - SOLO PARA ADMIN */}
+          {session?.role === "admin" && (
+            <Button 
+              tone="red" 
+              onClick={() => eliminarDeudaCliente(c.id)}
+              title="Eliminar completamente la deuda"
+            >
+              🗑️ Eliminar Deuda
+            </Button>
                   </div>
                 </div>
               </div>
@@ -6350,9 +6410,9 @@ export default function Page() {
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Productos" && (
               <ProductosTab state={state} setState={setState} role={session.role} />
             )}
-            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Deudores" && (
-              <DeudoresTab state={state} setState={setState} />
-            )}
+{session.role !== "cliente" && session.role !== "pedido-online" && tab === "Deudores" && (
+  <DeudoresTab state={state} setState={setState} session={session} /> // 👈 AGREGAR session={session}
+)}
             {/* Cola */}
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Cola" && (
               <ColaTab state={state} setState={setState} session={session} />
