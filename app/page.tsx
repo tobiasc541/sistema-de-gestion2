@@ -6,6 +6,22 @@ import React, { useEffect, useState } from "react";
 import "./globals.css";
 import { supabase, hasSupabase } from "../lib/supabaseClient";
 
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkDevice = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    checkDevice();
+    window.addEventListener('resize', checkDevice);
+    return () => window.removeEventListener('resize', checkDevice);
+  }, []);
+
+  return isMobile;
+};
+
 
 /* ===== TIPOS NUEVOS ===== */
 type Pedido = {
@@ -288,11 +304,11 @@ async function saveCountersSupabase(meta: any) {
 /* ====== UI atoms ====== */
 function Card({ title, actions, className = "", children }: any) {
   return (
-    <div className={"rounded-2xl border border-slate-800 bg-slate-900/60 p-4 " + className}>
+    <div className={`rounded-xl md:rounded-2xl border border-slate-800 bg-slate-900/60 p-3 md:p-4 ${className}`}>
       {(title || actions) && (
-        <div className="flex items-center justify-between mb-3">
-          {title && <h3 className="text-sm font-semibold text-slate-200">{title}</h3>}
-          {actions}
+        <div className="flex items-center justify-between mb-2 md:mb-3">
+          {title && <h3 className="text-sm font-semibold text-slate-200 truncate">{title}</h3>}
+          {actions && <div className="shrink-0">{actions}</div>}
         </div>
       )}
       {children}
@@ -300,6 +316,7 @@ function Card({ title, actions, className = "", children }: any) {
   );
 }
 function Button({ children, onClick, type = "button", tone = "emerald", className = "", disabled }: any) {
+  const isMobile = useIsMobile();
   const map: any = {
     emerald: "bg-emerald-600 hover:bg-emerald-500 border-emerald-700/50",
     slate: "bg-slate-700 hover:bg-slate-600 border-slate-700",
@@ -310,13 +327,16 @@ function Button({ children, onClick, type = "button", tone = "emerald", classNam
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold shadow-sm border disabled:opacity-60 ${map[tone]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg md:rounded-xl px-3 py-2 text-sm font-semibold shadow-sm border disabled:opacity-60 ${map[tone]} ${className} ${
+        isMobile ? 'min-h-[44px]' : ''
+      }`}
     >
       {children}
     </button>
   );
 }
 function Input({ label, value, onChange, placeholder = "", type = "text", className = "", disabled }: any) {
+  const isMobile = useIsMobile();
   return (
     <label className="block w-full">
       {label && <div className="text-xs text-slate-300 mb-1">{label}</div>}
@@ -326,7 +346,9 @@ function Input({ label, value, onChange, placeholder = "", type = "text", classN
         onChange={(e) => onChange && onChange((e.target as HTMLInputElement).value)}
         placeholder={placeholder}
         disabled={disabled}
-        className={`w-full rounded-xl bg-slate-900/60 border border-slate-700 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-60 ${className}`}
+        className={`w-full rounded-lg md:rounded-xl bg-slate-900/60 border border-slate-700 px-3 py-2 md:py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-60 ${
+          isMobile ? 'min-h-[44px]' : ''
+        } ${className}`}
       />
     </label>
   );
@@ -786,6 +808,8 @@ const deudaTotalAntes = cliente ? calcularDeudaTotal(detalleDeudasCliente, clien
 }
 
 function Navbar({ current, setCurrent, role, onLogout }: any) {
+  const isMobile = useIsMobile();
+  const [showMenu, setShowMenu] = useState(false);
   const TABS = [
     "Facturación",
     "Clientes", 
@@ -807,6 +831,59 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
       : role === "pedido-online"
       ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
       : ["Panel"];
+
+if (isMobile) {
+    return (
+      <div className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur border-b border-slate-800">
+        <div className="px-3 py-2 flex items-center justify-between">
+          <div className="text-sm font-bold truncate">
+            {hasSupabase ? "By : Tobias carrizo" : "Local"}
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <div className="text-xs text-slate-300 px-2 py-1 bg-slate-800 rounded">
+              {current}
+            </div>
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-1.5 border border-slate-700 rounded-lg"
+            >
+              ☰
+            </button>
+          </div>
+        </div>
+
+        {showMenu && (
+          <div className="absolute top-full left-0 right-0 bg-slate-900 border-b border-slate-800 max-h-[70vh] overflow-y-auto">
+            <div className="p-2 space-y-1">
+              {visibleTabs.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => {
+                    setCurrent(t);
+                    setShowMenu(false);
+                  }}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg text-sm border ${
+                    current === t 
+                      ? "bg-emerald-600 border-emerald-700" 
+                      : "bg-slate-800 border-slate-700 hover:bg-slate-700"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+              <button 
+                onClick={onLogout}
+                className="w-full text-left px-3 py-2.5 rounded-lg text-sm border border-red-700 bg-red-900/50 hover:bg-red-800"
+              >
+                Salir
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
@@ -836,6 +913,7 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     </div>
   );
 }
+
 
 /* ===== Panel del cliente ===== */
 function ClientePanel({ state, setState, session }: any) {
@@ -904,6 +982,7 @@ function ClientePanel({ state, setState, session }: any) {
 /* =====================  TABS  ===================== */
 /* Facturación */
 function FacturacionTab({ state, setState, session }: any) {
+  const isMobile = useIsMobile();
   
   const [clientId, setClientId] = useState(state.clients[0]?.id || "");
   const [vendorId, setVendorId] = useState(session.role === "admin" ? state.vendors[0]?.id : session.id);
@@ -1060,11 +1139,11 @@ const toPay = Math.max(0, total - applied);
 
   const grouped = groupBy(filteredProducts, "section");
 
-  return (
-    <div className="max-w-7xl mx-auto p-4 space-y-4">
-      <div className="grid md:grid-cols-3 gap-4">
-        <Card title="Encabezado">
-          <div className="grid grid-cols-2 gap-3">
+   return (
+    <div className="max-w-7xl mx-auto p-2 md:p-4 space-y-3 md:space-y-4">
+      <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-3 md:gap-4`}>
+        <Card title="Encabezado" className={isMobile ? 'text-sm' : ''}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
             <Select
               label="Cliente"
               value={clientId}
@@ -1077,25 +1156,21 @@ const toPay = Math.max(0, total - applied);
               onChange={setVendorId}
               options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))}
             />
-<div className="col-span-2 text-xs text-slate-300 mt-1">
-  Deuda del cliente: <span className="font-semibold">
-    {(() => {
-      const cliente = state.clients.find((c:any) => c.id === clientId);
-      if (!cliente) return "✅ Al día";
-      const detalleDeudas = calcularDetalleDeudas(state, clientId);
-      const deudaNeta = calcularDeudaTotal(detalleDeudas, cliente);
-      return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
-    })()}
-  </span>
-  <span className="mx-2">·</span>
-  Saldo a favor: <span className="font-semibold text-emerald-400">
-    {money(state.clients.find((c:any)=>c.id===clientId)?.saldo_favor || 0)}
-  </span>
-  <span className="mx-2">·</span>
-  Gastado este mes: <span className="font-semibold">{money(gastoMesCliente(state, clientId))}</span>
-</div>
-
-
+            <div className="md:col-span-2 text-xs text-slate-300 mt-1">
+              Deuda del cliente: <span className="font-semibold">
+                {(() => {
+                  const cliente = state.clients.find((c:any) => c.id === clientId);
+                  if (!cliente) return "✅ Al día";
+                  const detalleDeudas = calcularDetalleDeudas(state, clientId);
+                  const deudaNeta = calcularDeudaTotal(detalleDeudas, cliente);
+                  return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
+                })()}
+              </span>
+              <span className="mx-2">·</span>
+              Saldo a favor: <span className="font-semibold text-emerald-400">
+                {money(state.clients.find((c:any)=>c.id===clientId)?.saldo_favor || 0)}
+              </span>
+            </div>
             <Select
               label="Lista de precios"
               value={priceList}
@@ -1108,48 +1183,24 @@ const toPay = Math.max(0, total - applied);
           </div>
         </Card>
 
-       <Card title="Pagos">
-  <div className="grid grid-cols-2 gap-3 items-end">
-    <NumberInput label="Efectivo" value={payCash} onChange={setPayCash} placeholder="0" />
-    <NumberInput label="Transferencia" value={payTransf} onChange={setPayTransf} placeholder="0" />
+        <Card title="Pagos" className={isMobile ? 'text-sm' : ''}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3 items-end">
+            <NumberInput label="Efectivo" value={payCash} onChange={setPayCash} placeholder="0" />
+            <NumberInput label="Transferencia" value={payTransf} onChange={setPayTransf} placeholder="0" />
+            <NumberInput label="Vuelto (efectivo)" value={payChange} onChange={setPayChange} placeholder="0" />
+            <Input label="Alias / CVU destino" value={alias} onChange={setAlias} placeholder="ej: mitobicel.algo.banco" />
+            
+            <div className="md:col-span-2 text-xs text-slate-300">
+              Pagado: <span className="font-semibold">{money(paid)}</span> — 
+              Falta: <span className="font-semibold">{money(toPay)}</span> — 
+              Vuelto: <span className="font-semibold">{money(change)}</span>
+            </div>
+          </div>
+        </Card>
 
-    {/* Vuelto + ayuda (sugerido) */}
-    <div className="space-y-1">
-      <NumberInput
-        label="Vuelto (efectivo)"
-        value={payChange}
-        onChange={setPayChange}
-        placeholder="0"
-      />
-      {payChange.trim() === "" && (
-        <div className="text-[11px] text-slate-400">
-          Sugerido: {money(suggestedChange)}
-        </div>
-      )}
-    </div>
-
-    {/* Alias/CVU alineado con Vuelto */}
-    <div className="self-end">
-      <Input
-        label="Alias / CVU destino"
-        value={alias}
-        onChange={setAlias}
-        placeholder="ej: mitobicel.algo.banco"
-      />
-    </div>
-
-    <div className="col-span-2 text-xs text-slate-300">
-      Pagado: <span className="font-semibold">{money(paid)}</span> — Falta:{" "}
-      <span className="font-semibold">{money(toPay)}</span> — Vuelto:{" "}
-      <span className="font-semibold">{money(change)}</span>
-    </div>
-  </div>
-</Card>
-
-
-        <Card title="Totales">
+        <Card title="Totales" className={isMobile ? 'text-sm' : ''}>
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center justify-between">
               <span>Subtotal</span>
               <span>{money(total)}</span>
             </div>
@@ -1158,40 +1209,40 @@ const toPay = Math.max(0, total - applied);
               <span>{money(total)}</span>
             </div>
             <div className="flex items-center justify-end gap-2 pt-2">
-              <Button onClick={saveAndPrint} className="shadow-lg">
-                Guardar e Imprimir
+              <Button onClick={saveAndPrint} className="w-full md:w-auto text-center justify-center">
+                {isMobile ? "🖨️ Guardar" : "Guardar e Imprimir"}
               </Button>
             </div>
           </div>
         </Card>
       </div>
 
-      <Card title="Productos">
-        <div className="grid md:grid-cols-4 gap-2 mb-3">
+      <Card title="Productos" className={isMobile ? 'text-sm' : ''}>
+        <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-4'} gap-2 mb-3`}>
           <Select label="Sección" value={sectionFilter} onChange={setSectionFilter} options={sections.map((s: any) => ({ value: s, label: s }))} />
           <Select label="Lista" value={listFilter} onChange={setListFilter} options={lists.map((s: any) => ({ value: s, label: s }))} />
           <Input label="Buscar" value={query} onChange={setQuery} placeholder="Nombre del producto..." />
-          <div className="pt-6">
-            <Chip tone="emerald">Total productos: {filteredProducts.length}</Chip>
+          <div className={`${isMobile ? 'text-center' : 'pt-6'}`}>
+            <Chip tone="emerald">Productos: {filteredProducts.length}</Chip>
           </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className={`${isMobile ? 'space-y-4' : 'grid md:grid-cols-2 gap-4'}`}>
           <div className="space-y-3">
             {Object.entries(grouped).map(([sec, arr]: any) => (
               <div key={sec} className="border border-slate-800 rounded-xl">
                 <div className="px-3 py-2 text-xs font-semibold bg-slate-800/70">{sec}</div>
-                <div className="divide-y divide-slate-800">
+                <div className="divide-y divide-slate-800 max-h-[300px] overflow-y-auto">
                   {arr.map((p: any) => (
                     <div key={p.id} className="flex items-center justify-between px-3 py-2">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium truncate">{p.name}</div>
-                        <div className="text-xs text-slate-400">
-                          Mitobicel: {money(p.price1)} · ElshoppingDlc: {money(p.price2)} <span className="text-[10px] text-slate-500 ml-1">{p.list_label}</span>
+                        <div className="text-xs text-slate-400 truncate">
+                          Mitobicel: {money(p.price1)} · ElshoppingDlc: {money(p.price2)}
                         </div>
                       </div>
-                      <Button onClick={() => addItem(p)} tone="slate" className="shrink-0">
-                        Añadir
+                      <Button onClick={() => addItem(p)} tone="slate" className="shrink-0 text-xs">
+                        {isMobile ? "+" : "Añadir"}
                       </Button>
                     </div>
                   ))}
@@ -1202,15 +1253,23 @@ const toPay = Math.max(0, total - applied);
 
           <div className="space-y-3">
             <div className="text-sm font-semibold">Carrito</div>
-            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
-              {items.length === 0 && <div className="p-3 text-sm text-slate-400">Vacío</div>}
+            <div className="rounded-xl border border-slate-800 divide-y divide-slate-800 max-h-[400px] overflow-y-auto">
+              {items.length === 0 && <div className="p-3 text-sm text-slate-400 text-center">Vacío</div>}
               {items.map((it, idx) => (
-                <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
-                  <div className="col-span-6">
-                    <div className="text-sm font-medium">{it.name}</div>
-                    <div className="text-xs text-slate-400">{it.section}</div>
+                <div key={idx} className="p-3">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{it.name}</div>
+                      <div className="text-xs text-slate-400">{it.section}</div>
+                    </div>
+                    <button 
+                      onClick={() => setItems(items.filter((_: any, i: number) => i !== idx))}
+                      className="text-red-400 hover:text-red-300 ml-2"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <div className="col-span-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <NumberInput
                       label="Cant."
                       value={it.qty}
@@ -1218,9 +1277,8 @@ const toPay = Math.max(0, total - applied);
                         const q = Math.max(0, parseNum(v));
                         setItems(items.map((x, i) => (i === idx ? { ...x, qty: q } : x)));
                       }}
+                      className="text-xs"
                     />
-                  </div>
-                  <div className="col-span-3">
                     <NumberInput
                       label="Precio"
                       value={it.unitPrice}
@@ -1228,15 +1286,11 @@ const toPay = Math.max(0, total - applied);
                         const q = Math.max(0, parseNum(v));
                         setItems(items.map((x, i) => (i === idx ? { ...x, unitPrice: q } : x)));
                       }}
+                      className="text-xs"
                     />
                   </div>
-                  <div className="col-span-1 flex items-end justify-end pb-0.5">
-                    <button onClick={() => setItems(items.filter((_: any, i: number) => i !== idx))} className="text-xs text-red-400 hover:text-red-300">
-                      ✕
-                    </button>
-                  </div>
-                  <div className="col-span-12 text-right text-xs text-slate-300 pt-1">
-                    Subtotal ítem: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                  <div className="text-right text-xs text-slate-300 pt-1">
+                    Subtotal: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
                   </div>
                 </div>
               ))}
@@ -1250,6 +1304,7 @@ const toPay = Math.max(0, total - applied);
 
 /* Clientes */
 function ClientesTab({ state, setState, session }: any) {
+  const isMobile = useIsMobile();
   const [name, setName] = useState("");
   const [number, setNumber] = useState(ensureUniqueNumber(state.clients));
   const [deudaInicial, setDeudaInicial] = useState(""); // 👈 NUEVO ESTADO
@@ -1478,12 +1533,11 @@ async function cancelarDeuda(clienteId: string) {
     ? [...state.clients].sort((a: any, b: any) => (a.number || 0) - (b.number || 0))
     : [];
 
-  return (
-    <div className="max-w-5xl mx-auto p-4 space-y-4">
-      {/* Card para agregar cliente normal */}
-      <Card title="Agregar cliente">
+   return (
+    <div className="max-w-5xl mx-auto p-2 md:p-4 space-y-3 md:space-y-4">
+      <Card title="Agregar cliente" className={isMobile ? 'text-sm' : ''}>
+        {/* Mantener el contenido existente pero ajustar grids */}
         <div className="space-y-3">
-          {/* Solo admin puede activar modo avanzado */}
           {session?.role === "admin" && (
             <div className="flex items-center gap-2 p-3 bg-slate-800/50 rounded-lg">
               <input
@@ -1494,12 +1548,13 @@ async function cancelarDeuda(clienteId: string) {
                 className="rounded"
               />
               <label htmlFor="modoAdmin" className="text-sm font-medium">
-                Modo Admin: Agregar con deuda/saldo inicial
+                Modo Admin
               </label>
             </div>
           )}
 
-          <div className="grid md:grid-cols-3 gap-3">
+
+ <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-2 md:gap-3`}>
             <NumberInput 
               label="N° cliente" 
               value={number} 
@@ -1511,12 +1566,14 @@ async function cancelarDeuda(clienteId: string) {
               onChange={setName} 
               placeholder="Ej: Kiosco 9 de Julio" 
             />
-            <div className="pt-6">
-              <Button onClick={addClient}>
+            <div className={`${isMobile ? 'text-center' : 'pt-6'}`}>
+              <Button onClick={addClient} className={isMobile ? 'w-full' : ''}>
                 Agregar
               </Button>
             </div>
           </div>
+        </div>
+    
 
           {/* Campos solo para admin en modo avanzado */}
           {session?.role === "admin" && modoAdmin && (
@@ -6660,7 +6717,55 @@ async function handleSubmit(e: any) {
     </div>
   );
 }
+/* ===== ESTILOS RESPONSIVOS ===== */
+const responsiveStyles = `
+/* Mejoras para móviles */
+@media (max-width: 768px) {
+  .print-area {
+    padding: 10px !important;
+  }
+  
+  .print-table {
+    font-size: 10px !important;
+  }
+  
+  /* Mejorar la legibilidad en móviles */
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+  
+  /* Botones más grandes para touch */
+  .touch-button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Mejorar scroll en móviles */
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
+}
 
+/* Evitar zoom en inputs en iOS */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Mejorar tablas en móviles */
+@media (max-width: 768px) {
+  .responsive-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+`;
+  // 👇👇👇 LUEGO EL COMPONENTE QUE USA ESA CONSTANTE
+function ResponsiveStyles() {
+  return <style jsx global>{responsiveStyles}</style>;
+}
 /* ===== Página principal ===== */
 export default function Page() {
   const [state, setState] = useState<any>(seedState());
@@ -6772,6 +6877,8 @@ export default function Page() {
 
   return (
     <>
+            <ResponsiveStyles />
+
       {/* App visible (no se imprime) */}
       <div className="min-h-screen bg-slate-950 text-slate-100 no-print">
         <style>{`::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:#0b1220}::-webkit-scrollbar-thumb{background:#22304a;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#2f436a}`}</style>
