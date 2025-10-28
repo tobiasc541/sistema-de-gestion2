@@ -194,14 +194,15 @@ if (clients) {
 }
 
   // products
-  const { data: products, error: prodErr } = await supabase.from("products").select("*");
-  if (prodErr) { console.error("SELECT products:", prodErr); alert("No pude leer 'products' de Supabase."); }
-  if (products) {
-    out.products = products.map((p: any) => ({
-      ...p,
-      stock_minimo: p.stock_min !== null ? parseNum(p.stock_min) : 0
-    }));
-  }
+ // products
+const { data: products, error: prodErr } = await supabase.from("products").select("*");
+if (prodErr) { console.error("SELECT products:", prodErr); alert("No pude leer 'products' de Supabase."); }
+if (products) {
+  out.products = products.map((p: any) => ({
+    ...p,
+    stock_minimo: p.stock_min || 0 // ← mapear stock_min de BD a stock_minimo en React
+  }));
+}
 
   // invoices
   const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").order("number");
@@ -1775,9 +1776,8 @@ function ProductosTab({ state, setState, role }: any) {
   });
 
   const productosBajoStock = state.products.filter(
-    (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
-  );
-
+  (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
+);
   // 👇👇👇 FUNCIÓN COMPLETA DE INGRESO DE STOCK CON COMPARACIONES
   async function agregarStock() {
     const producto = state.products.find((p: any) => p.id === ingresoStock.productoId);
@@ -1833,49 +1833,50 @@ function ProductosTab({ state, setState, role }: any) {
     }
   }
 
-  async function addProduct() {
-    if (!name.trim()) return;
+async function addProduct() {
+  if (!name.trim()) return;
 
-    const product = {
-      id: editando || "p" + Math.random().toString(36).slice(2, 8),
-      name: name.trim(),
-      section: section.trim() || "General",
-      price1: parseNum(price1),
-      price2: parseNum(price2),
-      stock: parseNum(stock),
-      stock_minimo: parseNum(stockMinimo),
-      cost: parseNum(cost),
-      list_label: "General"
-    };
+  const product = {
+    id: editando || "p" + Math.random().toString(36).slice(2, 8),
+    name: name.trim(),
+    section: section.trim() || "General",
+    price1: parseNum(price1),
+    price2: parseNum(price2),
+    stock: parseNum(stock),
+    stock_min: parseNum(stockMinimo), // ← CAMBIAR a stock_min
+    cost: parseNum(cost),
+    list_label: "General"
+  };
 
-    const st = clone(state);
-    
-    if (editando) {
-      // Editar producto existente
-      const index = st.products.findIndex((p: any) => p.id === editando);
-      if (index !== -1) {
-        st.products[index] = { ...st.products[index], ...product };
-      }
-    } else {
-      // Agregar nuevo producto
-      st.products.push(product);
+  const st = clone(state);
+  
+  if (editando) {
+    // Editar producto existente
+    const index = st.products.findIndex((p: any) => p.id === editando);
+    if (index !== -1) {
+      st.products[index] = { ...st.products[index], ...product };
     }
-    
-    setState(st);
-    
-    // Limpiar formulario
-    setName("");
-    setPrice1("");
-    setPrice2("");
-    setStock("");
-    setStockMinimo("");
-    setCost("");
-    setSection("");
-    setEditando(null);
+  } else {
+    // Agregar nuevo producto
+    st.products.push(product);
+  }
+  
+  setState(st);
+  
+  // Limpiar formulario
+  setName("");
+  setPrice1("");
+  setPrice2("");
+  setStock("");
+  setStockMinimo("");
+  setCost("");
+  setSection("");
+  setEditando(null);
 
-    if (hasSupabase) {
+  if (hasSupabase) {
+    try {
       if (editando) {
-        await supabase
+        const { error } = await supabase
           .from("products")
           .update({
             name: product.name,
@@ -1883,26 +1884,35 @@ function ProductosTab({ state, setState, role }: any) {
             price1: product.price1,
             price2: product.price2,
             stock: product.stock,
-            stock_min: product.stock_min,
-            cost: product.cost
+            stock_min: product.stock_min, // ← CORREGIDO: usar stock_min del objeto
+            cost: product.cost,
+            list_label: product.list_label // ← NO OLVIDES este campo
           })
           .eq("id", product.id);
+        
+        if (error) throw error;
       } else {
-        await supabase.from("products").insert(product);
+        const { error } = await supabase.from("products").insert(product);
+        if (error) throw error;
       }
+      alert(`Producto ${editando ? 'actualizado' : 'agregado'} correctamente`);
+    } catch (error: any) {
+      console.error("Error al guardar producto:", error);
+      alert(`Error al guardar: ${error.message}`);
     }
   }
+}
 
   function editarProducto(producto: any) {
-    setName(producto.name);
-    setSection(producto.section);
-    setPrice1(String(producto.price1));
-    setPrice2(String(producto.price2));
-    setStock(String(producto.stock));
-    setStockMinimo(String(producto.stock_minimo || ""));
-    setCost(String(producto.cost || ""));
-    setEditando(producto.id);
-  }
+  setName(producto.name);
+  setSection(producto.section);
+  setPrice1(String(producto.price1));
+  setPrice2(String(producto.price2));
+  setStock(String(producto.stock));
+  setStockMinimo(String(producto.stock_min || "")); // ← CAMBIAR a stock_min
+  setCost(String(producto.cost || ""));
+  setEditando(producto.id);
+}
 
   async function eliminarProducto(productoId: string) {
     if (!confirm("¿Estás seguro de eliminar este producto?")) return;
