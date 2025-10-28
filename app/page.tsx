@@ -1883,7 +1883,7 @@ function ProductosTab({ state, setState, role }: any) {
             price1: product.price1,
             price2: product.price2,
             stock: product.stock,
-            stock_min: product.stock_minimo,
+            stock_min: product.stock_min,
             cost: product.cost
           })
           .eq("id", product.id);
