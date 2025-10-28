@@ -1307,54 +1307,9 @@ function ClientesTab({ state, setState, session }: any) {
   const isMobile = useIsMobile();
   const [name, setName] = useState("");
   const [number, setNumber] = useState(ensureUniqueNumber(state.clients));
-  const [deudaInicial, setDeudaInicial] = useState(""); // 👈 NUEVO ESTADO
-  const [saldoFavorInicial, setSaldoFavorInicial] = useState(""); // 👈 NUEVO ESTADO
-  const [modoAdmin, setModoAdmin] = useState(false); // 👈 NUEVO ESTADO
-   // 👇👇👇 PEGA LA FUNCIÓN AQUÍ - JUSTO DESPUÉS DE LOS useState
-  async function limpiarDeudasInconsistentes() {
-    if (!confirm("¿Estás seguro de limpiar todas las deudas inconsistentes? Esto revisará todos los clientes y ajustará las deudas según los pagos registrados.")) return;
-
-    const st = clone(state);
-    let clientesCorregidos = 0;
-
-    st.clients.forEach((cliente: any) => {
-      const detalleDeudas = calcularDetalleDeudas(st, cliente.id);
-      const deudaReal = calcularDeudaTotal(detalleDeudas, cliente);
-      const deudaActual = parseNum(cliente.debt);
-      
-      // Si hay diferencia, corregir
-      if (Math.abs(deudaReal - deudaActual) > 0.01) {
-        console.log(`🔧 Corrigiendo ${cliente.name}: ${money(deudaActual)} → ${money(deudaReal)}`);
-        cliente.debt = deudaReal;
-        clientesCorregidos++;
-      }
-    });
-
-    setState(st);
-
-    if (hasSupabase && clientesCorregidos > 0) {
-      try {
-        // Actualizar todos los clientes corregidos
-        for (const cliente of st.clients) {
-          await supabase
-            .from("clients")
-            .update({ debt: cliente.debt })
-            .eq("id", cliente.id);
-        }
-        
-        alert(`✅ ${clientesCorregidos} clientes corregidos. Deudas actualizadas según pagos registrados.`);
-      } catch (error) {
-        console.error("Error al actualizar clientes:", error);
-        alert("Error al guardar las correcciones en la base de datos.");
-        
-        // Recargar para evitar inconsistencias
-        const refreshedState = await loadFromSupabase(seedState());
-        setState(refreshedState);
-      }
-    } else if (clientesCorregidos === 0) {
-      alert("✅ No se encontraron deudas inconsistentes.");
-    }
-  }
+  const [deudaInicial, setDeudaInicial] = useState("");
+  const [saldoFavorInicial, setSaldoFavorInicial] = useState("");
+  const [modoAdmin, setModoAdmin] = useState(false);
 
   async function addClient() {
     if (!name.trim()) return;
@@ -1367,7 +1322,7 @@ function ClientesTab({ state, setState, session }: any) {
       saldo_favor: modoAdmin ? parseNum(saldoFavorInicial) : 0,
       creado_por: session?.name || "admin",
       fecha_creacion: todayISO(),
-deuda_manual: modoAdmin && parseNum(deudaInicial) > 0
+      deuda_manual: modoAdmin && parseNum(deudaInicial) > 0
     };
 
     const st = clone(state);
@@ -1388,155 +1343,152 @@ deuda_manual: modoAdmin && parseNum(deudaInicial) > 0
     alert(`Cliente agregado ${modoAdmin ? 'con deuda/saldo manual' : 'correctamente'}`);
   }
 
-// Función para que admin agregue deuda manualmente a cliente existente - CORREGIDA
-async function agregarDeudaManual(clienteId: string) {
-  const deuda = prompt("Ingrese el monto de deuda a agregar:", "0");
-  if (deuda === null) return;
-  
-  const montoDeuda = parseNum(deuda);
-  if (montoDeuda < 0) return alert("El monto no puede ser negativo");
-
-  const st = clone(state);
-  const cliente = st.clients.find((c: any) => c.id === clienteId);
-  
-  if (cliente) {
-    const deudaAnterior = parseNum(cliente.debt);
+  // Función para que admin agregue deuda manualmente
+  async function agregarDeudaManual(clienteId: string) {
+    const deuda = prompt("Ingrese el monto de deuda a agregar:", "0");
+    if (deuda === null) return;
     
-    // ✅ CORRECCIÓN: SIMPLEMENTE SUMAR LA DEUDA SIN COMPENSAR
-    cliente.debt = deudaAnterior + montoDeuda;
-// Solo marcar como deuda manual si realmente se está agregando deuda manualmente
-cliente.deuda_manual = montoDeuda > 0;    
-    setState(st);
+    const montoDeuda = parseNum(deuda);
+    if (montoDeuda < 0) return alert("El monto no puede ser negativo");
 
-    if (hasSupabase) {
-      try {
-        const { error } = await supabase
-          .from("clients")
-          .update({ 
-            debt: cliente.debt,
-            deuda_manual: true 
-          })
-          .eq("id", clienteId);
+    const st = clone(state);
+    const cliente = st.clients.find((c: any) => c.id === clienteId);
+    
+    if (cliente) {
+      const deudaAnterior = parseNum(cliente.debt);
+      cliente.debt = deudaAnterior + montoDeuda;
+      cliente.deuda_manual = montoDeuda > 0;
+      
+      setState(st);
 
-        if (error) {
-          console.error("❌ Error al guardar deuda manual:", error);
-          alert("Error al guardar la deuda en la base de datos.");
-          // Recargar para evitar inconsistencias
-          const refreshedState = await loadFromSupabase(seedState());
-          setState(refreshedState);
+      if (hasSupabase) {
+        try {
+          const { error } = await supabase
+            .from("clients")
+            .update({ 
+              debt: cliente.debt,
+              deuda_manual: true 
+            })
+            .eq("id", clienteId);
+
+          if (error) {
+            console.error("❌ Error al guardar deuda manual:", error);
+            alert("Error al guardar la deuda en la base de datos.");
+            const refreshedState = await loadFromSupabase(seedState());
+            setState(refreshedState);
+            return;
+          }
+          
+          console.log("✅ Deuda manual guardada en Supabase");
+        } catch (error) {
+          console.error("💥 Error crítico:", error);
+          alert("Error al guardar la deuda.");
           return;
         }
-        
-        console.log("✅ Deuda manual guardada en Supabase");
-      } catch (error) {
-        console.error("💥 Error crítico:", error);
-        alert("Error al guardar la deuda.");
-        return;
       }
+
+      alert(`Deuda agregada: ${money(deudaAnterior)} → ${money(cliente.debt)}`);
     }
-
-    alert(`Deuda agregada: ${money(deudaAnterior)} → ${money(cliente.debt)}`);
   }
-}
- // Función para que admin ajuste saldo a favor manualmente
-async function ajustarSaldoFavor(clienteId: string) {
-  const saldo = prompt("Ingrese el nuevo saldo a favor:", "0");
-  if (saldo === null) return;
-  
-  const montoSaldo = parseNum(saldo);
-  if (montoSaldo < 0) return alert("El monto no puede ser negativo");
 
-  const st = clone(state);
-  const cliente = st.clients.find((c: any) => c.id === clienteId);
-  
-  if (cliente) {
-    const saldoAnterior = parseNum(cliente.saldo_favor);
-    cliente.saldo_favor = montoSaldo;
+  // Función para que admin ajuste saldo a favor manualmente
+  async function ajustarSaldoFavor(clienteId: string) {
+    const saldo = prompt("Ingrese el nuevo saldo a favor:", "0");
+    if (saldo === null) return;
     
-    setState(st);
+    const montoSaldo = parseNum(saldo);
+    if (montoSaldo < 0) return alert("El monto no puede ser negativo");
 
-    if (hasSupabase) {
-      try {
-        const { error } = await supabase
-          .from("clients")
-          .update({ saldo_favor: cliente.saldo_favor })
-          .eq("id", clienteId);
+    const st = clone(state);
+    const cliente = st.clients.find((c: any) => c.id === clienteId);
+    
+    if (cliente) {
+      const saldoAnterior = parseNum(cliente.saldo_favor);
+      cliente.saldo_favor = montoSaldo;
+      
+      setState(st);
 
-        if (error) {
-          console.error("❌ Error al guardar saldo:", error);
-          alert("Error al guardar el saldo en la base de datos.");
-          const refreshedState = await loadFromSupabase(seedState());
-          setState(refreshedState);
+      if (hasSupabase) {
+        try {
+          const { error } = await supabase
+            .from("clients")
+            .update({ saldo_favor: cliente.saldo_favor })
+            .eq("id", clienteId);
+
+          if (error) {
+            console.error("❌ Error al guardar saldo:", error);
+            alert("Error al guardar el saldo en la base de datos.");
+            const refreshedState = await loadFromSupabase(seedState());
+            setState(refreshedState);
+            return;
+          }
+          
+          console.log("✅ Saldo guardado en Supabase");
+        } catch (error) {
+          console.error("💥 Error crítico:", error);
+          alert("Error al guardar el saldo.");
           return;
         }
-        
-        console.log("✅ Saldo guardado en Supabase");
-      } catch (error) {
-        console.error("💥 Error crítico:", error);
-        alert("Error al guardar el saldo.");
-        return;
       }
+
+      alert(`Saldo a favor ajustado: ${money(saldoAnterior)} → ${money(cliente.saldo_favor)}`);
     }
-
-    alert(`Saldo a favor ajustado: ${money(saldoAnterior)} → ${money(cliente.saldo_favor)}`);
   }
-}
 
- // Función para que admin cancele deuda manualmente
-async function cancelarDeuda(clienteId: string) {
-  const cliente = state.clients.find((c: any) => c.id === clienteId);
-  if (!cliente) return;
-  
-  const confirmacion = confirm(
-    `¿Está seguro de cancelar la deuda de ${cliente.name}?\nDeuda actual: ${money(cliente.debt)}`
-  );
-  
-  if (!confirmacion) return;
-
-  const st = clone(state);
-  const clienteActualizado = st.clients.find((c: any) => c.id === clienteId);
-  
-  if (clienteActualizado) {
-    const deudaCancelada = parseNum(clienteActualizado.debt);
-    clienteActualizado.debt = 0;
+  // Función para que admin cancele deuda manualmente
+  async function cancelarDeuda(clienteId: string) {
+    const cliente = state.clients.find((c: any) => c.id === clienteId);
+    if (!cliente) return;
     
-    setState(st);
+    const confirmacion = confirm(
+      `¿Está seguro de cancelar la deuda de ${cliente.name}?\nDeuda actual: ${money(cliente.debt)}`
+    );
+    
+    if (!confirmacion) return;
 
-    if (hasSupabase) {
-      try {
-        const { error } = await supabase
-          .from("clients")
-          .update({ debt: 0 })
-          .eq("id", clienteId);
+    const st = clone(state);
+    const clienteActualizado = st.clients.find((c: any) => c.id === clienteId);
+    
+    if (clienteActualizado) {
+      const deudaCancelada = parseNum(clienteActualizado.debt);
+      clienteActualizado.debt = 0;
+      
+      setState(st);
 
-        if (error) {
-          console.error("❌ Error al cancelar deuda:", error);
-          alert("Error al cancelar la deuda en la base de datos.");
-          const refreshedState = await loadFromSupabase(seedState());
-          setState(refreshedState);
+      if (hasSupabase) {
+        try {
+          const { error } = await supabase
+            .from("clients")
+            .update({ debt: 0 })
+            .eq("id", clienteId);
+
+          if (error) {
+            console.error("❌ Error al cancelar deuda:", error);
+            alert("Error al cancelar la deuda en la base de datos.");
+            const refreshedState = await loadFromSupabase(seedState());
+            setState(refreshedState);
+            return;
+          }
+          
+          console.log("✅ Deuda cancelada en Supabase");
+        } catch (error) {
+          console.error("💥 Error crítico:", error);
+          alert("Error al cancelar la deuda.");
           return;
         }
-        
-        console.log("✅ Deuda cancelada en Supabase");
-      } catch (error) {
-        console.error("💥 Error crítico:", error);
-        alert("Error al cancelar la deuda.");
-        return;
       }
-    }
 
-    alert(`Deuda cancelada: ${money(deudaCancelada)} → $0`);
+      alert(`Deuda cancelada: ${money(deudaCancelada)} → $0`);
+    }
   }
-}
 
   const clients = Array.isArray(state.clients)
     ? [...state.clients].sort((a: any, b: any) => (a.number || 0) - (b.number || 0))
     : [];
 
-   return (
+  return (
     <div className="max-w-5xl mx-auto p-2 md:p-4 space-y-3 md:space-y-4">
       <Card title="Agregar cliente" className={isMobile ? 'text-sm' : ''}>
-        {/* Mantener el contenido existente pero ajustar grids */}
         <div className="space-y-3">
           {session?.role === "admin" && (
             <div className="flex items-center gap-2 p-3 bg-slate-800/50 rounded-lg">
@@ -1553,8 +1505,7 @@ async function cancelarDeuda(clienteId: string) {
             </div>
           )}
 
-
- <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-2 md:gap-3`}>
+          <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-2 md:gap-3`}>
             <NumberInput 
               label="N° cliente" 
               value={number} 
@@ -1572,8 +1523,6 @@ async function cancelarDeuda(clienteId: string) {
               </Button>
             </div>
           </div>
-        </div>
-    
 
           {/* Campos solo para admin en modo avanzado */}
           {session?.role === "admin" && modoAdmin && (
@@ -1635,21 +1584,21 @@ async function cancelarDeuda(clienteId: string) {
                       </div>
                     )}
                   </td>
-       <td className="py-2 pr-4">
-  <div className={`font-medium ${
-    (() => {
-      const detalleDeudas = calcularDetalleDeudas(state, c.id);
-      const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
-      return deudaNeta > 0 ? "text-amber-400" : "text-emerald-400";
-    })()
-  }`}>
-    {(() => {
-      const detalleDeudas = calcularDetalleDeudas(state, c.id);
-      const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
-      return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
-    })()}
-  </div>
-</td>
+                  <td className="py-2 pr-4">
+                    <div className={`font-medium ${
+                      (() => {
+                        const detalleDeudas = calcularDetalleDeudas(state, c.id);
+                        const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
+                        return deudaNeta > 0 ? "text-amber-400" : "text-emerald-400";
+                      })()
+                    }`}>
+                      {(() => {
+                        const detalleDeudas = calcularDetalleDeudas(state, c.id);
+                        const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
+                        return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
+                      })()}
+                    </div>
+                  </td>
                   <td className="py-2 pr-4">
                     <div className={`font-medium ${
                       c.saldo_favor > 0 ? "text-emerald-400" : "text-slate-300"
@@ -1705,111 +1654,108 @@ async function cancelarDeuda(clienteId: string) {
         </div>
       </Card>
 
-{session?.role === "admin" && (
-  <Card title="🛠️ Panel de Control - Administrador">
-    <div className="space-y-3">
-      <div className="text-sm text-slate-300">
-        Gestión avanzada de clientes y deudas
-      </div>
-      
-      <div className="grid md:grid-cols-3 gap-4 text-sm">
-<div className="p-3 bg-slate-800/50 rounded-lg">
-  <div className="font-semibold">Clientes con deuda manual</div>
-  <div className="text-amber-400 font-bold">
-    {clients.filter((c: any) => c.deuda_manual && parseNum(c.debt) > 0).length}
-  </div>
-</div>
-        
-        <div className="p-3 bg-slate-800/50 rounded-lg">
-          <div className="font-semibold">Deuda manual total</div>
-          <div className="text-amber-400 font-bold">
-            {money(
-              clients
-                .filter((c: any) => c.deuda_manual)
-                .reduce((sum: number, c: any) => sum + parseNum(c.debt), 0)
-            )}
-          </div>
-        </div>
-        
-        <div className="p-3 bg-slate-800/50 rounded-lg">
-          <div className="font-semibold">Saldo a favor total</div>
-          <div className="text-emerald-400 font-bold">
-            {money(
-              clients.reduce((sum: number, c: any) => sum + parseNum(c.saldo_favor), 0)
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 👇👇👇 AQUÍ VA EL BOTÓN NUEVO - VERSIÓN CORREGIDA */}
-      <div className="border-t border-slate-700 pt-3">
-        <div className="text-xs text-slate-400 mb-2">
-          Herramientas de mantenimiento:
-        </div>
-        <Button 
-          tone="red" 
-          onClick={async () => {
-            if (!confirm("¿Estás seguro de limpiar todas las deudas inconsistentes? Esto revisará todos los clientes y ajustará las deudas según los pagos registrados.")) return;
-
-            const st = clone(state);
-            let clientesCorregidos = 0;
-
-            st.clients.forEach((cliente: any) => {
-              const detalleDeudas = calcularDetalleDeudas(st, cliente.id);
-              const deudaReal = calcularDeudaTotal(detalleDeudas, cliente);
-              const deudaActual = parseNum(cliente.debt);
+      {session?.role === "admin" && (
+        <Card title="🛠️ Panel de Control - Administrador">
+          <div className="space-y-3">
+            <div className="text-sm text-slate-300">
+              Gestión avanzada de clientes y deudas
+            </div>
+            
+            <div className="grid md:grid-cols-3 gap-4 text-sm">
+              <div className="p-3 bg-slate-800/50 rounded-lg">
+                <div className="font-semibold">Clientes con deuda manual</div>
+                <div className="text-amber-400 font-bold">
+                  {clients.filter((c: any) => c.deuda_manual && parseNum(c.debt) > 0).length}
+                </div>
+              </div>
               
-              // Si hay diferencia, corregir
-              if (Math.abs(deudaReal - deudaActual) > 0.01) {
-                console.log(`🔧 Corrigiendo ${cliente.name}: ${money(deudaActual)} → ${money(deudaReal)}`);
-                cliente.debt = deudaReal;
-                clientesCorregidos++;
-              }
-            });
+              <div className="p-3 bg-slate-800/50 rounded-lg">
+                <div className="font-semibold">Deuda manual total</div>
+                <div className="text-amber-400 font-bold">
+                  {money(
+                    clients
+                      .filter((c: any) => c.deuda_manual)
+                      .reduce((sum: number, c: any) => sum + parseNum(c.debt), 0)
+                  )}
+                </div>
+              </div>
+              
+              <div className="p-3 bg-slate-800/50 rounded-lg">
+                <div className="font-semibold">Saldo a favor total</div>
+                <div className="text-emerald-400 font-bold">
+                  {money(
+                    clients.reduce((sum: number, c: any) => sum + parseNum(c.saldo_favor), 0)
+                  )}
+                </div>
+              </div>
+            </div>
 
-            setState(st);
+            <div className="border-t border-slate-700 pt-3">
+              <div className="text-xs text-slate-400 mb-2">
+                Herramientas de mantenimiento:
+              </div>
+              <Button 
+                tone="red" 
+                onClick={async () => {
+                  if (!confirm("¿Estás seguro de limpiar todas las deudas inconsistentes? Esto revisará todos los clientes y ajustará las deudas según los pagos registrados.")) return;
 
-            if (hasSupabase && clientesCorregidos > 0) {
-              try {
-                // Actualizar todos los clientes corregidos
-                for (const cliente of st.clients) {
-                  await supabase
-                    .from("clients")
-                    .update({ debt: cliente.debt })
-                    .eq("id", cliente.id);
-                }
-                
-                alert(`✅ ${clientesCorregidos} clientes corregidos. Deudas actualizadas según pagos registrados.`);
-              } catch (error) {
-                console.error("Error al actualizar clientes:", error);
-                alert("Error al guardar las correcciones en la base de datos.");
-                
-                // Recargar para evitar inconsistencias
-                const refreshedState = await loadFromSupabase(seedState());
-                setState(refreshedState);
-              }
-            } else if (clientesCorregidos === 0) {
-              alert("✅ No se encontraron deudas inconsistentes.");
-            }
-          }}
-          className="w-full"
-        >
-          🧹 Limpiar Deudas Inconsistentes
-        </Button>
-      </div>
-      {/* 👆👆👆 HASTA AQUÍ EL BOTÓN NUEVO */}
+                  const st = clone(state);
+                  let clientesCorregidos = 0;
 
-      <div className="text-xs text-slate-400 border-t border-slate-700 pt-2">
-        💡 Las deudas manuales se marcan con ⚠️ y solo deben usarse para casos especiales 
-        (ej: deudas heredadas, ajustes contables, etc.)
-      </div>
-    </div>
-  </Card>
-)}
+                  st.clients.forEach((cliente: any) => {
+                    const detalleDeudas = calcularDetalleDeudas(st, cliente.id);
+                    const deudaReal = calcularDeudaTotal(detalleDeudas, cliente);
+                    const deudaActual = parseNum(cliente.debt);
+                    
+                    // Si hay diferencia, corregir
+                    if (Math.abs(deudaReal - deudaActual) > 0.01) {
+                      console.log(`🔧 Corrigiendo ${cliente.name}: ${money(deudaActual)} → ${money(deudaReal)}`);
+                      cliente.debt = deudaReal;
+                      clientesCorregidos++;
+                    }
+                  });
+
+                  setState(st);
+
+                  if (hasSupabase && clientesCorregidos > 0) {
+                    try {
+                      // Actualizar todos los clientes corregidos
+                      for (const cliente of st.clients) {
+                        await supabase
+                          .from("clients")
+                          .update({ debt: cliente.debt })
+                          .eq("id", cliente.id);
+                      }
+                      
+                      alert(`✅ ${clientesCorregidos} clientes corregidos. Deudas actualizadas según pagos registrados.`);
+                    } catch (error) {
+                      console.error("Error al actualizar clientes:", error);
+                      alert("Error al guardar las correcciones en la base de datos.");
+                      
+                      // Recargar para evitar inconsistencias
+                      const refreshedState = await loadFromSupabase(seedState());
+                      setState(refreshedState);
+                    }
+                  } else if (clientesCorregidos === 0) {
+                    alert("✅ No se encontraron deudas inconsistentes.");
+                  }
+                }}
+                className="w-full"
+              >
+                🧹 Limpiar Deudas Inconsistentes
+              </Button>
+            </div>
+
+            <div className="text-xs text-slate-400 border-t border-slate-700 pt-2">
+              💡 Las deudas manuales se marcan con ⚠️ y solo deben usarse para casos especiales 
+              (ej: deudas heredadas, ajustes contables, etc.)
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
-
 
 
 
