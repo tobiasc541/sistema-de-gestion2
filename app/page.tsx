@@ -995,10 +995,23 @@ function FacturacionTab({ state, setState, session }: any) {
 const [payTransf, setPayTransf] = useState("");
 const [payChange, setPayChange] = useState(""); // vuelto (opcional)
 const [alias, setAlias] = useState("");
+ 
+  // 👇👇👇 NUEVO ESTADO PARA EL BUSCADOR DE CLIENTES
+  const [clienteSearch, setClienteSearch] = useState("");
 
   const client = state.clients.find((c: any) => c.id === clientId);
   const vendor = state.vendors.find((v: any) => v.id === vendorId);
-
+    // 👇👇👇 FUNCIÓN PARA FILTRAR CLIENTES
+  const filteredClients = state.clients.filter((c: any) => {
+    if (!clienteSearch.trim()) return true;
+    
+    const searchTerm = clienteSearch.toLowerCase().trim();
+    const matchName = c.name.toLowerCase().includes(searchTerm);
+    const matchNumber = String(c.number).includes(searchTerm);
+    
+    return matchName || matchNumber;
+  });
+ 
   const sections = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "Otros")))];
   const lists = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.list_label || "General")))];
 
@@ -1008,6 +1021,7 @@ const [alias, setAlias] = useState("");
     const okQ = !query || p.name.toLowerCase().includes(query.toLowerCase());
     return okS && okL && okQ;
   });
+
 
   function addItem(p: any) {
     const existing = items.find((it: any) => it.productId === p.id);
@@ -1142,46 +1156,102 @@ const toPay = Math.max(0, total - applied);
    return (
     <div className="max-w-7xl mx-auto p-2 md:p-4 space-y-3 md:space-y-4">
       <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-3 md:gap-4`}>
-        <Card title="Encabezado" className={isMobile ? 'text-sm' : ''}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
-            <Select
-              label="Cliente"
-              value={clientId}
-              onChange={setClientId}
-              options={state.clients.map((c: any) => ({ value: c.id, label: `${c.number} — ${c.name}` }))}
-            />
-            <Select
-              label="Vendedor"
-              value={vendorId}
-              onChange={setVendorId}
-              options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))}
-            />
-            <div className="md:col-span-2 text-xs text-slate-300 mt-1">
-              Deuda del cliente: <span className="font-semibold">
-                {(() => {
-                  const cliente = state.clients.find((c:any) => c.id === clientId);
-                  if (!cliente) return "✅ Al día";
-                  const detalleDeudas = calcularDetalleDeudas(state, clientId);
-                  const deudaNeta = calcularDeudaTotal(detalleDeudas, cliente);
-                  return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
-                })()}
-              </span>
-              <span className="mx-2">·</span>
-              Saldo a favor: <span className="font-semibold text-emerald-400">
-                {money(state.clients.find((c:any)=>c.id===clientId)?.saldo_favor || 0)}
-              </span>
-            </div>
-            <Select
-              label="Lista de precios"
-              value={priceList}
-              onChange={setPriceList}
-              options={[
-                { value: "1", label: "Mitobicel" },
-                { value: "2", label: "ElshoppingDlc" },
-              ]}
-            />
+       <Card title="Datos" className={isMobile ? 'text-sm' : ''}>
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
+    
+    {/* 👇👇👇 NUEVO BUSCADOR - REEMPLAZA EL SELECT DE CLIENTE */}
+    <div className="md:col-span-2">
+      <div className="relative">
+        <Input
+          label="Buscar Cliente (Nombre o Número)"
+          value={clienteSearch}
+          onChange={setClienteSearch}
+          placeholder="Ej: 'Kiosco' o '1001'..."
+          className="pr-20"
+        />
+        
+        {/* Mostrar resultados del buscador */}
+        {clienteSearch && (
+          <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+            {filteredClients.length === 0 ? (
+              <div className="p-3 text-sm text-slate-400 text-center">
+                No se encontraron clientes
+              </div>
+            ) : (
+              filteredClients.slice(0, 10).map((c: any) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setClientId(c.id);
+                    setClienteSearch(""); // Limpiar búsqueda después de seleccionar
+                  }}
+                  className={`w-full text-left p-3 hover:bg-slate-700 border-b border-slate-700 last:border-b-0 ${
+                    clientId === c.id ? 'bg-emerald-900/30' : ''
+                  }`}
+                >
+                  <div className="font-medium">{c.name}</div>
+                  <div className="text-xs text-slate-400">
+                    N° {c.number} | Deuda: {(() => {
+                      const detalleDeudas = calcularDetalleDeudas(state, c.id);
+                      const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
+                      return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
+                    })()}
+                  </div>
+                </button>
+              ))
+            )}
           </div>
-        </Card>
+        )}
+      </div>
+      
+      {/* Mostrar cliente seleccionado actualmente */}
+      {client && (
+        <div className="mt-2 p-2 bg-slate-800/50 rounded-lg border border-slate-700">
+          <div className="text-sm font-medium">Cliente seleccionado:</div>
+          <div className="text-sm">
+            <span className="font-semibold">{client.name}</span> 
+            <span className="text-slate-400 ml-2">(N° {client.number})</span>
+          </div>
+          <div className="text-xs text-slate-400 mt-1">
+            Deuda: {(() => {
+              const detalleDeudas = calcularDetalleDeudas(state, client.id);
+              const deudaNeta = calcularDeudaTotal(detalleDeudas, client);
+              return deudaNeta > 0 ? (
+                <span className="text-amber-400 font-semibold">{money(deudaNeta)}</span>
+              ) : (
+                <span className="text-emerald-400">✅ Al día</span>
+              );
+            })()}
+            <span className="mx-2">·</span>
+            Saldo a favor: <span className="text-emerald-400 font-semibold">
+              {money(client.saldo_favor || 0)}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+    {/* 👆👆👆 FIN DEL NUEVO BUSCADOR */}
+
+    {/* 👇👇👇 EL RESTO PERMANECE IGUAL */}
+    <Select
+      label="Vendedor"
+      value={vendorId}
+      onChange={setVendorId}
+      options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))}
+    />
+    
+    <Select
+      label="Lista de precios"
+      value={priceList}
+      onChange={setPriceList}
+      options={[
+        { value: "1", label: "Mitobicel" },
+        { value: "2", label: "ElshoppingDlc" },
+      ]}
+    />
+  </div>
+</Card>
 
         <Card title="Pagos" className={isMobile ? 'text-sm' : ''}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3 items-end">
