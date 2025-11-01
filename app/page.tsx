@@ -7630,8 +7630,15 @@ function ControlHorarioTab({ state, setState, session }: any) {
       if (registro) {
         registro.hora_salida = horaActual;
         
-      // 👇👇👇 NUEVO CÁLCULO INTELIGENTE SEGÚN TUS REGLAS
-// Calcular horas automáticamente según las reglas del negocio
+   // PRIMERO obtener el empleado
+const empleado = empleadosActivos.find((e: any) => e.id === empleadoSeleccionado);
+
+if (!empleado) {
+  alert("❌ Error: No se encontró el empleado");
+  return;
+}
+
+// LUEGO calcular horas automáticamente según las reglas del negocio
 const horasCalculadas = calcularHorasInteligentes(registro.fecha, registro.hora_entrada, horaActual);
 const valores = calcularValorHoras(empleado, horasCalculadas);
 
@@ -7646,7 +7653,6 @@ registro.valor_extra_50 = valores.valor_extra_50;
 registro.valor_extra_100 = valores.valor_extra_100;
 registro.valor_nocturno = valores.valor_nocturno;
 registro.valor_total = valores.valor_total;
-        
         setState(st);
 
        if (hasSupabase) {
