@@ -7237,7 +7237,22 @@ function EmpleadosTab({ state, setState, session }: any) {
     setEditando(emp.id);
   }
 
-  // ... (el resto de las funciones permanecen igual)
+  // 👇👇👇 AGREGAR ESTA FUNCIÓN QUE FALTA
+  async function toggleActivo(empleadoId: string) {
+    const st = clone(state);
+    const empleado = st.empleados.find((e: any) => e.id === empleadoId);
+    
+    if (empleado) {
+      empleado.activo = !empleado.activo;
+      setState(st);
+
+      if (hasSupabase) {
+        await supabase.from("empleados")
+          .update({ activo: empleado.activo })
+          .eq("id", empleadoId);
+      }
+    }
+  }
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
