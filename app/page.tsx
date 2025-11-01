@@ -22,7 +22,39 @@ const useIsMobile = () => {
   return isMobile;
 };
 
+// 👇👇👇 NUEVOS TIPOS PARA EMPLEADOS
+type Empleado = {
+  id: string;
+  name: string;
+  email?: string;
+  telefono?: string;
+  valor_hora: number;
+  activo: boolean;
+  fecha_creacion: string;
+};
 
+type RegistroHorario = {
+  id: string;
+  empleado_id: string;
+  empleado_name: string;
+  fecha: string; // YYYY-MM-DD
+  hora_entrada: string;
+  hora_salida?: string;
+  horas_trabajadas?: number;
+  observaciones?: string;
+};
+
+type ValeEmpleado = {
+  id: string;
+  empleado_id: string;
+  empleado_name: string;
+  monto: number;
+  motivo: string;
+  fecha: string;
+  fecha_iso: string;
+  comprobante_url?: string;
+  autorizado_por: string;
+};
 /* ===== TIPOS NUEVOS ===== */
 type Pedido = {
   id: string;
@@ -129,6 +161,9 @@ function seedState() {
     queue: [] as any[],
     gabiFunds: [] as any[],
     pedidos: [] as Pedido[],
+    empleados: [] as Empleado[],
+    registros_horarios: [] as RegistroHorario[],
+    vales_empleados: [] as ValeEmpleado[],
   };
 }
 
@@ -264,6 +299,41 @@ if (products) {
     out.pedidos = pedidos;
   }
   // 👆👆👆 HASTA AQUÍ
+    // 👇👇👇 AGREGAR DESPUÉS DE CARGAR PEDIDOS - Cargar empleados
+  const { data: empleados, error: empErr } = await supabase
+    .from("empleados")
+    .select("*")
+    .order("name");
+
+  if (empErr) {
+    console.error("SELECT empleados:", empErr);
+  } else if (empleados) {
+    out.empleados = empleados;
+  }
+
+  // 👇👇👇 Cargar registros horarios
+  const { data: registrosHorarios, error: rhErr } = await supabase
+    .from("registros_horarios")
+    .select("*")
+    .order("fecha", { ascending: false });
+
+  if (rhErr) {
+    console.error("SELECT registros_horarios:", rhErr);
+  } else if (registrosHorarios) {
+    out.registros_horarios = registrosHorarios;
+  }
+
+  // 👇👇👇 Cargar vales de empleados
+  const { data: valesEmpleados, error: valeErr } = await supabase
+    .from("vales_empleados")
+    .select("*")
+    .order("fecha_iso", { ascending: false });
+
+  if (valeErr) {
+    console.error("SELECT vales_empleados:", valeErr);
+  } else if (valesEmpleados) {
+    out.vales_empleados = valesEmpleados;
+  }
 
   // Si está vacío, NO sembrar datos de ejemplo (nada de demo).
   if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
@@ -821,6 +891,13 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     "Gastos y Devoluciones",
     "Cola",
     "Pedidos Online", // 👈 NUEVA PESTAÑA
+    // 👇👇👇 AGREGAR ESTAS NUEVAS PESTAÑAS SOLO PARA ADMIN
+  ...(role === "admin" ? [
+    "Empleados",
+    "Control Horario", 
+    "Vales Empleados",
+    "Cálculo Sueldos"
+  ] : []),
   ];
 
   const visibleTabs =
@@ -5800,7 +5877,7 @@ function PrintArea({ state }: any) {
   const [inv, setInv] = useState<any | null>(null);
   const [ticket, setTicket] = useState<any | null>(null);
 
- useEffect(() => {
+useEffect(() => {
   const hInv = (e: any) => {
     setTicket(null);
     setInv(e.detail);
@@ -5814,15 +5891,23 @@ function PrintArea({ state }: any) {
     setTicket(null);
     setInv({ ...e.detail, type: "Devolucion" });
   };
+  // 👇👇👇 AGREGAR ESTE NUEVO EVENTO
+  const hVale = (e: any) => {
+    setInv(null);
+    setTicket(null);
+    setInv({ ...e.detail, type: "ValeEmpleado" });
+  };
   
   window.addEventListener("print-invoice", hInv);
   window.addEventListener("print-ticket", hTic);
   window.addEventListener("print-devolucion", hDev);
+  window.addEventListener("print-vale", hVale); // 👈 AGREGAR ESTA LÍNEA
   
   return () => {
     window.removeEventListener("print-invoice", hInv);
     window.removeEventListener("print-ticket", hTic);
     window.removeEventListener("print-devolucion", hDev);
+    window.removeEventListener("print-vale", hVale); // 👈 AGREGAR ESTA LÍNEA
   };
 }, []);
 
@@ -6362,7 +6447,131 @@ if (inv?.type === "Devolucion") {
     </div>
   );
 }
+// ==== PLANTILLA: VALE DE EMPLEADO ====
+if (inv?.type === "ValeEmpleado") {
+  return (
+    <div className="only-print print-area p-14">
+      <div className="max-w-[520px] mx-auto text-black">
+        <div className="text-center">
+          <div style={{ fontWeight: 800, letterSpacing: 1, fontSize: 20 }}>VALE DE EMPLEADO</div>
+          <div style={{ marginTop: 2, fontSize: 12 }}>MITOBICEL</div>
+        </div>
 
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+        <div className="text-sm space-y-2">
+          <div className="flex justify-between">
+            <span><b>N° Vale:</b></span>
+            <span>{inv.id}</span>
+          </div>
+          <div className="flex justify-between">
+            <span><b>Fecha:</b></span>
+            <span>{new Date(inv.fecha_iso).toLocaleString("es-AR")}</span>
+          </div>
+          <div className="flex justify-between">
+            <span><b>Empleado:</b></span>
+            <span>{inv.empleado_name}</span>
+          </div>
+          <div className="flex justify-between">
+            <span><b>Monto:</b></span>
+            <span style={{ fontSize: "18px", fontWeight: "bold" }}>{money(inv.monto)}</span>
+          </div>
+          <div>
+            <b>Motivo:</b>
+          </div>
+          <div style={{ border: "1px solid #000", padding: "8px", minHeight: "60px" }}>
+            {inv.motivo}
+          </div>
+          <div className="flex justify-between mt-4">
+            <span><b>Autorizado por:</b></span>
+            <span>{inv.autorizado_por}</span>
+          </div>
+        </div>
+
+        <div style={{ borderTop: "1px dashed #000", margin: "20px 0 10px" }} />
+
+        <div className="text-center text-sm mt-6">
+          <div style={{ marginBottom: "40px" }}>_________________________</div>
+          <div>Firma del Empleado</div>
+        </div>
+
+        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+      </div>
+    </div>
+  );
+}
+
+// ==== PLANTILLA: PLANILLA DE SUELDOS ====
+if (inv?.type === "PlanillaSueldos") {
+  return (
+    <div className="only-print print-area p-14">
+      <div className="max-w-[780px] mx-auto text-black">
+        <div className="flex items-start justify-between">
+          <div>
+            <div style={{ fontWeight: 800, letterSpacing: 1 }}>PLANILLA DE SUELDOS</div>
+            <div style={{ marginTop: 2 }}>MITOBICEL</div>
+          </div>
+          <div className="text-right">
+            <div><b>Mes:</b> {new Date(inv.mes + '-01').toLocaleDateString('es-AR', { 
+              year: 'numeric', 
+              month: 'long' 
+            })}</div>
+            <div><b>Fecha:</b> {new Date().toLocaleString("es-AR")}</div>
+          </div>
+        </div>
+
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th style={{ width: "25%" }}>Empleado</th>
+              <th style={{ width: "10%" }}>Días</th>
+              <th style={{ width: "10%" }}>Horas</th>
+              <th style={{ width: "15%" }}>Valor/Hora</th>
+              <th style={{ width: "15%" }}>Bruto</th>
+              <th style={{ width: "15%" }}>Vales</th>
+              <th style={{ width: "15%" }}>Neto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inv.sueldos.map((sueldo: any, i: number) => (
+              <tr key={sueldo.empleado.id}>
+                <td>{sueldo.empleado.name}</td>
+                <td style={{ textAlign: "center" }}>{sueldo.diasTrabajados}</td>
+                <td style={{ textAlign: "center" }}>{sueldo.totalHoras}h</td>
+                <td style={{ textAlign: "right" }}>{money(sueldo.empleado.valor_hora)}</td>
+                <td style={{ textAlign: "right" }}>{money(sueldo.sueldoBruto)}</td>
+                <td style={{ textAlign: "right" }}>{money(sueldo.totalVales)}</td>
+                <td style={{ textAlign: "right", fontWeight: "bold" }}>
+                  {money(sueldo.sueldoNeto)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={4} style={{ textAlign: "right", fontWeight: "bold" }}>
+                TOTALES:
+              </td>
+              <td style={{ textAlign: "right", fontWeight: "bold" }}>
+                {money(inv.sueldos.reduce((sum: number, s: any) => sum + s.sueldoBruto, 0))}
+              </td>
+              <td style={{ textAlign: "right", fontWeight: "bold" }}>
+                {money(inv.totalValesGeneral)}
+              </td>
+              <td style={{ textAlign: "right", fontWeight: "bold" }}>
+                {money(inv.totalGeneral)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+      </div>
+    </div>
+  );
+}
 // ==== PLANTILLA: TICKET ====
 if (ticket) {
   return (
@@ -6782,6 +6991,769 @@ const responsiveStyles = `
 function ResponsiveStyles() {
   return <style jsx global>{responsiveStyles}</style>;
 }
+/* ===== GESTIÓN DE EMPLEADOS ===== */
+function EmpleadosTab({ state, setState, session }: any) {
+  const [nombre, setNombre] = useState("");
+  const [email, setEmail] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [valorHora, setValorHora] = useState("");
+  const [editando, setEditando] = useState<string | null>(null);
+
+  async function agregarEmpleado() {
+    if (!nombre.trim()) return alert("El nombre es obligatorio");
+    if (!valorHora || parseNum(valorHora) <= 0) return alert("El valor por hora debe ser mayor a 0");
+
+    const empleado: Empleado = {
+      id: editando || "emp_" + Math.random().toString(36).slice(2, 8),
+      name: nombre.trim(),
+      email: email.trim() || undefined,
+      telefono: telefono.trim() || undefined,
+      valor_hora: parseNum(valorHora),
+      activo: true,
+      fecha_creacion: editando ? undefined : todayISO(),
+    };
+
+    const st = clone(state);
+    
+    if (editando) {
+      const index = st.empleados.findIndex((e: any) => e.id === editando);
+      if (index !== -1) {
+        st.empleados[index] = { ...st.empleados[index], ...empleado };
+      }
+    } else {
+      st.empleados.push(empleado);
+    }
+    
+    setState(st);
+
+    if (hasSupabase) {
+      if (editando) {
+        await supabase.from("empleados").update(empleado).eq("id", empleado.id);
+      } else {
+        await supabase.from("empleados").insert(empleado);
+      }
+    }
+
+    // Limpiar formulario
+    setNombre("");
+    setEmail("");
+    setTelefono("");
+    setValorHora("");
+    setEditando(null);
+    
+    alert(`Empleado ${editando ? 'actualizado' : 'agregado'} correctamente`);
+  }
+
+  function editarEmpleado(emp: Empleado) {
+    setNombre(emp.name);
+    setEmail(emp.email || "");
+    setTelefono(emp.telefono || "");
+    setValorHora(String(emp.valor_hora));
+    setEditando(emp.id);
+  }
+
+  async function toggleActivo(empleadoId: string) {
+    const st = clone(state);
+    const empleado = st.empleados.find((e: any) => e.id === empleadoId);
+    if (empleado) {
+      empleado.activo = !empleado.activo;
+      setState(st);
+
+      if (hasSupabase) {
+        await supabase.from("empleados")
+          .update({ activo: empleado.activo })
+          .eq("id", empleadoId);
+      }
+    }
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card title={editando ? "✏️ Editar Empleado" : "➕ Agregar Empleado"}>
+        <div className="grid md:grid-cols-2 gap-3">
+          <Input 
+            label="Nombre completo *" 
+            value={nombre} 
+            onChange={setNombre} 
+            placeholder="Ej: Juan Pérez"
+          />
+          <Input 
+            label="Email" 
+            value={email} 
+            onChange={setEmail} 
+            placeholder="ejemplo@mail.com"
+            type="email"
+          />
+          <Input 
+            label="Teléfono" 
+            value={telefono} 
+            onChange={setTelefono} 
+            placeholder="+54 9 11 1234-5678"
+          />
+          <NumberInput 
+            label="Valor por hora ($) *" 
+            value={valorHora} 
+            onChange={setValorHora} 
+            placeholder="5000"
+          />
+        </div>
+        
+        <div className="flex gap-2 mt-4">
+          <Button onClick={agregarEmpleado}>
+            {editando ? "Actualizar" : "Agregar Empleado"}
+          </Button>
+          {editando && (
+            <Button tone="slate" onClick={() => {
+              setEditando(null);
+              setNombre("");
+              setEmail("");
+              setTelefono("");
+              setValorHora("");
+            }}>
+              Cancelar
+            </Button>
+          )}
+        </div>
+      </Card>
+
+      <Card title="📋 Lista de Empleados">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-4">Nombre</th>
+                <th className="py-2 pr-4">Contacto</th>
+                <th className="py-2 pr-4">Valor/Hora</th>
+                <th className="py-2 pr-4">Estado</th>
+                <th className="py-2 pr-4">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {state.empleados.map((emp: Empleado) => (
+                <tr key={emp.id} className={!emp.activo ? "bg-red-900/20" : ""}>
+                  <td className="py-2 pr-4">
+                    <div className="font-medium">{emp.name}</div>
+                    {emp.email && <div className="text-xs text-slate-400">{emp.email}</div>}
+                  </td>
+                  <td className="py-2 pr-4">
+                    {emp.telefono && <div className="text-sm">{emp.telefono}</div>}
+                  </td>
+                  <td className="py-2 pr-4">{money(emp.valor_hora)}</td>
+                  <td className="py-2 pr-4">
+                    <Chip tone={emp.activo ? "emerald" : "red"}>
+                      {emp.activo ? "Activo" : "Inactivo"}
+                    </Chip>
+                  </td>
+                  <td className="py-2 pr-4">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => editarEmpleado(emp)}
+                        className="text-blue-400 hover:text-blue-300 text-sm"
+                        title="Editar"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => toggleActivo(emp.id)}
+                        className={emp.activo ? "text-amber-400 hover:text-amber-300 text-sm" : "text-green-400 hover:text-green-300 text-sm"}
+                        title={emp.activo ? "Desactivar" : "Activar"}
+                      >
+                        {emp.activo ? "⏸️" : "▶️"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              
+              {state.empleados.length === 0 && (
+                <tr>
+                  <td className="py-4 text-slate-400 text-center" colSpan={5}>
+                    No hay empleados registrados
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+/* ===== CONTROL HORARIO ===== */
+function ControlHorarioTab({ state, setState, session }: any) {
+  const [empleadoSeleccionado, setEmpleadoSeleccionado] = useState("");
+  const [fecha, setFecha] = useState(todayISO().split('T')[0]);
+  const [horaEntrada, setHoraEntrada] = useState("");
+  const [horaSalida, setHoraSalida] = useState("");
+  const [observaciones, setObservaciones] = useState("");
+
+  // Empleados activos solamente
+  const empleadosActivos = state.empleados.filter((emp: Empleado) => emp.activo);
+
+  async function registrarEntrada() {
+    if (!empleadoSeleccionado) return alert("Selecciona un empleado");
+    if (!horaEntrada) return alert("Ingresa la hora de entrada");
+
+    const registro: RegistroHorario = {
+      id: "rh_" + Math.random().toString(36).slice(2, 8),
+      empleado_id: empleadoSeleccionado,
+      empleado_name: empleadosActivos.find((e: any) => e.id === empleadoSeleccionado)?.name || "",
+      fecha: fecha,
+      hora_entrada: horaEntrada,
+      observaciones: observaciones.trim() || undefined,
+    };
+
+    const st = clone(state);
+    st.registros_horarios.push(registro);
+    setState(st);
+
+    if (hasSupabase) {
+      await supabase.from("registros_horarios").insert(registro);
+    }
+
+    alert(`✅ Entrada registrada para ${registro.empleado_name}`);
+    
+    // Limpiar formulario
+    setHoraEntrada("");
+    setObservaciones("");
+  }
+
+  async function registrarSalida(registroId: string) {
+    if (!horaSalida) return alert("Ingresa la hora de salida");
+
+    const st = clone(state);
+    const registro = st.registros_horarios.find((r: any) => r.id === registroId);
+    
+    if (registro) {
+      registro.hora_salida = horaSalida;
+      
+      // Calcular horas trabajadas
+      const entrada = new Date(`${registro.fecha}T${registro.hora_entrada}`);
+      const salida = new Date(`${registro.fecha}T${horaSalida}`);
+      const diffMs = salida.getTime() - entrada.getTime();
+      const diffHoras = diffMs / (1000 * 60 * 60);
+      
+      registro.horas_trabajadas = Math.round(diffHoras * 100) / 100; // Redondear a 2 decimales
+      
+      setState(st);
+
+      if (hasSupabase) {
+        await supabase.from("registros_horarios")
+          .update({ 
+            hora_salida: horaSalida,
+            horas_trabajadas: registro.horas_trabajadas
+          })
+          .eq("id", registroId);
+      }
+
+      alert(`✅ Salida registrada. Horas trabajadas: ${registro.horas_trabajadas}`);
+      setHoraSalida("");
+    }
+  }
+
+  // Agrupar registros por fecha
+  const registrosPorFecha = state.registros_horarios.reduce((acc: any, reg: RegistroHorario) => {
+    if (!acc[reg.fecha]) acc[reg.fecha] = [];
+    acc[reg.fecha].push(reg);
+    return acc;
+  }, {});
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card title="⏰ Registrar Horario">
+        <div className="grid md:grid-cols-2 gap-3">
+          <Select
+            label="Empleado *"
+            value={empleadoSeleccionado}
+            onChange={setEmpleadoSeleccionado}
+            options={[
+              { value: "", label: "— Seleccionar empleado —" },
+              ...empleadosActivos.map((emp: Empleado) => ({
+                value: emp.id,
+                label: `${emp.name} (${money(emp.valor_hora)}/h)`
+              }))
+            ]}
+          />
+          <Input
+            label="Fecha"
+            type="date"
+            value={fecha}
+            onChange={setFecha}
+          />
+          <Input
+            label="Hora de Entrada *"
+            type="time"
+            value={horaEntrada}
+            onChange={setHoraEntrada}
+          />
+          <Input
+            label="Observaciones (opcional)"
+            value={observaciones}
+            onChange={setObservaciones}
+            placeholder="Ej: Trabajo especial, reunión, etc."
+          />
+        </div>
+        
+        <div className="flex gap-2 mt-4">
+          <Button 
+            onClick={registrarEntrada}
+            disabled={!empleadoSeleccionado || !horaEntrada}
+          >
+            🟢 Registrar Entrada
+          </Button>
+        </div>
+      </Card>
+
+      <Card title="🕒 Registro de Salidas">
+        <div className="grid md:grid-cols-2 gap-3 mb-4">
+          <Input
+            label="Hora de Salida"
+            type="time"
+            value={horaSalida}
+            onChange={setHoraSalida}
+          />
+        </div>
+        <div className="text-sm text-slate-400">
+          Selecciona un registro pendiente de salida y ingresa la hora de salida
+        </div>
+      </Card>
+
+      <Card title="📊 Historial de Horarios">
+        <div className="space-y-6">
+          {Object.entries(registrosPorFecha)
+            .sort(([a], [b]) => b.localeCompare(a)) // Ordenar por fecha descendente
+            .map(([fechaStr, registros]: [string, any]) => (
+              <div key={fechaStr} className="border border-slate-700 rounded-lg p-4">
+                <div className="font-semibold text-lg mb-3">
+                  {new Date(fechaStr).toLocaleDateString("es-AR", { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
+                </div>
+                
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="text-left text-slate-400">
+                      <tr>
+                        <th className="py-2 pr-4">Empleado</th>
+                        <th className="py-2 pr-4">Entrada</th>
+                        <th className="py-2 pr-4">Salida</th>
+                        <th className="py-2 pr-4">Horas</th>
+                        <th className="py-2 pr-4">Valor</th>
+                        <th className="py-2 pr-4">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {registros.map((reg: RegistroHorario) => {
+                        const empleado = state.empleados.find((e: any) => e.id === reg.empleado_id);
+                        const valorHora = empleado?.valor_hora || 0;
+                        const valorTotal = reg.horas_trabajadas ? reg.horas_trabajadas * valorHora : 0;
+                        
+                        return (
+                          <tr key={reg.id}>
+                            <td className="py-2 pr-4">{reg.empleado_name}</td>
+                            <td className="py-2 pr-4">{reg.hora_entrada}</td>
+                            <td className="py-2 pr-4">
+                              {reg.hora_salida ? reg.hora_salida : "—"}
+                            </td>
+                            <td className="py-2 pr-4">
+                              {reg.horas_trabajadas ? `${reg.horas_trabajadas}h` : "—"}
+                            </td>
+                            <td className="py-2 pr-4">
+                              {valorTotal > 0 ? money(valorTotal) : "—"}
+                            </td>
+                            <td className="py-2 pr-4">
+                              {!reg.hora_salida && (
+                                <Button 
+                                  tone="emerald"
+                                  onClick={() => registrarSalida(reg.id)}
+                                  disabled={!horaSalida}
+                                >
+                                  Registrar Salida
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          
+          {state.registros_horarios.length === 0 && (
+            <div className="text-center text-slate-400 py-8">
+              No hay registros horarios
+            </div>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+/* ===== VALES DE EMPLEADOS ===== */
+function ValesEmpleadosTab({ state, setState, session }: any) {
+  const [empleadoSeleccionado, setEmpleadoSeleccionado] = useState("");
+  const [monto, setMonto] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const [fecha, setFecha] = useState(todayISO().split('T')[0]);
+
+  const empleadosActivos = state.empleados.filter((emp: Empleado) => emp.activo);
+
+  async function registrarVale() {
+    if (!empleadoSeleccionado) return alert("Selecciona un empleado");
+    if (!monto || parseNum(monto) <= 0) return alert("Ingresa un monto válido");
+    if (!motivo.trim()) return alert("Ingresa el motivo del vale");
+
+    const vale: ValeEmpleado = {
+      id: "vale_" + Math.random().toString(36).slice(2, 8),
+      empleado_id: empleadoSeleccionado,
+      empleado_name: empleadosActivos.find((e: any) => e.id === empleadoSeleccionado)?.name || "",
+      monto: parseNum(monto),
+      motivo: motivo.trim(),
+      fecha: fecha,
+      fecha_iso: todayISO(),
+      autorizado_por: session.name,
+    };
+
+    const st = clone(state);
+    st.vales_empleados.push(vale);
+    setState(st);
+
+    if (hasSupabase) {
+      await supabase.from("vales_empleados").insert(vale);
+    }
+
+    // Imprimir comprobante
+    window.dispatchEvent(new CustomEvent("print-vale", { detail: vale } as any));
+    await nextPaint();
+    window.print();
+
+    alert(`✅ Vale registrado para ${vale.empleado_name}`);
+    
+    // Limpiar formulario
+    setMonto("");
+    setMotivo("");
+  }
+
+  // Calcular total de vales por empleado
+  const valesPorEmpleado = state.vales_empleados.reduce((acc: any, vale: ValeEmpleado) => {
+    if (!acc[vale.empleado_id]) {
+      acc[vale.empleado_id] = {
+        empleado_name: vale.empleado_name,
+        total: 0,
+        cantidad: 0
+      };
+    }
+    acc[vale.empleado_id].total += vale.monto;
+    acc[vale.empleado_id].cantidad += 1;
+    return acc;
+  }, {});
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card title="💰 Registrar Vale de Empleado">
+        <div className="grid md:grid-cols-2 gap-3">
+          <Select
+            label="Empleado *"
+            value={empleadoSeleccionado}
+            onChange={setEmpleadoSeleccionado}
+            options={[
+              { value: "", label: "— Seleccionar empleado —" },
+              ...empleadosActivos.map((emp: Empleado) => ({
+                value: emp.id,
+                label: `${emp.name}`
+              }))
+            ]}
+          />
+          <Input
+            label="Fecha"
+            type="date"
+            value={fecha}
+            onChange={setFecha}
+          />
+          <NumberInput
+            label="Monto del Vale *"
+            value={monto}
+            onChange={setMonto}
+            placeholder="5000"
+          />
+          <Input
+            label="Motivo *"
+            value={motivo}
+            onChange={setMotivo}
+            placeholder="Ej: Adelanto de sueldo, gastos, etc."
+          />
+        </div>
+        
+        <div className="flex gap-2 mt-4">
+          <Button 
+            onClick={registrarVale}
+            disabled={!empleadoSeleccionado || !monto || !motivo.trim()}
+          >
+            💰 Registrar Vale e Imprimir
+          </Button>
+        </div>
+      </Card>
+
+      <Card title="📊 Resumen de Vales por Empleado">
+        <div className="grid md:grid-cols-3 gap-4">
+          {Object.entries(valesPorEmpleado).map(([empleadoId, data]: [string, any]) => (
+            <div key={empleadoId} className="border border-slate-700 rounded-lg p-4">
+              <div className="font-semibold text-lg">{data.empleado_name}</div>
+              <div className="text-2xl font-bold text-amber-400 my-2">
+                {money(data.total)}
+              </div>
+              <div className="text-sm text-slate-400">
+                {data.cantidad} vale(s) registrado(s)
+              </div>
+            </div>
+          ))}
+          
+          {Object.keys(valesPorEmpleado).length === 0 && (
+            <div className="col-span-3 text-center text-slate-400 py-4">
+              No hay vales registrados
+            </div>
+          )}
+        </div>
+      </Card>
+
+      <Card title="📋 Historial de Vales">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-4">Fecha</th>
+                <th className="py-2 pr-4">Empleado</th>
+                <th className="py-2 pr-4">Monto</th>
+                <th className="py-2 pr-4">Motivo</th>
+                <th className="py-2 pr-4">Autorizado por</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {state.vales_empleados
+                .sort((a: any, b: any) => new Date(b.fecha_iso).getTime() - new Date(a.fecha_iso).getTime())
+                .map((vale: ValeEmpleado) => (
+                  <tr key={vale.id}>
+                    <td className="py-2 pr-4">
+                      {new Date(vale.fecha_iso).toLocaleString("es-AR")}
+                    </td>
+                    <td className="py-2 pr-4">{vale.empleado_name}</td>
+                    <td className="py-2 pr-4">
+                      <span className="font-semibold text-amber-400">
+                        {money(vale.monto)}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4">{vale.motivo}</td>
+                    <td className="py-2 pr-4">{vale.autorizado_por}</td>
+                  </tr>
+                ))}
+              
+              {state.vales_empleados.length === 0 && (
+                <tr>
+                  <td className="py-4 text-slate-400 text-center" colSpan={5}>
+                    No hay vales registrados
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+/* ===== CÁLCULO DE SUELDOS ===== */
+function CalculoSueldosTab({ state, setState }: any) {
+  const [mes, setMes] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+
+  // Calcular sueldos para el mes seleccionado
+  const calcularSueldos = () => {
+    const [anio, mesNum] = mes.split('-').map(Number);
+    const inicioMes = new Date(anio, mesNum - 1, 1);
+    const finMes = new Date(anio, mesNum, 0);
+
+    return state.empleados
+      .filter((emp: Empleado) => emp.activo)
+      .map((emp: Empleado) => {
+        // Filtrar registros del mes para este empleado
+        const registrosMes = state.registros_horarios.filter((reg: RegistroHorario) => {
+          if (reg.empleado_id !== emp.id) return false;
+          const fechaReg = new Date(reg.fecha);
+          return fechaReg >= inicioMes && fechaReg <= finMes && reg.horas_trabajadas;
+        });
+
+        // Calcular total horas y sueldo bruto
+        const totalHoras = registrosMes.reduce((sum: number, reg: any) => 
+          sum + (reg.horas_trabajadas || 0), 0
+        );
+        const sueldoBruto = totalHoras * emp.valor_hora;
+
+        // Calcular total vales del mes
+        const valesMes = state.vales_empleados.filter((vale: ValeEmpleado) => {
+          if (vale.empleado_id !== emp.id) return false;
+          const fechaVale = new Date(vale.fecha_iso);
+          return fechaVale >= inicioMes && fechaVale <= finMes;
+        });
+        const totalVales = valesMes.reduce((sum: number, vale: any) => sum + vale.monto, 0);
+
+        // Calcular sueldo neto
+        const sueldoNeto = Math.max(0, sueldoBruto - totalVales);
+
+        return {
+          empleado: emp,
+          registros: registrosMes,
+          totalHoras,
+          sueldoBruto,
+          vales: valesMes,
+          totalVales,
+          sueldoNeto,
+          diasTrabajados: new Set(registrosMes.map((r: any) => r.fecha)).size
+        };
+      })
+      .filter((sueldo: any) => sueldo.registros.length > 0) // Solo empleados que trabajaron
+      .sort((a: any, b: any) => b.sueldoNeto - a.sueldoNeto);
+  };
+
+  const sueldos = calcularSueldos();
+
+  async function imprimirPlanillaSueldos() {
+    const data = {
+      type: "PlanillaSueldos",
+      mes: mes,
+      sueldos: sueldos,
+      totalGeneral: sueldos.reduce((sum: number, s: any) => sum + s.sueldoNeto, 0),
+      totalValesGeneral: sueldos.reduce((sum: number, s: any) => sum + s.totalVales, 0),
+    };
+
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
+    await nextPaint();
+    window.print();
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card 
+        title="🧮 Cálculo de Sueldos"
+        actions={
+          <div className="flex gap-2">
+            <Input
+              type="month"
+              value={mes}
+              onChange={setMes}
+            />
+            <Button onClick={imprimirPlanillaSueldos}>
+              📄 Imprimir Planilla
+            </Button>
+          </div>
+        }
+      >
+        <div className="text-sm text-slate-400 mb-4">
+          Resumen de sueldos para {new Date(mes + '-01').toLocaleDateString('es-AR', { 
+            year: 'numeric', 
+            month: 'long' 
+          })}
+        </div>
+
+        <div className="space-y-4">
+          {sueldos.length === 0 ? (
+            <div className="text-center text-slate-400 py-8">
+              No hay registros de sueldos para el mes seleccionado
+            </div>
+          ) : (
+            sueldos.map((sueldo: any, index: number) => (
+              <div key={sueldo.empleado.id} className="border border-slate-700 rounded-lg p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <div className="font-semibold text-lg">{sueldo.empleado.name}</div>
+                    <div className="text-sm text-slate-400">
+                      {sueldo.diasTrabajados} días trabajados • {sueldo.totalHoras} horas totales
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-emerald-400">
+                      {money(sueldo.sueldoNeto)}
+                    </div>
+                    <div className="text-sm text-slate-400">
+                      Neto a pagar
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <div className="text-slate-400">Valor hora</div>
+                    <div className="font-semibold">{money(sueldo.empleado.valor_hora)}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-400">Sueldo bruto</div>
+                    <div className="font-semibold">{money(sueldo.sueldoBruto)}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-400">Vales descontados</div>
+                    <div className="font-semibold text-amber-400">{money(sueldo.totalVales)}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-400">Cantidad de vales</div>
+                    <div className="font-semibold">{sueldo.vales.length}</div>
+                  </div>
+                </div>
+
+                {/* Detalle de vales */}
+                {sueldo.vales.length > 0 && (
+                  <div className="mt-3 p-3 bg-slate-800/30 rounded">
+                    <div className="text-sm font-semibold mb-2">Detalle de vales:</div>
+                    <div className="space-y-1 text-xs">
+                      {sueldo.vales.map((vale: any, idx: number) => (
+                        <div key={idx} className="flex justify-between">
+                          <span>{new Date(vale.fecha_iso).toLocaleDateString('es-AR')} - {vale.motivo}</span>
+                          <span className="text-amber-400">{money(vale.monto)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Resumen general */}
+        {sueldos.length > 0 && (
+          <Card title="📊 Resumen General del Mes">
+            <div className="grid md:grid-cols-4 gap-4 text-center">
+              <div>
+                <div className="text-2xl font-bold">{sueldos.length}</div>
+                <div className="text-sm text-slate-400">Empleados</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-emerald-400">
+                  {money(sueldos.reduce((sum: number, s: any) => sum + s.sueldoBruto, 0))}
+                </div>
+                <div className="text-sm text-slate-400">Total Bruto</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-amber-400">
+                  {money(sueldos.reduce((sum: number, s: any) => sum + s.totalVales, 0))}
+                </div>
+                <div className="text-sm text-slate-400">Total Vales</div>
+              </div>
+              <div>
+                <div className="text-2xl font-bold text-green-400">
+                  {money(sueldos.reduce((sum: number, s: any) => sum + s.sueldoNeto, 0))}
+                </div>
+                <div className="text-sm text-slate-400">Total Neto</div>
+              </div>
+            </div>
+          </Card>
+        )}
+      </Card>
+    </div>
+  );
+}
 /* ===== Página principal ===== */
 export default function Page() {
   const [state, setState] = useState<any>(seedState());
@@ -6953,6 +7925,18 @@ export default function Page() {
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Pedidos Online" && (
               <GestionPedidosTab state={state} setState={setState} session={session} />
             )}
+            {session.role === "admin" && tab === "Empleados" && (
+  <EmpleadosTab state={state} setState={setState} session={session} />
+)}
+{session.role === "admin" && tab === "Control Horario" && (
+  <ControlHorarioTab state={state} setState={setState} session={session} />
+)}
+{session.role === "admin" && tab === "Vales Empleados" && (
+  <ValesEmpleadosTab state={state} setState={setState} session={session} />
+)}
+{session.role === "admin" && tab === "Cálculo Sueldos" && (
+  <CalculoSueldosTab state={state} setState={setState} />
+)}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
               {hasSupabase ? "Supabase activo" : "Datos en navegador"}
