@@ -24,13 +24,16 @@ const useIsMobile = () => {
 
 // 👇👇👇 NUEVOS TIPOS PARA EMPLEADOS
 // 👇👇👇 ACTUALIZAR EL TIPO EMPLEADO - REEMPLAZAR COMPLETAMENTE
+// 👇👇👇 ACTUALIZAR EL TIPO EMPLEADO CON TODOS LOS VALORES
 type Empleado = {
   id: string;
   name: string;
   email?: string;
   telefono?: string;
   valor_hora_normal: number;    // 100%
-  valor_hora_extra: number;     // 50% extra
+  valor_hora_extra_50: number;  // 50% más
+  valor_hora_extra_100: number; // 100% más (doble)
+  valor_hora_nocturna: number;  // Plus nocturno
   activo: boolean;
   fecha_creacion: string;
 };
@@ -40,15 +43,19 @@ type RegistroHorario = {
   id: string;
   empleado_id: string;
   empleado_name: string;
-  fecha: string; // YYYY-MM-DD
+  fecha: string;
   hora_entrada: string;
   hora_salida?: string;
   horas_trabajadas?: number;
-  horas_normales?: number;    // 👈 NUEVO
-  horas_extras?: number;      // 👈 NUEVO
-  valor_normal?: number;      // 👈 NUEVO
-  valor_extra?: number;       // 👈 NUEVO
-  valor_total?: number;       // 👈 NUEVO
+  horas_normales?: number;
+  horas_extra_50?: number;
+  horas_extra_100?: number;
+  horas_nocturnas?: number;
+  valor_normal?: number;
+  valor_extra_50?: number;
+  valor_extra_100?: number;
+  valor_nocturno?: number;
+  valor_total?: number;
   observaciones?: string;
 };
 type ValeEmpleado = {
@@ -562,6 +569,149 @@ function validarStockDisponible(products: any[], items: any[]): { valido: boolea
   return {
     valido: productosSinStock.length === 0,
     productosSinStock
+  };
+}
+// ==== CALCULAR HORAS SEGÚN REGLAS DEL NEGOCIO ====
+function calcularHorasInteligentes(fecha: string, horaEntrada: string, horaSalida: string) {
+  const entrada = new Date(`${fecha}T${horaEntrada}`);
+  const salida = new Date(`${fecha}T${horaSalida}`);
+  
+  // Verificar si es sábado
+  const esSabado = entrada.getDay() === 6; // 6 = sábado
+  
+  // Verificar si es turno nocturno (7pm a 7am)
+  const horaEntradaNum = parseInt(horaEntrada.split(':')[0]);
+  const esNocturno = horaEntradaNum >= 19 || horaEntradaNum < 7;
+
+  if (esNocturno) {
+    return calcularHorasNocturnas(entrada, salida);
+  } else if (esSabado) {
+    return calcularHorasSabado(entrada, salida);
+  } else {
+    return calcularHorasSemana(entrada, salida);
+  }
+}
+
+// 👇👇👇 HORAS DE LUNES A VIERNES
+function calcularHorasSemana(entrada: Date, salida: Date) {
+  const diffMs = salida.getTime() - entrada.getTime();
+  const totalHoras = diffMs / (1000 * 60 * 60);
+  
+  // Horario normal: 8:00 - 17:00 (9 horas)
+  const horaInicioNormal = new Date(entrada);
+  horaInicioNormal.setHours(8, 0, 0, 0);
+  
+  const horaFinNormal = new Date(entrada);
+  horaFinNormal.setHours(17, 0, 0, 0);
+  
+  // Calcular horas dentro del horario normal
+  const inicioTrabajo = entrada > horaInicioNormal ? entrada : horaInicioNormal;
+  const finTrabajo = salida < horaFinNormal ? salida : horaFinNormal;
+  
+  let horasNormales = 0;
+  if (finTrabajo > inicioTrabajo) {
+    horasNormales = (finTrabajo.getTime() - inicioTrabajo.getTime()) / (1000 * 60 * 60);
+  }
+  
+  // Horas extras (después de las 17:00 o después de 12 horas totales)
+  const horasExtras50 = Math.max(0, totalHoras - horasNormales);
+  
+  return {
+    horas_normales: Math.round(horasNormales * 100) / 100,
+    horas_extra_50: Math.round(horasExtras50 * 100) / 100,
+    horas_extra_100: 0,
+    horas_nocturnas: 0,
+    total_horas: Math.round(totalHoras * 100) / 100
+  };
+}
+
+// 👇👇👇 HORAS DE SÁBADO
+function calcularHorasSabado(entrada: Date, salida: Date) {
+  const diffMs = salida.getTime() - entrada.getTime();
+  const totalHoras = diffMs / (1000 * 60 * 60);
+  
+  // Sábado: 8:30-10:00 (normal), 11:00-13:00 (100% extra)
+  const horaInicioNormal = new Date(entrada);
+  horaInicioNormal.setHours(8, 30, 0, 0);
+  
+  const horaFinNormal = new Date(entrada);
+  horaFinNormal.setHours(10, 0, 0, 0);
+  
+  const horaInicioExtra100 = new Date(entrada);
+  horaInicioExtra100.setHours(11, 0, 0, 0);
+  
+  const horaFinExtra100 = new Date(entrada);
+  horaFinExtra100.setHours(13, 0, 0, 0);
+  
+  // Calcular horas normales (8:30-10:00)
+  const inicioNormal = entrada > horaInicioNormal ? entrada : horaInicioNormal;
+  const finNormal = salida < horaFinNormal ? salida : horaFinNormal;
+  
+  let horasNormales = 0;
+  if (finNormal > inicioNormal) {
+    horasNormales = (finNormal.getTime() - inicioNormal.getTime()) / (1000 * 60 * 60);
+  }
+  
+  // Calcular horas extra 100% (11:00-13:00)
+  const inicioExtra100 = entrada > horaInicioExtra100 ? entrada : horaInicioExtra100;
+  const finExtra100 = salida < horaFinExtra100 ? salida : horaFinExtra100;
+  
+  let horasExtra100 = 0;
+  if (finExtra100 > inicioExtra100) {
+    horasExtra100 = (finExtra100.getTime() - inicioExtra100.getTime()) / (1000 * 60 * 60);
+  }
+  
+  return {
+    horas_normales: Math.round(horasNormales * 100) / 100,
+    horas_extra_50: 0,
+    horas_extra_100: Math.round(horasExtra100 * 100) / 100,
+    horas_nocturnas: 0,
+    total_horas: Math.round(totalHoras * 100) / 100
+  };
+}
+
+// 👇👇👇 HORAS NOCTURNAS (7pm a 7am)
+function calcularHorasNocturnas(entrada: Date, salida: Date) {
+  // Para turno nocturno: 9.6h normal, 2.4h 50%, 1h 100%
+  const totalHoras = (salida.getTime() - entrada.getTime()) / (1000 * 60 * 60);
+  
+  // Distribución fija para turno nocturno completo
+  if (totalHoras >= 12) {
+    return {
+      horas_normales: 9.6,
+      horas_extra_50: 2.4,
+      horas_extra_100: 1.0,
+      horas_nocturnas: 12, // Todas son nocturnas
+      total_horas: 12
+    };
+  } else {
+    // Si el turno es incompleto, calcular proporcionalmente
+    const proporcion = totalHoras / 12;
+    return {
+      horas_normales: 9.6 * proporcion,
+      horas_extra_50: 2.4 * proporcion,
+      horas_extra_100: 1.0 * proporcion,
+      horas_nocturnas: totalHoras,
+      total_horas: totalHoras
+    };
+  }
+}
+
+// 👇👇👇 CALCULAR VALOR TOTAL
+function calcularValorHoras(empleado: Empleado, horas: any) {
+  const valorNormal = horas.horas_normales * empleado.valor_hora_normal;
+  const valorExtra50 = horas.horas_extra_50 * empleado.valor_hora_extra_50;
+  const valorExtra100 = horas.horas_extra_100 * empleado.valor_hora_extra_100;
+  const valorNocturno = horas.horas_nocturnas * empleado.valor_hora_nocturna;
+  
+  const valorTotal = valorNormal + valorExtra50 + valorExtra100 + valorNocturno;
+  
+  return {
+    valor_normal: Math.round(valorNormal * 100) / 100,
+    valor_extra_50: Math.round(valorExtra50 * 100) / 100,
+    valor_extra_100: Math.round(valorExtra100 * 100) / 100,
+    valor_nocturno: Math.round(valorNocturno * 100) / 100,
+    valor_total: Math.round(valorTotal * 100) / 100
   };
 }
 // ==== CALCULAR CAPITAL EN INVENTARIO ====
@@ -7164,20 +7314,24 @@ function ResponsiveStyles() {
   return <style jsx global>{responsiveStyles}</style>;
 }
 /* ===== GESTIÓN DE EMPLEADOS ===== */
+/* ===== GESTIÓN DE EMPLEADOS MEJORADA ===== */
 function EmpleadosTab({ state, setState, session }: any) {
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
   const [telefono, setTelefono] = useState("");
   const [valorHoraNormal, setValorHoraNormal] = useState("");
-  const [valorHoraExtra, setValorHoraExtra] = useState("");
+  const [valorHoraExtra50, setValorHoraExtra50] = useState("");
+  const [valorHoraExtra100, setValorHoraExtra100] = useState("");
+  const [valorHoraNocturna, setValorHoraNocturna] = useState("");
   const [editando, setEditando] = useState<string | null>(null);
 
-  // Calcular automáticamente la hora extra cuando se ingresa la normal
+  // Calcular automáticamente los valores cuando se ingresa la hora normal
   useEffect(() => {
     if (valorHoraNormal && !editando) {
       const valorNormal = parseNum(valorHoraNormal);
-      const valorExtra = valorNormal * 1.5; // 50% más
-      setValorHoraExtra(String(valorExtra));
+      setValorHoraExtra50(String(valorNormal * 1.5)); // 50% más
+      setValorHoraExtra100(String(valorNormal * 2));  // 100% más (doble)
+      setValorHoraNocturna(String(valorNormal * 0.3)); // 30% plus nocturno
     }
   }, [valorHoraNormal, editando]);
 
@@ -7191,7 +7345,9 @@ function EmpleadosTab({ state, setState, session }: any) {
       email: email.trim() || undefined,
       telefono: telefono.trim() || undefined,
       valor_hora_normal: parseNum(valorHoraNormal),
-      valor_hora_extra: parseNum(valorHoraExtra),
+      valor_hora_extra_50: parseNum(valorHoraExtra50),
+      valor_hora_extra_100: parseNum(valorHoraExtra100),
+      valor_hora_nocturna: parseNum(valorHoraNocturna),
       activo: true,
       fecha_creacion: editando ? undefined : todayISO(),
     };
@@ -7222,7 +7378,9 @@ function EmpleadosTab({ state, setState, session }: any) {
     setEmail("");
     setTelefono("");
     setValorHoraNormal("");
-    setValorHoraExtra("");
+    setValorHoraExtra50("");
+    setValorHoraExtra100("");
+    setValorHoraNocturna("");
     setEditando(null);
     
     alert(`Empleado ${editando ? 'actualizado' : 'agregado'} correctamente`);
@@ -7233,11 +7391,12 @@ function EmpleadosTab({ state, setState, session }: any) {
     setEmail(emp.email || "");
     setTelefono(emp.telefono || "");
     setValorHoraNormal(String(emp.valor_hora_normal));
-    setValorHoraExtra(String(emp.valor_hora_extra));
+    setValorHoraExtra50(String(emp.valor_hora_extra_50));
+    setValorHoraExtra100(String(emp.valor_hora_extra_100));
+    setValorHoraNocturna(String(emp.valor_hora_nocturna));
     setEditando(emp.id);
   }
 
-  // 👇👇👇 AGREGAR ESTA FUNCIÓN QUE FALTA
   async function toggleActivo(empleadoId: string) {
     const st = clone(state);
     const empleado = st.empleados.find((e: any) => e.id === empleadoId);
@@ -7284,19 +7443,33 @@ function EmpleadosTab({ state, setState, session }: any) {
             placeholder="5000"
           />
           <NumberInput 
-            label="Valor hora extra (50%) *" 
-            value={valorHoraExtra} 
-            onChange={setValorHoraExtra} 
+            label="Valor hora extra (50%)" 
+            value={valorHoraExtra50} 
+            onChange={setValorHoraExtra50} 
             placeholder="7500"
+          />
+          <NumberInput 
+            label="Valor hora extra (100%)" 
+            value={valorHoraExtra100} 
+            onChange={setValorHoraExtra100} 
+            placeholder="10000"
+          />
+          <NumberInput 
+            label="Plus hora nocturna" 
+            value={valorHoraNocturna} 
+            onChange={setValorHoraNocturna} 
+            placeholder="1500"
           />
           <div className="md:col-span-2">
             <div className="text-xs text-slate-400 p-2 bg-slate-800/50 rounded">
-              💡 La hora extra se calcula automáticamente como 50% más que la hora normal.
-              {valorHoraNormal && valorHoraExtra && (
-                <span className="block mt-1">
-                  Relación actual: {money(parseNum(valorHoraNormal))} → {money(parseNum(valorHoraExtra))} 
-                  ({(parseNum(valorHoraExtra) / parseNum(valorHoraNormal) * 100 - 100).toFixed(0)}% más)
-                </span>
+              💡 Los valores se calculan automáticamente. Puedes ajustarlos manualmente si es necesario.
+              {valorHoraNormal && (
+                <div className="mt-1 grid grid-cols-4 gap-2 text-xs">
+                  <div>Normal: {money(parseNum(valorHoraNormal))}</div>
+                  <div>+50%: {money(parseNum(valorHoraExtra50))}</div>
+                  <div>+100%: {money(parseNum(valorHoraExtra100))}</div>
+                  <div>Nocturno: +{money(parseNum(valorHoraNocturna))}</div>
+                </div>
               )}
             </div>
           </div>
@@ -7313,7 +7486,9 @@ function EmpleadosTab({ state, setState, session }: any) {
               setEmail("");
               setTelefono("");
               setValorHoraNormal("");
-              setValorHoraExtra("");
+              setValorHoraExtra50("");
+              setValorHoraExtra100("");
+              setValorHoraNocturna("");
             }}>
               Cancelar
             </Button>
@@ -7329,7 +7504,9 @@ function EmpleadosTab({ state, setState, session }: any) {
                 <th className="py-2 pr-4">Nombre</th>
                 <th className="py-2 pr-4">Contacto</th>
                 <th className="py-2 pr-4">Hora Normal</th>
-                <th className="py-2 pr-4">Hora Extra</th>
+                <th className="py-2 pr-4">+50%</th>
+                <th className="py-2 pr-4">+100%</th>
+                <th className="py-2 pr-4">Nocturno</th>
                 <th className="py-2 pr-4">Estado</th>
                 <th className="py-2 pr-4">Acciones</th>
               </tr>
@@ -7345,7 +7522,9 @@ function EmpleadosTab({ state, setState, session }: any) {
                     {emp.telefono && <div className="text-sm">{emp.telefono}</div>}
                   </td>
                   <td className="py-2 pr-4">{money(emp.valor_hora_normal)}</td>
-                  <td className="py-2 pr-4">{money(emp.valor_hora_extra)}</td>
+                  <td className="py-2 pr-4">{money(emp.valor_hora_extra_50)}</td>
+                  <td className="py-2 pr-4">{money(emp.valor_hora_extra_100)}</td>
+                  <td className="py-2 pr-4">+{money(emp.valor_hora_nocturna)}</td>
                   <td className="py-2 pr-4">
                     <Chip tone={emp.activo ? "emerald" : "red"}>
                       {emp.activo ? "Activo" : "Inactivo"}
@@ -7374,7 +7553,7 @@ function EmpleadosTab({ state, setState, session }: any) {
               
               {state.empleados.length === 0 && (
                 <tr>
-                  <td className="py-4 text-slate-400 text-center" colSpan={6}>
+                  <td className="py-4 text-slate-400 text-center" colSpan={8}>
                     No hay empleados registrados
                   </td>
                 </tr>
@@ -7451,46 +7630,53 @@ function ControlHorarioTab({ state, setState, session }: any) {
       if (registro) {
         registro.hora_salida = horaActual;
         
-        // Calcular horas trabajadas automáticamente
-        const entrada = new Date(`${registro.fecha}T${registro.hora_entrada}`);
-        const salida = new Date(`${registro.fecha}T${horaActual}`);
-        const diffMs = salida.getTime() - entrada.getTime();
-        const diffHoras = diffMs / (1000 * 60 * 60);
-        
-        // Detectar horas extras (más de 8 horas)
-        const horasNormales = Math.min(diffHoras, 8);
-        const horasExtras = Math.max(0, diffHoras - 8);
-        
-        registro.horas_trabajadas = Math.round(diffHoras * 100) / 100;
-        registro.horas_normales = Math.round(horasNormales * 100) / 100;
-        registro.horas_extras = Math.round(horasExtras * 100) / 100;
-        
-        // Calcular valor total
-        const empleado = empleadosActivos.find((e: any) => e.id === empleadoSeleccionado);
-        if (empleado) {
-          registro.valor_normal = registro.horas_normales * empleado.valor_hora_normal;
-          registro.valor_extra = registro.horas_extras * empleado.valor_hora_extra;
-          registro.valor_total = registro.valor_normal + registro.valor_extra;
-        }
+      // 👇👇👇 NUEVO CÁLCULO INTELIGENTE SEGÚN TUS REGLAS
+// Calcular horas automáticamente según las reglas del negocio
+const horasCalculadas = calcularHorasInteligentes(registro.fecha, registro.hora_entrada, horaActual);
+const valores = calcularValorHoras(empleado, horasCalculadas);
+
+// Actualizar el registro con todos los cálculos
+registro.horas_trabajadas = horasCalculadas.total_horas;
+registro.horas_normales = horasCalculadas.horas_normales;
+registro.horas_extra_50 = horasCalculadas.horas_extra_50;
+registro.horas_extra_100 = horasCalculadas.horas_extra_100;
+registro.horas_nocturnas = horasCalculadas.horas_nocturnas;
+registro.valor_normal = valores.valor_normal;
+registro.valor_extra_50 = valores.valor_extra_50;
+registro.valor_extra_100 = valores.valor_extra_100;
+registro.valor_nocturno = valores.valor_nocturno;
+registro.valor_total = valores.valor_total;
         
         setState(st);
 
-        if (hasSupabase) {
-          await supabase.from("registros_horarios")
-            .update({ 
-              hora_salida: horaActual,
-              horas_trabajadas: registro.horas_trabajadas,
-              horas_normales: registro.horas_normales,
-              horas_extras: registro.horas_extras,
-              valor_normal: registro.valor_normal,
-              valor_extra: registro.valor_extra,
-              valor_total: registro.valor_total
-            })
-            .eq("id", registroExistente.id);
-        }
+       if (hasSupabase) {
+  await supabase.from("registros_horarios")
+    .update({ 
+      hora_salida: horaActual,
+      horas_trabajadas: registro.horas_trabajadas,
+      horas_normales: registro.horas_normales,
+      horas_extra_50: registro.horas_extra_50,
+      horas_extra_100: registro.horas_extra_100,
+      horas_nocturnas: registro.horas_nocturnas,
+      valor_normal: registro.valor_normal,
+      valor_extra_50: registro.valor_extra_50,
+      valor_extra_100: registro.valor_extra_100,
+      valor_nocturno: registro.valor_nocturno,
+      valor_total: registro.valor_total
+    })
+    .eq("id", registroExistente.id);
+}
 
-        alert(`✅ Salida registrada. Horas: ${registro.horas_trabajadas}h (${registro.horas_normales}h normal + ${registro.horas_extras}h extra)`);
-      }
+// Mensaje informativo con el desglose
+let mensaje = `✅ Salida registrada\n\n`;
+mensaje += `Horas totales: ${registro.horas_trabajadas}h\n`;
+if (registro.horas_normales > 0) mensaje += `• Normales: ${registro.horas_normales}h\n`;
+if (registro.horas_extra_50 > 0) mensaje += `• Extra 50%: ${registro.horas_extra_50}h\n`;
+if (registro.horas_extra_100 > 0) mensaje += `• Extra 100%: ${registro.horas_extra_100}h\n`;
+if (registro.horas_nocturnas > 0) mensaje += `• Nocturnas: ${registro.horas_nocturnas}h\n`;
+mensaje += `\nValor total: ${money(registro.valor_total)}`;
+
+alert(mensaje);      }
     }
     
     // Limpiar observaciones después de registrar
@@ -7572,63 +7758,68 @@ function ControlHorarioTab({ state, setState, session }: any) {
         </div>
       </Card>
 
-      <Card title="📊 Registros de Hoy">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-slate-400">
-              <tr>
-                <th className="py-2 pr-4">Empleado</th>
-                <th className="py-2 pr-4">Entrada</th>
-                <th className="py-2 pr-4">Salida</th>
-                <th className="py-2 pr-4">Horas Total</th>
-                <th className="py-2 pr-4">Normal</th>
-                <th className="py-2 pr-4">Extra</th>
-                <th className="py-2 pr-4">Valor Total</th>
-                <th className="py-2 pr-4">Estado</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {registrosHoy.map((reg: RegistroHorario) => {
-                const empleado = empleadosActivos.find((e: any) => e.id === reg.empleado_id);
-                return (
-                  <tr key={reg.id}>
-                    <td className="py-2 pr-4">{reg.empleado_name}</td>
-                    <td className="py-2 pr-4">{reg.hora_entrada}</td>
-                    <td className="py-2 pr-4">
-                      {reg.hora_salida ? reg.hora_salida : "—"}
-                    </td>
-                    <td className="py-2 pr-4">
-                      {reg.horas_trabajadas ? `${reg.horas_trabajadas}h` : "—"}
-                    </td>
-                    <td className="py-2 pr-4">
-                      {reg.horas_normales ? `${reg.horas_normales}h` : "—"}
-                    </td>
-                    <td className="py-2 pr-4">
-                      {reg.horas_extras ? `${reg.horas_extras}h` : "—"}
-                    </td>
-                    <td className="py-2 pr-4">
-                      {reg.valor_total ? money(reg.valor_total) : "—"}
-                    </td>
-                    <td className="py-2 pr-4">
-                      <Chip tone={reg.hora_salida ? "emerald" : "amber"}>
-                        {reg.hora_salida ? "Completo" : "En trabajo"}
-                      </Chip>
-                    </td>
-                  </tr>
-                );
-              })}
-              
-              {registrosHoy.length === 0 && (
-                <tr>
-                  <td className="py-4 text-slate-400 text-center" colSpan={8}>
-                    No hay registros para hoy
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+     <Card title="📊 Registros de Hoy">
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="text-left text-slate-400">
+        <tr>
+          <th className="py-2 pr-4">Empleado</th>
+          <th className="py-2 pr-4">Entrada</th>
+          <th className="py-2 pr-4">Salida</th>
+          <th className="py-2 pr-4">Total</th>
+          <th className="py-2 pr-4">Normal</th>
+          <th className="py-2 pr-4">+50%</th>
+          <th className="py-2 pr-4">+100%</th>
+          <th className="py-2 pr-4">Noct.</th>
+          <th className="py-2 pr-4">Valor Total</th>
+          <th className="py-2 pr-4">Estado</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-800">
+        {registrosHoy.map((reg: RegistroHorario) => (
+          <tr key={reg.id}>
+            <td className="py-2 pr-4">{reg.empleado_name}</td>
+            <td className="py-2 pr-4">{reg.hora_entrada}</td>
+            <td className="py-2 pr-4">
+              {reg.hora_salida ? reg.hora_salida : "—"}
+            </td>
+            <td className="py-2 pr-4">
+              {reg.horas_trabajadas ? `${reg.horas_trabajadas}h` : "—"}
+            </td>
+            <td className="py-2 pr-4">
+              {reg.horas_normales ? `${reg.horas_normales}h` : "—"}
+            </td>
+            <td className="py-2 pr-4">
+              {reg.horas_extra_50 ? `${reg.horas_extra_50}h` : "—"}
+            </td>
+            <td className="py-2 pr-4">
+              {reg.horas_extra_100 ? `${reg.horas_extra_100}h` : "—"}
+            </td>
+            <td className="py-2 pr-4">
+              {reg.horas_nocturnas ? `${reg.horas_nocturnas}h` : "—"}
+            </td>
+            <td className="py-2 pr-4">
+              {reg.valor_total ? money(reg.valor_total) : "—"}
+            </td>
+            <td className="py-2 pr-4">
+              <Chip tone={reg.hora_salida ? "emerald" : "amber"}>
+                {reg.hora_salida ? "Completo" : "En trabajo"}
+              </Chip>
+            </td>
+          </tr>
+        ))}
+        
+        {registrosHoy.length === 0 && (
+          <tr>
+            <td className="py-4 text-slate-400 text-center" colSpan={10}>
+              No hay registros para hoy
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</Card>
     </div>
   );
 }
