@@ -23,18 +23,19 @@ const useIsMobile = () => {
 };
 
 // 👇👇👇 NUEVOS TIPOS PARA EMPLEADOS
+// 👇👇👇 ACTUALIZAR EL TIPO EMPLEADO - REEMPLAZAR COMPLETAMENTE
 type Empleado = {
   id: string;
   name: string;
   email?: string;
   telefono?: string;
-   valor_hora_normal: number;    // 100%
+  valor_hora_normal: number;    // 100%
   valor_hora_extra: number;     // 50% extra
-  valor_hora: number;
   activo: boolean;
   fecha_creacion: string;
 };
 
+// 👇👇👇 ACTUALIZAR EL TIPO REGISTROHORARIO - REEMPLAZAR COMPLETAMENTE
 type RegistroHorario = {
   id: string;
   empleado_id: string;
@@ -7812,7 +7813,9 @@ function CalculoSueldosTab({ state, setState }: any) {
         const totalHoras = registrosMes.reduce((sum: number, reg: any) => 
           sum + (reg.horas_trabajadas || 0), 0
         );
-        const sueldoBruto = totalHoras * emp.valor_hora;
+        const sueldoBruto = registrosMes.reduce((sum: number, reg: any) => 
+  sum + (reg.valor_total || 0), 0
+);
 
         // Calcular total vales del mes
         const valesMes = state.vales_empleados.filter((vale: ValeEmpleado) => {
