@@ -7711,8 +7711,7 @@ alert(mensaje);      }
               { value: "", label: "— Seleccionar empleado —" },
               ...empleadosActivos.map((emp: Empleado) => ({
                 value: emp.id,
-                label: `${emp.name} (Normal: ${money(emp.valor_hora_normal)}/h - Extra: ${money(emp.valor_hora_extra)}/h)`
-              }))
+label: `${emp.name} (N:${money(emp.valor_hora_normal)} +50%:${money(emp.valor_hora_extra_50)} +100%:${money(emp.valor_hora_extra_100)})`              }))
             ]}
           />
           <Input
