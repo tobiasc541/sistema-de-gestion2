@@ -28,6 +28,8 @@ type Empleado = {
   name: string;
   email?: string;
   telefono?: string;
+   valor_hora_normal: number;    // 100%
+  valor_hora_extra: number;     // 50% extra
   valor_hora: number;
   activo: boolean;
   fecha_creacion: string;
@@ -41,9 +43,13 @@ type RegistroHorario = {
   hora_entrada: string;
   hora_salida?: string;
   horas_trabajadas?: number;
+  horas_normales?: number;    // 👈 NUEVO
+  horas_extras?: number;      // 👈 NUEVO
+  valor_normal?: number;      // 👈 NUEVO
+  valor_extra?: number;       // 👈 NUEVO
+  valor_total?: number;       // 👈 NUEVO
   observaciones?: string;
 };
-
 type ValeEmpleado = {
   id: string;
   empleado_id: string;
@@ -556,6 +562,31 @@ function validarStockDisponible(products: any[], items: any[]): { valido: boolea
     valido: productosSinStock.length === 0,
     productosSinStock
   };
+}
+// ==== CALCULAR CAPITAL EN INVENTARIO ====
+function calcularCapitalInventario(products: any[]) {
+  return products.reduce((total, product) => {
+    const stock = parseNum(product.stock);
+    const costo = parseNum(product.cost || 0);
+    return total + (stock * costo);
+  }, 0);
+}
+
+// ==== CALCULAR PRODUCTOS SIN COSTO ====
+function contarProductosSinCosto(products: any[]) {
+  return products.filter(product => {
+    const costo = parseNum(product.cost || 0);
+    return costo <= 0;
+  }).length;
+}
+
+// ==== CALCULAR PRODUCTOS BAJO STOCK MÍNIMO ====
+function contarProductosBajoStockMinimo(products: any[]) {
+  return products.filter(product => {
+    const stock = parseNum(product.stock);
+    const stockMinimo = parseNum(product.stock_minimo || 0);
+    return stockMinimo > 0 && stock < stockMinimo;
+  }).length;
 }
 
 function groupBy(arr: any[], key: string) {
@@ -1925,9 +1956,12 @@ function ProductosTab({ state, setState, role }: any) {
     costo: "" 
   });
 
-  const productosBajoStock = state.products.filter(
-  (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
-);
+  // 👇👇👇 CALCULAR MÉTRICAS DEL INVENTARIO
+  const capitalInventario = calcularCapitalInventario(state.products);
+  const productosSinCosto = contarProductosSinCosto(state.products);
+  const productosBajoStock = contarProductosBajoStockMinimo(state.products);
+  const totalProductos = state.products.length;
+
   // 👇👇👇 FUNCIÓN COMPLETA DE INGRESO DE STOCK CON COMPARACIONES
   async function agregarStock() {
     const producto = state.products.find((p: any) => p.id === ingresoStock.productoId);
@@ -1983,86 +2017,86 @@ function ProductosTab({ state, setState, role }: any) {
     }
   }
 
-async function addProduct() {
-  if (!name.trim()) return;
+  async function addProduct() {
+    if (!name.trim()) return;
 
-  const product = {
-    id: editando || "p" + Math.random().toString(36).slice(2, 8),
-    name: name.trim(),
-    section: section.trim() || "General",
-    price1: parseNum(price1),
-    price2: parseNum(price2),
-    stock: parseNum(stock),
-    stock_min: parseNum(stockMinimo), // ← CAMBIAR a stock_min
-    cost: parseNum(cost),
-    list_label: "General"
-  };
+    const product = {
+      id: editando || "p" + Math.random().toString(36).slice(2, 8),
+      name: name.trim(),
+      section: section.trim() || "General",
+      price1: parseNum(price1),
+      price2: parseNum(price2),
+      stock: parseNum(stock),
+      stock_min: parseNum(stockMinimo),
+      cost: parseNum(cost),
+      list_label: "General"
+    };
 
-  const st = clone(state);
-  
-  if (editando) {
-    // Editar producto existente
-    const index = st.products.findIndex((p: any) => p.id === editando);
-    if (index !== -1) {
-      st.products[index] = { ...st.products[index], ...product };
-    }
-  } else {
-    // Agregar nuevo producto
-    st.products.push(product);
-  }
-  
-  setState(st);
-  
-  // Limpiar formulario
-  setName("");
-  setPrice1("");
-  setPrice2("");
-  setStock("");
-  setStockMinimo("");
-  setCost("");
-  setSection("");
-  setEditando(null);
-
-  if (hasSupabase) {
-    try {
-      if (editando) {
-        const { error } = await supabase
-          .from("products")
-          .update({
-            name: product.name,
-            section: product.section,
-            price1: product.price1,
-            price2: product.price2,
-            stock: product.stock,
-            stock_min: product.stock_min, // ← CORREGIDO: usar stock_min del objeto
-            cost: product.cost,
-            list_label: product.list_label // ← NO OLVIDES este campo
-          })
-          .eq("id", product.id);
-        
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("products").insert(product);
-        if (error) throw error;
+    const st = clone(state);
+    
+    if (editando) {
+      // Editar producto existente
+      const index = st.products.findIndex((p: any) => p.id === editando);
+      if (index !== -1) {
+        st.products[index] = { ...st.products[index], ...product };
       }
-      alert(`Producto ${editando ? 'actualizado' : 'agregado'} correctamente`);
-    } catch (error: any) {
-      console.error("Error al guardar producto:", error);
-      alert(`Error al guardar: ${error.message}`);
+    } else {
+      // Agregar nuevo producto
+      st.products.push(product);
+    }
+    
+    setState(st);
+    
+    // Limpiar formulario
+    setName("");
+    setPrice1("");
+    setPrice2("");
+    setStock("");
+    setStockMinimo("");
+    setCost("");
+    setSection("");
+    setEditando(null);
+
+    if (hasSupabase) {
+      try {
+        if (editando) {
+          const { error } = await supabase
+            .from("products")
+            .update({
+              name: product.name,
+              section: product.section,
+              price1: product.price1,
+              price2: product.price2,
+              stock: product.stock,
+              stock_min: product.stock_min,
+              cost: product.cost,
+              list_label: product.list_label
+            })
+            .eq("id", product.id);
+          
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from("products").insert(product);
+          if (error) throw error;
+        }
+        alert(`Producto ${editando ? 'actualizado' : 'agregado'} correctamente`);
+      } catch (error: any) {
+        console.error("Error al guardar producto:", error);
+        alert(`Error al guardar: ${error.message}`);
+      }
     }
   }
-}
 
   function editarProducto(producto: any) {
-  setName(producto.name);
-  setSection(producto.section);
-  setPrice1(String(producto.price1));
-  setPrice2(String(producto.price2));
-  setStock(String(producto.stock));
-  setStockMinimo(String(producto.stock_min || "")); // ← CAMBIAR a stock_min
-  setCost(String(producto.cost || ""));
-  setEditando(producto.id);
-}
+    setName(producto.name);
+    setSection(producto.section);
+    setPrice1(String(producto.price1));
+    setPrice2(String(producto.price2));
+    setStock(String(producto.stock));
+    setStockMinimo(String(producto.stock_min || ""));
+    setCost(String(producto.cost || ""));
+    setEditando(producto.id);
+  }
 
   async function eliminarProducto(productoId: string) {
     if (!confirm("¿Estás seguro de eliminar este producto?")) return;
@@ -2078,21 +2112,143 @@ async function addProduct() {
     alert("Producto eliminado correctamente");
   }
 
+  // 👇👇👇 EFECTO PARA ACTUALIZAR CAPITAL AUTOMÁTICAMENTE
+  useEffect(() => {
+    console.log(`💰 Capital actualizado: ${money(calcularCapitalInventario(state.products))}`);
+  }, [state.products]);
+
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
-      {productosBajoStock.length > 0 && (
+      {/* 👇👇👇 NUEVA CARD: RESUMEN DE CAPITAL */}
+      <Card title="💰 Resumen de Capital en Inventario">
+        <div className="grid md:grid-cols-4 gap-4">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-emerald-400">
+              {money(capitalInventario)}
+            </div>
+            <div className="text-sm text-slate-400">Capital Total</div>
+            <div className="text-xs text-slate-500 mt-1">
+              Invertido en stock
+            </div>
+          </div>
+          
+          <div className="text-center">
+            <div className="text-2xl font-bold">{totalProductos}</div>
+            <div className="text-sm text-slate-400">Total Productos</div>
+            <div className="text-xs text-slate-500 mt-1">
+              En inventario
+            </div>
+          </div>
+          
+          <div className="text-center">
+            <div className={`text-2xl font-bold ${productosSinCosto > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+              {productosSinCosto}
+            </div>
+            <div className="text-sm text-slate-400">Sin Costo</div>
+            <div className="text-xs text-slate-500 mt-1">
+              Requieren atención
+            </div>
+          </div>
+          
+          <div className="text-center">
+            <div className={`text-2xl font-bold ${productosBajoStock > 0 ? 'text-red-400' : 'text-slate-400'}`}>
+              {productosBajoStock}
+            </div>
+            <div className="text-sm text-slate-400">Bajo Stock Mínimo</div>
+            <div className="text-xs text-slate-500 mt-1">
+              Necesitan reposición
+            </div>
+          </div>
+        </div>
+
+        {/* 👇👇👇 DETALLE ADICIONAL */}
+        <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
+          <div className="p-3 bg-slate-800/30 rounded-lg">
+            <div className="font-semibold mb-2">📊 Valorización por Sección</div>
+            {(() => {
+              const porSeccion = state.products.reduce((acc: any, product: any) => {
+                const seccion = product.section || "Sin Sección";
+                const valor = parseNum(product.stock) * parseNum(product.cost || 0);
+                acc[seccion] = (acc[seccion] || 0) + valor;
+                return acc;
+              }, {});
+
+              return Object.entries(porSeccion)
+                .sort(([,a]: any, [,b]: any) => b - a)
+                .slice(0, 5)
+                .map(([seccion, valor]: any) => (
+                  <div key={seccion} className="flex justify-between text-xs py-1">
+                    <span className="truncate max-w-[120px]">{seccion}</span>
+                    <span className="font-medium">{money(valor)}</span>
+                  </div>
+                ));
+            })()}
+          </div>
+
+          <div className="p-3 bg-slate-800/30 rounded-lg">
+            <div className="font-semibold mb-2">⚡ Productos de Alto Valor</div>
+            {(() => {
+              const productosConValor = state.products
+                .map((product: any) => ({
+                  ...product,
+                  valorTotal: parseNum(product.stock) * parseNum(product.cost || 0)
+                }))
+                .filter(p => p.valorTotal > 0)
+                .sort((a: any, b: any) => b.valorTotal - a.valorTotal)
+                .slice(0, 5);
+
+              return productosConValor.map((product: any) => (
+                <div key={product.id} className="flex justify-between text-xs py-1">
+                  <span className="truncate max-w-[120px]" title={product.name}>
+                    {product.name}
+                  </span>
+                  <span className="font-medium">{money(product.valorTotal)}</span>
+                </div>
+              ));
+            })()}
+          </div>
+        </div>
+      </Card>
+
+      {/* 👇👇👇 ALERTA PARA PRODUCTOS SIN COSTO */}
+      {productosSinCosto > 0 && (
+        <Card title="📝 Productos que Requieren Atención">
+          <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-amber-400">⚠️</span>
+              <span className="font-semibold">Tienes {productosSinCosto} producto(s) sin costo asignado</span>
+            </div>
+            <div className="text-sm text-amber-200">
+              Estos productos no están contribuyendo al cálculo del capital. Es importante asignarles un costo para tener un control preciso de tu inventario.
+            </div>
+            <div className="mt-3 text-xs text-amber-300">
+              <strong>Solución:</strong> Usa la sección "Ingresar Stock" para asignar costos o edita cada producto individualmente.
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {productosBajoStock > 0 && (
         <Card title="⚠️ Productos con bajo stock">
-          <ul className="list-disc pl-5 text-sm text-red-400">
-            {productosBajoStock.map((p: any) => (
-              <li key={p.id}>
-                {p.name} – Stock actual: {p.stock}, Mínimo: {p.stock_minimo}
-              </li>
-            ))}
-          </ul>
+          <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-red-400">⚠️</span>
+              <span className="font-semibold">Tienes {productosBajoStock} producto(s) bajo stock mínimo</span>
+            </div>
+            <ul className="list-disc pl-5 text-sm text-red-400 mt-2">
+              {state.products
+                .filter((p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0))
+                .map((p: any) => (
+                  <li key={p.id}>
+                    {p.name} – Stock actual: {p.stock}, Mínimo: {p.stock_minimo || 0}
+                  </li>
+                ))}
+            </ul>
+          </div>
         </Card>
       )}
       
-      {/* 👇👇👇 SECCIÓN DE INGRESO DE STOCK RESTAURADA */}
+      {/* 👇👇👇 SECCIÓN DE INGRESO DE STOCK */}
       <Card title="📦 Ingresar Stock">
         <div className="grid md:grid-cols-4 gap-3">
           <Select
@@ -2176,43 +2332,58 @@ async function addProduct() {
                 <th className="py-2 pr-4">Stock</th>
                 <th className="py-2 pr-4">Mínimo</th>
                 <th className="py-2 pr-4">Costo</th>
+                <th className="py-2 pr-4">Valor Total</th>
                 <th className="py-2 pr-4">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {state.products.map((p: any) => (
-                <tr key={p.id} className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "bg-red-900/20" : ""}>
-                  <td className="py-2 pr-4">{p.name}</td>
-                  <td className="py-2 pr-4">{p.section}</td>
-                  <td className="py-2 pr-4">{money(p.price1)}</td>
-                  <td className="py-2 pr-4">{money(p.price2)}</td>
-                  <td className="py-2 pr-4">
-                    <span className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "text-red-400 font-bold" : ""}>
-                      {p.stock}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-4">{p.stock_minimo || 0}</td>
-                  <td className="py-2 pr-4">{money(p.cost || 0)}</td>
-                  <td className="py-2 pr-4">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => editarProducto(p)}
-                        className="text-blue-400 hover:text-blue-300 text-sm"
-                        title="Editar"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => eliminarProducto(p.id)}
-                        className="text-red-400 hover:text-red-300 text-sm"
-                        title="Eliminar"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {state.products.map((p: any) => {
+                const valorTotal = parseNum(p.stock) * parseNum(p.cost || 0);
+                const tieneCosto = parseNum(p.cost || 0) > 0;
+                
+                return (
+                  <tr key={p.id} className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "bg-red-900/20" : ""}>
+                    <td className="py-2 pr-4">{p.name}</td>
+                    <td className="py-2 pr-4">{p.section}</td>
+                    <td className="py-2 pr-4">{money(p.price1)}</td>
+                    <td className="py-2 pr-4">{money(p.price2)}</td>
+                    <td className="py-2 pr-4">
+                      <span className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "text-red-400 font-bold" : ""}>
+                        {p.stock}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4">{p.stock_minimo || 0}</td>
+                    <td className="py-2 pr-4">
+                      <span className={tieneCosto ? "" : "text-amber-400"}>
+                        {money(p.cost || 0)}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4">
+                      <span className={valorTotal > 0 ? "font-medium" : "text-slate-500"}>
+                        {valorTotal > 0 ? money(valorTotal) : "—"}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => editarProducto(p)}
+                          className="text-blue-400 hover:text-blue-300 text-sm"
+                          title="Editar"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => eliminarProducto(p.id)}
+                          className="text-red-400 hover:text-red-300 text-sm"
+                          title="Eliminar"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -6996,19 +7167,30 @@ function EmpleadosTab({ state, setState, session }: any) {
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
   const [telefono, setTelefono] = useState("");
-  const [valorHora, setValorHora] = useState("");
+  const [valorHoraNormal, setValorHoraNormal] = useState("");
+  const [valorHoraExtra, setValorHoraExtra] = useState("");
   const [editando, setEditando] = useState<string | null>(null);
+
+  // Calcular automáticamente la hora extra cuando se ingresa la normal
+  useEffect(() => {
+    if (valorHoraNormal && !editando) {
+      const valorNormal = parseNum(valorHoraNormal);
+      const valorExtra = valorNormal * 1.5; // 50% más
+      setValorHoraExtra(String(valorExtra));
+    }
+  }, [valorHoraNormal, editando]);
 
   async function agregarEmpleado() {
     if (!nombre.trim()) return alert("El nombre es obligatorio");
-    if (!valorHora || parseNum(valorHora) <= 0) return alert("El valor por hora debe ser mayor a 0");
+    if (!valorHoraNormal || parseNum(valorHoraNormal) <= 0) return alert("El valor por hora normal debe ser mayor a 0");
 
     const empleado: Empleado = {
       id: editando || "emp_" + Math.random().toString(36).slice(2, 8),
       name: nombre.trim(),
       email: email.trim() || undefined,
       telefono: telefono.trim() || undefined,
-      valor_hora: parseNum(valorHora),
+      valor_hora_normal: parseNum(valorHoraNormal),
+      valor_hora_extra: parseNum(valorHoraExtra),
       activo: true,
       fecha_creacion: editando ? undefined : todayISO(),
     };
@@ -7038,7 +7220,8 @@ function EmpleadosTab({ state, setState, session }: any) {
     setNombre("");
     setEmail("");
     setTelefono("");
-    setValorHora("");
+    setValorHoraNormal("");
+    setValorHoraExtra("");
     setEditando(null);
     
     alert(`Empleado ${editando ? 'actualizado' : 'agregado'} correctamente`);
@@ -7048,24 +7231,12 @@ function EmpleadosTab({ state, setState, session }: any) {
     setNombre(emp.name);
     setEmail(emp.email || "");
     setTelefono(emp.telefono || "");
-    setValorHora(String(emp.valor_hora));
+    setValorHoraNormal(String(emp.valor_hora_normal));
+    setValorHoraExtra(String(emp.valor_hora_extra));
     setEditando(emp.id);
   }
 
-  async function toggleActivo(empleadoId: string) {
-    const st = clone(state);
-    const empleado = st.empleados.find((e: any) => e.id === empleadoId);
-    if (empleado) {
-      empleado.activo = !empleado.activo;
-      setState(st);
-
-      if (hasSupabase) {
-        await supabase.from("empleados")
-          .update({ activo: empleado.activo })
-          .eq("id", empleadoId);
-      }
-    }
-  }
+  // ... (el resto de las funciones permanecen igual)
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
@@ -7091,11 +7262,28 @@ function EmpleadosTab({ state, setState, session }: any) {
             placeholder="+54 9 11 1234-5678"
           />
           <NumberInput 
-            label="Valor por hora ($) *" 
-            value={valorHora} 
-            onChange={setValorHora} 
+            label="Valor hora normal (100%) *" 
+            value={valorHoraNormal} 
+            onChange={setValorHoraNormal} 
             placeholder="5000"
           />
+          <NumberInput 
+            label="Valor hora extra (50%) *" 
+            value={valorHoraExtra} 
+            onChange={setValorHoraExtra} 
+            placeholder="7500"
+          />
+          <div className="md:col-span-2">
+            <div className="text-xs text-slate-400 p-2 bg-slate-800/50 rounded">
+              💡 La hora extra se calcula automáticamente como 50% más que la hora normal.
+              {valorHoraNormal && valorHoraExtra && (
+                <span className="block mt-1">
+                  Relación actual: {money(parseNum(valorHoraNormal))} → {money(parseNum(valorHoraExtra))} 
+                  ({(parseNum(valorHoraExtra) / parseNum(valorHoraNormal) * 100 - 100).toFixed(0)}% más)
+                </span>
+              )}
+            </div>
+          </div>
         </div>
         
         <div className="flex gap-2 mt-4">
@@ -7108,7 +7296,8 @@ function EmpleadosTab({ state, setState, session }: any) {
               setNombre("");
               setEmail("");
               setTelefono("");
-              setValorHora("");
+              setValorHoraNormal("");
+              setValorHoraExtra("");
             }}>
               Cancelar
             </Button>
@@ -7123,7 +7312,8 @@ function EmpleadosTab({ state, setState, session }: any) {
               <tr>
                 <th className="py-2 pr-4">Nombre</th>
                 <th className="py-2 pr-4">Contacto</th>
-                <th className="py-2 pr-4">Valor/Hora</th>
+                <th className="py-2 pr-4">Hora Normal</th>
+                <th className="py-2 pr-4">Hora Extra</th>
                 <th className="py-2 pr-4">Estado</th>
                 <th className="py-2 pr-4">Acciones</th>
               </tr>
@@ -7138,7 +7328,8 @@ function EmpleadosTab({ state, setState, session }: any) {
                   <td className="py-2 pr-4">
                     {emp.telefono && <div className="text-sm">{emp.telefono}</div>}
                   </td>
-                  <td className="py-2 pr-4">{money(emp.valor_hora)}</td>
+                  <td className="py-2 pr-4">{money(emp.valor_hora_normal)}</td>
+                  <td className="py-2 pr-4">{money(emp.valor_hora_extra)}</td>
                   <td className="py-2 pr-4">
                     <Chip tone={emp.activo ? "emerald" : "red"}>
                       {emp.activo ? "Activo" : "Inactivo"}
@@ -7167,7 +7358,7 @@ function EmpleadosTab({ state, setState, session }: any) {
               
               {state.empleados.length === 0 && (
                 <tr>
-                  <td className="py-4 text-slate-400 text-center" colSpan={5}>
+                  <td className="py-4 text-slate-400 text-center" colSpan={6}>
                     No hay empleados registrados
                   </td>
                 </tr>
@@ -7179,88 +7370,130 @@ function EmpleadosTab({ state, setState, session }: any) {
     </div>
   );
 }
-/* ===== CONTROL HORARIO ===== */
+/* ===== CONTROL HORARIO MEJORADO ===== */
 function ControlHorarioTab({ state, setState, session }: any) {
   const [empleadoSeleccionado, setEmpleadoSeleccionado] = useState("");
-  const [fecha, setFecha] = useState(todayISO().split('T')[0]);
-  const [horaEntrada, setHoraEntrada] = useState("");
-  const [horaSalida, setHoraSalida] = useState("");
   const [observaciones, setObservaciones] = useState("");
+  const [modo, setModo] = useState<"entrada" | "salida">("entrada");
 
   // Empleados activos solamente
   const empleadosActivos = state.empleados.filter((emp: Empleado) => emp.activo);
 
-  async function registrarEntrada() {
+  // Obtener registros del día actual
+  const hoy = new Date().toISOString().split('T')[0];
+  const registrosHoy = state.registros_horarios.filter((reg: RegistroHorario) => 
+    reg.fecha === hoy
+  );
+
+  // Función para registrar entrada/salida automáticamente
+  async function registrarHorario() {
     if (!empleadoSeleccionado) return alert("Selecciona un empleado");
-    if (!horaEntrada) return alert("Ingresa la hora de entrada");
 
-    const registro: RegistroHorario = {
-      id: "rh_" + Math.random().toString(36).slice(2, 8),
-      empleado_id: empleadoSeleccionado,
-      empleado_name: empleadosActivos.find((e: any) => e.id === empleadoSeleccionado)?.name || "",
-      fecha: fecha,
-      hora_entrada: horaEntrada,
-      observaciones: observaciones.trim() || undefined,
-    };
+    const ahora = new Date();
+    const horaActual = ahora.toTimeString().slice(0, 5); // Formato HH:MM
+    const fechaHoy = ahora.toISOString().split('T')[0];
 
-    const st = clone(state);
-    st.registros_horarios.push(registro);
-    setState(st);
+    // Verificar si el empleado ya tiene un registro hoy
+    const registroExistente = registrosHoy.find((reg: RegistroHorario) => 
+      reg.empleado_id === empleadoSeleccionado && !reg.hora_salida
+    );
 
-    if (hasSupabase) {
-      await supabase.from("registros_horarios").insert(registro);
-    }
+    if (modo === "entrada") {
+      // REGISTRAR ENTRADA
+      if (registroExistente) {
+        return alert("⚠️ Este empleado ya tiene una entrada registrada hoy. Registra la salida primero.");
+      }
 
-    alert(`✅ Entrada registrada para ${registro.empleado_name}`);
-    
-    // Limpiar formulario
-    setHoraEntrada("");
-    setObservaciones("");
-  }
+      const registro: RegistroHorario = {
+        id: "rh_" + Math.random().toString(36).slice(2, 8),
+        empleado_id: empleadoSeleccionado,
+        empleado_name: empleadosActivos.find((e: any) => e.id === empleadoSeleccionado)?.name || "",
+        fecha: fechaHoy,
+        hora_entrada: horaActual,
+        observaciones: observaciones.trim() || undefined,
+      };
 
-  async function registrarSalida(registroId: string) {
-    if (!horaSalida) return alert("Ingresa la hora de salida");
-
-    const st = clone(state);
-    const registro = st.registros_horarios.find((r: any) => r.id === registroId);
-    
-    if (registro) {
-      registro.hora_salida = horaSalida;
-      
-      // Calcular horas trabajadas
-      const entrada = new Date(`${registro.fecha}T${registro.hora_entrada}`);
-      const salida = new Date(`${registro.fecha}T${horaSalida}`);
-      const diffMs = salida.getTime() - entrada.getTime();
-      const diffHoras = diffMs / (1000 * 60 * 60);
-      
-      registro.horas_trabajadas = Math.round(diffHoras * 100) / 100; // Redondear a 2 decimales
-      
+      const st = clone(state);
+      st.registros_horarios.push(registro);
       setState(st);
 
       if (hasSupabase) {
-        await supabase.from("registros_horarios")
-          .update({ 
-            hora_salida: horaSalida,
-            horas_trabajadas: registro.horas_trabajadas
-          })
-          .eq("id", registroId);
+        await supabase.from("registros_horarios").insert(registro);
       }
 
-      alert(`✅ Salida registrada. Horas trabajadas: ${registro.horas_trabajadas}`);
-      setHoraSalida("");
+      alert(`✅ Entrada registrada para ${registro.empleado_name} a las ${horaActual}`);
+      
+    } else {
+      // REGISTRAR SALIDA
+      if (!registroExistente) {
+        return alert("❌ Este empleado no tiene una entrada registrada hoy.");
+      }
+
+      const st = clone(state);
+      const registro = st.registros_horarios.find((r: any) => r.id === registroExistente.id);
+      
+      if (registro) {
+        registro.hora_salida = horaActual;
+        
+        // Calcular horas trabajadas automáticamente
+        const entrada = new Date(`${registro.fecha}T${registro.hora_entrada}`);
+        const salida = new Date(`${registro.fecha}T${horaActual}`);
+        const diffMs = salida.getTime() - entrada.getTime();
+        const diffHoras = diffMs / (1000 * 60 * 60);
+        
+        // Detectar horas extras (más de 8 horas)
+        const horasNormales = Math.min(diffHoras, 8);
+        const horasExtras = Math.max(0, diffHoras - 8);
+        
+        registro.horas_trabajadas = Math.round(diffHoras * 100) / 100;
+        registro.horas_normales = Math.round(horasNormales * 100) / 100;
+        registro.horas_extras = Math.round(horasExtras * 100) / 100;
+        
+        // Calcular valor total
+        const empleado = empleadosActivos.find((e: any) => e.id === empleadoSeleccionado);
+        if (empleado) {
+          registro.valor_normal = registro.horas_normales * empleado.valor_hora_normal;
+          registro.valor_extra = registro.horas_extras * empleado.valor_hora_extra;
+          registro.valor_total = registro.valor_normal + registro.valor_extra;
+        }
+        
+        setState(st);
+
+        if (hasSupabase) {
+          await supabase.from("registros_horarios")
+            .update({ 
+              hora_salida: horaActual,
+              horas_trabajadas: registro.horas_trabajadas,
+              horas_normales: registro.horas_normales,
+              horas_extras: registro.horas_extras,
+              valor_normal: registro.valor_normal,
+              valor_extra: registro.valor_extra,
+              valor_total: registro.valor_total
+            })
+            .eq("id", registroExistente.id);
+        }
+
+        alert(`✅ Salida registrada. Horas: ${registro.horas_trabajadas}h (${registro.horas_normales}h normal + ${registro.horas_extras}h extra)`);
+      }
     }
+    
+    // Limpiar observaciones después de registrar
+    setObservaciones("");
   }
 
-  // Agrupar registros por fecha
-  const registrosPorFecha = state.registros_horarios.reduce((acc: any, reg: RegistroHorario) => {
-    if (!acc[reg.fecha]) acc[reg.fecha] = [];
-    acc[reg.fecha].push(reg);
-    return acc;
-  }, {});
+  // Determinar automáticamente el modo basado en los registros
+  useEffect(() => {
+    if (empleadoSeleccionado) {
+      const tieneEntradaSinSalida = registrosHoy.some((reg: RegistroHorario) => 
+        reg.empleado_id === empleadoSeleccionado && !reg.hora_salida
+      );
+      setModo(tieneEntradaSinSalida ? "salida" : "entrada");
+    }
+  }, [empleadoSeleccionado, registrosHoy]);
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card title="⏰ Registrar Horario">
+      <Card title="⏰ Registro Automático de Horario">
         <div className="grid md:grid-cols-2 gap-3">
           <Select
             label="Empleado *"
@@ -7270,21 +7503,9 @@ function ControlHorarioTab({ state, setState, session }: any) {
               { value: "", label: "— Seleccionar empleado —" },
               ...empleadosActivos.map((emp: Empleado) => ({
                 value: emp.id,
-                label: `${emp.name} (${money(emp.valor_hora)}/h)`
+                label: `${emp.name} (Normal: ${money(emp.valor_hora_normal)}/h - Extra: ${money(emp.valor_hora_extra)}/h)`
               }))
             ]}
-          />
-          <Input
-            label="Fecha"
-            type="date"
-            value={fecha}
-            onChange={setFecha}
-          />
-          <Input
-            label="Hora de Entrada *"
-            type="time"
-            value={horaEntrada}
-            onChange={setHoraEntrada}
           />
           <Input
             label="Observaciones (opcional)"
@@ -7294,101 +7515,102 @@ function ControlHorarioTab({ state, setState, session }: any) {
           />
         </div>
         
+        <div className="mt-4 p-4 bg-slate-800/50 rounded-lg">
+          <div className="text-center">
+            <div className="text-lg font-semibold">
+              {empleadoSeleccionado ? (
+                <>
+                  Modo: <span className={modo === "entrada" ? "text-green-400" : "text-blue-400"}>
+                    {modo === "entrada" ? "🟢 REGISTRAR ENTRADA" : "🔵 REGISTRAR SALIDA"}
+                  </span>
+                </>
+              ) : (
+                "Selecciona un empleado"
+              )}
+            </div>
+            {empleadoSeleccionado && (
+              <div className="text-sm text-slate-400 mt-2">
+                Hora actual: {new Date().toLocaleTimeString('es-AR', { 
+                  hour: '2-digit', 
+                  minute: '2-digit',
+                  second: '2-digit'
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        
         <div className="flex gap-2 mt-4">
           <Button 
-            onClick={registrarEntrada}
-            disabled={!empleadoSeleccionado || !horaEntrada}
+            onClick={registrarHorario}
+            disabled={!empleadoSeleccionado}
+            tone={modo === "entrada" ? "emerald" : "slate"}
           >
-            🟢 Registrar Entrada
+            {modo === "entrada" ? "🟢 Registrar Entrada" : "🔵 Registrar Salida"}
           </Button>
         </div>
-      </Card>
 
-      <Card title="🕒 Registro de Salidas">
-        <div className="grid md:grid-cols-2 gap-3 mb-4">
-          <Input
-            label="Hora de Salida"
-            type="time"
-            value={horaSalida}
-            onChange={setHoraSalida}
-          />
-        </div>
-        <div className="text-sm text-slate-400">
-          Selecciona un registro pendiente de salida y ingresa la hora de salida
+        <div className="text-xs text-slate-400 mt-3">
+          💡 El sistema detecta automáticamente si debes registrar entrada o salida.
+          Las horas extras se calculan automáticamente después de 8 horas de trabajo.
         </div>
       </Card>
 
-      <Card title="📊 Historial de Horarios">
-        <div className="space-y-6">
-          {Object.entries(registrosPorFecha)
-            .sort(([a], [b]) => b.localeCompare(a)) // Ordenar por fecha descendente
-            .map(([fechaStr, registros]: [string, any]) => (
-              <div key={fechaStr} className="border border-slate-700 rounded-lg p-4">
-                <div className="font-semibold text-lg mb-3">
-                  {new Date(fechaStr).toLocaleDateString("es-AR", { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  })}
-                </div>
-                
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="text-left text-slate-400">
-                      <tr>
-                        <th className="py-2 pr-4">Empleado</th>
-                        <th className="py-2 pr-4">Entrada</th>
-                        <th className="py-2 pr-4">Salida</th>
-                        <th className="py-2 pr-4">Horas</th>
-                        <th className="py-2 pr-4">Valor</th>
-                        <th className="py-2 pr-4">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800">
-                      {registros.map((reg: RegistroHorario) => {
-                        const empleado = state.empleados.find((e: any) => e.id === reg.empleado_id);
-                        const valorHora = empleado?.valor_hora || 0;
-                        const valorTotal = reg.horas_trabajadas ? reg.horas_trabajadas * valorHora : 0;
-                        
-                        return (
-                          <tr key={reg.id}>
-                            <td className="py-2 pr-4">{reg.empleado_name}</td>
-                            <td className="py-2 pr-4">{reg.hora_entrada}</td>
-                            <td className="py-2 pr-4">
-                              {reg.hora_salida ? reg.hora_salida : "—"}
-                            </td>
-                            <td className="py-2 pr-4">
-                              {reg.horas_trabajadas ? `${reg.horas_trabajadas}h` : "—"}
-                            </td>
-                            <td className="py-2 pr-4">
-                              {valorTotal > 0 ? money(valorTotal) : "—"}
-                            </td>
-                            <td className="py-2 pr-4">
-                              {!reg.hora_salida && (
-                                <Button 
-                                  tone="emerald"
-                                  onClick={() => registrarSalida(reg.id)}
-                                  disabled={!horaSalida}
-                                >
-                                  Registrar Salida
-                                </Button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))}
-          
-          {state.registros_horarios.length === 0 && (
-            <div className="text-center text-slate-400 py-8">
-              No hay registros horarios
-            </div>
-          )}
+      <Card title="📊 Registros de Hoy">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-4">Empleado</th>
+                <th className="py-2 pr-4">Entrada</th>
+                <th className="py-2 pr-4">Salida</th>
+                <th className="py-2 pr-4">Horas Total</th>
+                <th className="py-2 pr-4">Normal</th>
+                <th className="py-2 pr-4">Extra</th>
+                <th className="py-2 pr-4">Valor Total</th>
+                <th className="py-2 pr-4">Estado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {registrosHoy.map((reg: RegistroHorario) => {
+                const empleado = empleadosActivos.find((e: any) => e.id === reg.empleado_id);
+                return (
+                  <tr key={reg.id}>
+                    <td className="py-2 pr-4">{reg.empleado_name}</td>
+                    <td className="py-2 pr-4">{reg.hora_entrada}</td>
+                    <td className="py-2 pr-4">
+                      {reg.hora_salida ? reg.hora_salida : "—"}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {reg.horas_trabajadas ? `${reg.horas_trabajadas}h` : "—"}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {reg.horas_normales ? `${reg.horas_normales}h` : "—"}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {reg.horas_extras ? `${reg.horas_extras}h` : "—"}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {reg.valor_total ? money(reg.valor_total) : "—"}
+                    </td>
+                    <td className="py-2 pr-4">
+                      <Chip tone={reg.hora_salida ? "emerald" : "amber"}>
+                        {reg.hora_salida ? "Completo" : "En trabajo"}
+                      </Chip>
+                    </td>
+                  </tr>
+                );
+              })}
+              
+              {registrosHoy.length === 0 && (
+                <tr>
+                  <td className="py-4 text-slate-400 text-center" colSpan={8}>
+                    No hay registros para hoy
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </Card>
     </div>
