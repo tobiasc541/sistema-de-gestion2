@@ -2237,12 +2237,7 @@ function ProductosTab({ state, setState, role }: any) {
   const [cost, setCost] = useState("");
   const [editando, setEditando] = useState<string | null>(null);
   
-  // 👇👇👇 PEGA ESTOS NUEVOS ESTADOS AQUÍ
-  const [ingresoStock, setIngresoStock] = useState({ 
-    productoId: "", 
-    cantidad: "", 
-    costo: "" 
-  });
+
 
   // 👇👇👇 ESTADOS PARA IMPRESIÓN
   const [filtroImpresion, setFiltroImpresion] = useState("todos");
