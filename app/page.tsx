@@ -2227,17 +2227,6 @@ function ProductosTab({ state, setState, role }: any) {
   const [stockMinimo, setStockMinimo] = useState("");
   const [cost, setCost] = useState("");
   const [editando, setEditando] = useState<string | null>(null);
-  function ProductosTab({ state, setState, role }: any) {
-  const [name, setName] = useState("");
-  const [section, setSection] = useState("");
-  const [price1, setPrice1] = useState("");
-  const [price2, setPrice2] = useState("");
-  const [stock, setStock] = useState("");
-  const [stockMinimo, setStockMinimo] = useState("");
-  const [cost, setCost] = useState("");
-  const [editando, setEditando] = useState<string | null>(null);
-  
-
 
   // 👇👇👇 ESTADOS PARA IMPRESIÓN
   const [filtroImpresion, setFiltroImpresion] = useState("todos");
@@ -2284,11 +2273,6 @@ function ProductosTab({ state, setState, role }: any) {
     setTimeout(() => window.print(), 100);
   }
 
-  // 👆👆👆 HASTA AQUÍ EL CÓDIGO NUEVO
-
-  // ... el resto de tu código existente continúa aquí ...
-
-  
   // 👇👇👇 ESTADO PARA INGRESO DE STOCK
   const [ingresoStock, setIngresoStock] = useState({ 
     productoId: "", 
@@ -2728,7 +2712,8 @@ function ProductosTab({ state, setState, role }: any) {
           </table>
         </div>
       </Card>
-            {/* 🖨️ SISTEMA DE IMPRESIÓN DE STOCK */}
+
+      {/* 🖨️ SISTEMA DE IMPRESIÓN DE STOCK */}
       <Card title="🖨️ Impresión de Stock">
         <div className="grid md:grid-cols-4 gap-3">
           <Select
@@ -2766,8 +2751,6 @@ function ProductosTab({ state, setState, role }: any) {
     </div>
   );
 }
-  }  // 👈👈👈 AGREGÁ ESTA LÍNEA - CIERRA EL COMPONENTE ProductosTab
-
 
 function DeudoresTab({ state, setState, session }: any) {
 // ✅ FILTRAR MEJORADO: Incluye deuda manual Y deuda de facturas
