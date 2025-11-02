@@ -2870,159 +2870,79 @@ function ProveedoresTab({ state, setState }: any) {
   }
 
   // 👇👇👇 FUNCIÓN CORREGIDA - Usar variables seguras
-  const gastosPorProveedor = useMemo(() => {
-    try {
-      const compras = comprasProveedores || []; // 👈 Cambiar state.compras_proveedores por comprasProveedores
-      const stats: any = {};
+  // REEMPLAZA COMPLETAMENTE la función gastosPorProveedor
+const gastosPorProveedor = useMemo(() => {
+  try {
+    console.log("📊 Calculando gastos por proveedor...");
+    const compras = state.compras_proveedores || [];
+    const proveedoresList = state.proveedores || [];
+    
+    console.log("Compras disponibles:", compras.length);
+    console.log("Proveedores disponibles:", proveedoresList.length);
+
+    const stats: any = {};
+    
+    compras.forEach((compra: any) => {
+      if (!compra) return;
       
-      compras.forEach((compra: any) => {
-        if (!compra) return;
-        
-        const proveedorId = compra.proveedor_id;
-        if (!proveedorId) return;
-        
-        if (!stats[proveedorId]) {
-          const proveedor = proveedores.find((p: any) => p.id === proveedorId); // 👈 Cambiar state.proveedores por proveedores
-          stats[proveedorId] = {
-            id: proveedorId,
-            nombre: proveedor?.nombre || "Proveedor Desconocido",
-            totalGastado: 0,
-            compras: 0,
-            ultimaCompra: "",
-            productosComprados: new Set()
-          };
-        }
-        
-        stats[proveedorId].totalGastado += parseNum(compra.total || 0);
-        stats[proveedorId].compras++;
-        
-        // SEGURIDAD EXTRA PARA productos
-        const productos = compra.productos;
-        if (productos && Array.isArray(productos)) {
-          productos.forEach((producto: any) => {
-            if (producto && producto.nombre) {
-              stats[proveedorId].productosComprados.add(producto.nombre);
-            }
-          });
-        }
-        
-        // Mantener la fecha más reciente
-        if (compra.fecha_compra) {
-          if (!stats[proveedorId].ultimaCompra || compra.fecha_compra > stats[proveedorId].ultimaCompra) {
-            stats[proveedorId].ultimaCompra = compra.fecha_compra;
+      const proveedorId = compra.proveedor_id;
+      if (!proveedorId) return;
+      
+      if (!stats[proveedorId]) {
+        const proveedor = proveedoresList.find((p: any) => p.id === proveedorId);
+        stats[proveedorId] = {
+          id: proveedorId,
+          nombre: proveedor?.nombre || "Proveedor Desconocido",
+          totalGastado: 0,
+          compras: 0,
+          ultimaCompra: "",
+          productosComprados: new Set()
+        };
+      }
+      
+      stats[proveedorId].totalGastado += parseNum(compra.total || 0);
+      stats[proveedorId].compras++;
+      
+      const productos = compra.productos;
+      if (productos && Array.isArray(productos)) {
+        productos.forEach((producto: any) => {
+          if (producto && producto.nombre) {
+            stats[proveedorId].productosComprados.add(producto.nombre);
           }
+        });
+      }
+      
+      if (compra.fecha_compra) {
+        if (!stats[proveedorId].ultimaCompra || compra.fecha_compra > stats[proveedorId].ultimaCompra) {
+          stats[proveedorId].ultimaCompra = compra.fecha_compra;
         }
-      });
-
-      return Object.values(stats).map((stat: any) => ({
-        ...stat,
-        productosComprados: stat.productosComprados.size
-      }));
-    } catch (error) {
-      console.error("💥 ERROR en gastosPorProveedor:", error);
-      return [];
-    }
-  }, [comprasProveedores, proveedores]); // 👈 Cambiar las dependencias
-
-  async function agregarProveedor() {
-    if (!nombreProveedor.trim()) return;
-
-    const proveedor = {
-      id: "prov_" + Math.random().toString(36).slice(2, 8),
-      nombre: nombreProveedor.trim(),
-      contacto: contacto.trim(),
-      telefono: telefono.trim(),
-      fecha_creacion: todayISO(),
-    };
-
-    const st = clone(state);
-    st.proveedores = st.proveedores || [];
-    st.proveedores.push(proveedor);
-    setState(st);
-
-    // Limpiar formulario
-    setNombreProveedor("");
-    setContacto("");
-    setTelefono("");
-
-    if (hasSupabase) {
-      await supabase.from("proveedores").insert(proveedor);
-    }
-
-    alert("Proveedor agregado correctamente");
-  }
-
-  async function registrarCompra() {
-    if (!proveedorSeleccionado || productosCompra.length === 0) {
-      return alert("Seleccioná un proveedor y agregá al menos un producto");
-    }
-
-    const compra = {
-      id: "comp_" + Math.random().toString(36).slice(2, 8),
-      proveedor_id: proveedorSeleccionado,
-      productos: productosCompra,
-      // 👇👇👇 CORREGIR: Agregar seguridad en el reduce
-      total: productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total || 0), 0),
-      fecha_compra: fechaCompra + "T00:00:00.000Z",
-      numero_factura: numeroFactura.trim() || null,
-      fecha_registro: todayISO()
-    };
-
-    const st = clone(state);
-    st.compras_proveedores = st.compras_proveedores || [];
-    st.compras_proveedores.push(compra);
-    setState(st);
-
-    // Actualizar costos de productos en el sistema
-    productosCompra.forEach(productoCompra => {
-      const producto = st.products.find((p: any) => p.id === productoCompra.id);
-      if (producto) {
-        // Actualizar el costo del producto con el último precio pagado
-        producto.cost = productoCompra.costo_unitario;
-        
-        // Actualizar stock (si es necesario)
-        producto.stock = parseNum(producto.stock) + parseNum(productoCompra.cantidad);
       }
     });
 
-    // Limpiar formulario
-    setProductosCompra([]);
-    setSeccionCompra("");
-    setProductoSeleccionado("");
-    setNumeroFactura("");
+    const resultado = Object.values(stats).map((stat: any) => ({
+      ...stat,
+      productosComprados: stat.productosComprados.size
+    }));
 
-    if (hasSupabase) {
-      // Guardar compra
-      await supabase.from("compras_proveedores").insert(compra);
-      
-      // Actualizar productos
-      for (const productoCompra of productosCompra) {
-        const productoOriginal = state.products.find((p: any) => p.id === productoCompra.id);
-        await supabase
-          .from("products")
-          .update({ 
-            cost: productoCompra.costo_unitario,
-            stock: parseNum(productoOriginal?.stock || 0) + parseNum(productoCompra.cantidad)
-          })
-          .eq("id", productoCompra.id);
-      }
-    }
-
-    alert("✅ Compra registrada correctamente y costos actualizados");
+    console.log("✅ Gastos por proveedor calculados:", resultado);
+    return resultado;
+  } catch (error) {
+    console.error("💥 ERROR en gastosPorProveedor:", error);
+    return [];
   }
+}, [state.compras_proveedores, state.proveedores]);
 
- function obtenerHistorialProveedor(proveedorId: string) {
+// REEMPLAZA la función obtenerHistorialProveedor
+function obtenerHistorialProveedor(proveedorId: string) {
   try {
     console.log("🔍 Obteniendo historial para proveedor:", proveedorId);
     
-    // ✅ CORRECCIÓN: Usar state.compras_proveedores en lugar de comprasProveedores
     const compras = state.compras_proveedores || [];
     console.log("📋 Total de compras disponibles:", compras.length);
     
     const historial = compras
       .filter((compra: any) => {
-        if (!compra || !compra.proveedor_id) return false;
-        return compra.proveedor_id === proveedorId;
+        return compra && compra.proveedor_id === proveedorId;
       })
       .sort((a: any, b: any) => {
         const fechaA = new Date(a.fecha_compra || 0).getTime();
@@ -3037,7 +2957,81 @@ function ProveedoresTab({ state, setState }: any) {
     return [];
   }
 }
- function calcularGastosDelMes(proveedorId: string) {
+
+// REEMPLAZA la función imprimirHistorialCompra
+function imprimirHistorialCompra(proveedorId: string) {
+  try {
+    console.log("🔍 INICIANDO IMPRESIÓN para proveedor:", proveedorId);
+    
+    if (!proveedorId) {
+      alert("❌ Error: ID de proveedor no válido");
+      return;
+    }
+
+    const proveedoresList = state.proveedores || [];
+    console.log("Proveedores disponibles:", proveedoresList.length);
+
+    const proveedor = proveedoresList.find((p: any) => p && p.id === proveedorId);
+    console.log("📋 Proveedor encontrado:", proveedor);
+
+    if (!proveedor) {
+      alert("❌ No se encontró información del proveedor con ID: " + proveedorId);
+      return;
+    }
+
+    const historialCompleto = obtenerHistorialProveedor(proveedorId);
+    console.log("📊 Historial completo:", historialCompleto);
+
+    if (!historialCompleto || historialCompleto.length === 0) {
+      alert("ℹ️ No hay compras registradas para el proveedor: " + proveedor.nombre);
+      return;
+    }
+
+    const ahora = new Date();
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    const comprasEsteMes = historialCompleto.filter((compra: any) => {
+      return compra && compra.fecha_compra && new Date(compra.fecha_compra) >= inicioMes;
+    });
+
+    console.log("📅 Compras este mes:", comprasEsteMes);
+
+    const totalMes = comprasEsteMes.reduce((sum: number, compra: any) => {
+      return sum + parseNum(compra.total || 0);
+    }, 0);
+
+    const totalGeneral = historialCompleto.reduce((sum: number, compra: any) => {
+      return sum + parseNum(compra.total || 0);
+    }, 0);
+
+    const dataImpresion = {
+      type: "HistorialProveedor",
+      proveedor: proveedor,
+      comprasEsteMes: comprasEsteMes,
+      historialCompleto: historialCompleto,
+      totalMes: totalMes,
+      totalGeneral: totalGeneral,
+      mesActual: new Date().toLocaleDateString('es-AR', { year: 'numeric', month: 'long' }),
+      fecha: new Date().toLocaleString("es-AR")
+    };
+
+    console.log("📄 Datos para impresión:", dataImpresion);
+    
+    window.dispatchEvent(new CustomEvent("print-invoice", { 
+      detail: dataImpresion
+    }));
+    
+    setTimeout(() => {
+      window.print();
+    }, 500);
+    
+  } catch (error: any) {
+    console.error("❌ Error al generar PDF:", error);
+    alert("Error al generar el historial: " + error.message);
+  }
+}
+
+// REEMPLAZA la función calcularGastosDelMes
+function calcularGastosDelMes(proveedorId: string) {
   try {
     const historial = obtenerHistorialProveedor(proveedorId);
     const ahora = new Date();
@@ -3313,7 +3307,7 @@ function ProveedoresTab({ state, setState }: any) {
       </Card>
 
       {/* El resto del componente se mantiene igual */}
-     <Card title="📊 Gastos por Proveedor">
+    <Card title="📊 Gastos por Proveedor">
   <div className="overflow-x-auto">
     <table className="min-w-full text-sm">
       <thead className="text-left text-slate-400">
@@ -3328,7 +3322,7 @@ function ProveedoresTab({ state, setState }: any) {
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-800">
-        {gastosPorProveedor.map((prov: any) => (
+        {gastosPorProveedor && gastosPorProveedor.map((prov: any) => (
           <tr key={prov.id}>
             <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
             <td className="py-2 pr-4">
@@ -3350,15 +3344,6 @@ function ProveedoresTab({ state, setState }: any) {
               <button
                 onClick={() => {
                   console.log("🖨️ Click en PDF para proveedor:", prov.id, prov.nombre);
-                  
-                  // Verificar si hay compras primero
-                  const historial = obtenerHistorialProveedor(prov.id);
-                  if (historial.length === 0) {
-                    alert("No hay compras registradas para este proveedor");
-                    return;
-                  }
-                  
-                  // 👇 CORRECTO: Pasar el ID del proveedor, no una compra
                   imprimirHistorialCompra(prov.id);
                 }}
                 className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 border border-blue-700 rounded"
@@ -3370,7 +3355,7 @@ function ProveedoresTab({ state, setState }: any) {
           </tr>
         ))}
         
-        {gastosPorProveedor.length === 0 && (
+        {(!gastosPorProveedor || gastosPorProveedor.length === 0) && (
           <tr>
             <td colSpan={7} className="py-4 text-center text-slate-400">
               No hay compras registradas a proveedores
