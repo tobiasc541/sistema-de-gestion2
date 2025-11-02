@@ -2751,6 +2751,7 @@ function ProductosTab({ state, setState, role }: any) {
   );
 }
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS ===== */
+/* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS MEJORADO ===== */
 function ProveedoresTab({ state, setState }: any) {
   const [nombreProveedor, setNombreProveedor] = useState("");
   const [contacto, setContacto] = useState("");
@@ -2758,12 +2759,71 @@ function ProveedoresTab({ state, setState }: any) {
   
   // Estados para registrar compras
   const [proveedorSeleccionado, setProveedorSeleccionado] = useState("");
-  const [productoCompra, setProductoCompra] = useState("");
   const [seccionCompra, setSeccionCompra] = useState("");
-  const [cantidadCompra, setCantidadCompra] = useState("");
-  const [costoUnitario, setCostoUnitario] = useState("");
+  const [productosCompra, setProductosCompra] = useState<any[]>([]);
   const [fechaCompra, setFechaCompra] = useState(new Date().toISOString().split('T')[0]);
   const [numeroFactura, setNumeroFactura] = useState("");
+
+  // Obtener secciones únicas de productos
+  const secciones = useMemo(() => {
+    return ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))];
+  }, [state.products]);
+
+  // Filtrar productos por sección
+  const productosFiltrados = useMemo(() => {
+    if (seccionCompra === "Todas" || !seccionCompra) {
+      return state.products;
+    }
+    return state.products.filter((p: any) => p.section === seccionCompra);
+  }, [state.products, seccionCompra]);
+
+  function agregarProductoACompra() {
+    const productoSelect = document.getElementById("productoSelect") as HTMLSelectElement;
+    const productoId = productoSelect.value;
+    
+    if (!productoId) return;
+    
+    const producto = state.products.find((p: any) => p.id === productoId);
+    if (!producto) return;
+    
+    // Verificar si el producto ya está en la compra
+    const yaExiste = productosCompra.find((p: any) => p.id === productoId);
+    if (yaExiste) {
+      alert("Este producto ya está en la compra. Modificá la cantidad desde la lista.");
+      return;
+    }
+    
+    setProductosCompra([...productosCompra, {
+      id: producto.id,
+      nombre: producto.name,
+      seccion: producto.section,
+      cantidad: 1,
+      costo_unitario: producto.cost || 0,
+      total: producto.cost || 0
+    }]);
+    
+    // Limpiar selección
+    productoSelect.value = "";
+  }
+
+  function actualizarProductoCompra(index: number, campo: string, valor: any) {
+    const nuevosProductos = [...productosCompra];
+    nuevosProductos[index] = {
+      ...nuevosProductos[index],
+      [campo]: valor
+    };
+    
+    // Recalcular total si cambia cantidad o costo
+    if (campo === 'cantidad' || campo === 'costo_unitario') {
+      nuevosProductos[index].total = parseNum(nuevosProductos[index].cantidad) * parseNum(nuevosProductos[index].costo_unitario);
+    }
+    
+    setProductosCompra(nuevosProductos);
+  }
+
+  function eliminarProductoCompra(index: number) {
+    setProductosCompra(productosCompra.filter((_, i) => i !== index));
+  }
 
   // Calcular gastos por proveedor
   const gastosPorProveedor = useMemo(() => {
@@ -2785,10 +2845,9 @@ function ProveedoresTab({ state, setState }: any) {
         };
       }
       
-      const montoCompra = parseNum(compra.cantidad) * parseNum(compra.costo_unitario);
-      stats[proveedorId].totalGastado += montoCompra;
+      stats[proveedorId].totalGastado += parseNum(compra.total);
       stats[proveedorId].compras++;
-      stats[proveedorId].productosComprados.add(compra.producto);
+      stats[proveedorId].productosComprados.add(compra.productos[0]?.nombre); // Primer producto como referencia
       
       // Mantener la fecha más reciente
       if (!stats[proveedorId].ultimaCompra || compra.fecha_compra > stats[proveedorId].ultimaCompra) {
@@ -2831,18 +2890,15 @@ function ProveedoresTab({ state, setState }: any) {
   }
 
   async function registrarCompra() {
-    if (!proveedorSeleccionado || !productoCompra.trim() || !cantidadCompra || !costoUnitario) {
-      return alert("Completá todos los campos obligatorios");
+    if (!proveedorSeleccionado || productosCompra.length === 0) {
+      return alert("Seleccioná un proveedor y agregá al menos un producto");
     }
 
     const compra = {
       id: "comp_" + Math.random().toString(36).slice(2, 8),
       proveedor_id: proveedorSeleccionado,
-      producto: productoCompra.trim(),
-      seccion: seccionCompra.trim() || "General",
-      cantidad: parseNum(cantidadCompra),
-      costo_unitario: parseNum(costoUnitario),
-      total: parseNum(cantidadCompra) * parseNum(costoUnitario),
+      productos: productosCompra,
+      total: productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total), 0),
       fecha_compra: fechaCompra + "T00:00:00.000Z",
       numero_factura: numeroFactura.trim() || null,
       fecha_registro: todayISO()
@@ -2853,18 +2909,40 @@ function ProveedoresTab({ state, setState }: any) {
     st.compras_proveedores.push(compra);
     setState(st);
 
+    // Actualizar costos de productos en el sistema
+    productosCompra.forEach(productoCompra => {
+      const producto = st.products.find((p: any) => p.id === productoCompra.id);
+      if (producto) {
+        // Actualizar el costo del producto con el último precio pagado
+        producto.cost = productoCompra.costo_unitario;
+        
+        // Actualizar stock (si es necesario)
+        producto.stock = parseNum(producto.stock) + parseNum(productoCompra.cantidad);
+      }
+    });
+
     // Limpiar formulario
-    setProductoCompra("");
+    setProductosCompra([]);
     setSeccionCompra("");
-    setCantidadCompra("");
-    setCostoUnitario("");
     setNumeroFactura("");
 
     if (hasSupabase) {
+      // Guardar compra
       await supabase.from("compras_proveedores").insert(compra);
+      
+      // Actualizar productos
+      for (const productoCompra of productosCompra) {
+        await supabase
+          .from("products")
+          .update({ 
+            cost: productoCompra.costo_unitario,
+            stock: parseNum(state.products.find((p: any) => p.id === productoCompra.id)?.stock || 0) + parseNum(productoCompra.cantidad)
+          })
+          .eq("id", productoCompra.id);
+      }
     }
 
-    alert("✅ Compra registrada correctamente");
+    alert("✅ Compra registrada correctamente y costos actualizados");
   }
 
   function obtenerHistorialProveedor(proveedorId: string) {
@@ -2882,6 +2960,22 @@ function ProveedoresTab({ state, setState }: any) {
       .filter((compra: any) => new Date(compra.fecha_compra) >= inicioMes)
       .reduce((total: number, compra: any) => total + parseNum(compra.total), 0);
   }
+
+  function imprimirHistorialCompra(compra: any) {
+    const proveedor = state.proveedores.find((p: any) => p.id === compra.proveedor_id);
+    
+    const dataImpresion = {
+      type: "CompraProveedor",
+      compra: compra,
+      proveedor: proveedor,
+      fecha: new Date().toLocaleString("es-AR")
+    };
+
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: dataImpresion } as any));
+    setTimeout(() => window.print(), 100);
+  }
+
+  const totalCompra = productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total), 0);
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
@@ -2914,7 +3008,7 @@ function ProveedoresTab({ state, setState }: any) {
       </Card>
 
       <Card title="🛒 Registrar Compra a Proveedor">
-        <div className="grid md:grid-cols-3 gap-3">
+        <div className="grid md:grid-cols-3 gap-3 mb-4">
           <Select
             label="Proveedor"
             value={proveedorSeleccionado}
@@ -2927,30 +3021,75 @@ function ProveedoresTab({ state, setState }: any) {
               }))
             ]}
           />
-          <Input
-            label="Producto Comprado"
-            value={productoCompra}
-            onChange={setProductoCompra}
-            placeholder="Ej: Coca-Cola 2.25L"
-          />
-          <Input
-            label="Sección"
+          <Select
+            label="Filtrar por Sección"
             value={seccionCompra}
             onChange={setSeccionCompra}
-            placeholder="Ej: Bebidas"
+            options={secciones.map((s: string) => ({ value: s, label: s }))}
           />
-          <NumberInput
-            label="Cantidad"
-            value={cantidadCompra}
-            onChange={setCantidadCompra}
-            placeholder="0"
-          />
-          <NumberInput
-            label="Costo Unitario"
-            value={costoUnitario}
-            onChange={setCostoUnitario}
-            placeholder="0"
-          />
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <Select
+                label="Producto"
+                id="productoSelect"
+                options={[
+                  { value: "", label: "— Seleccionar Producto —" },
+                  ...productosFiltrados.map((p: any) => ({
+                    value: p.id,
+                    label: `${p.name} (Stock: ${p.stock})`
+                  }))
+                ]}
+              />
+            </div>
+            <Button onClick={agregarProductoACompra} tone="slate">
+              ➕
+            </Button>
+          </div>
+        </div>
+
+        {/* Lista de productos en la compra */}
+        {productosCompra.length > 0 && (
+          <div className="mb-4">
+            <div className="text-sm font-semibold mb-2">Productos en la Compra:</div>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {productosCompra.map((producto, index) => (
+                <div key={index} className="grid grid-cols-12 gap-2 items-center p-2 border border-slate-700 rounded">
+                  <div className="col-span-4">
+                    <div className="text-sm font-medium">{producto.nombre}</div>
+                    <div className="text-xs text-slate-400">{producto.seccion}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <NumberInput
+                      label="Cantidad"
+                      value={producto.cantidad}
+                      onChange={(v: string) => actualizarProductoCompra(index, 'cantidad', v)}
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    <NumberInput
+                      label="Costo Unitario"
+                      value={producto.costo_unitario}
+                      onChange={(v: string) => actualizarProductoCompra(index, 'costo_unitario', v)}
+                    />
+                  </div>
+                  <div className="col-span-2 text-sm font-semibold text-emerald-400">
+                    {money(producto.total)}
+                  </div>
+                  <div className="col-span-1">
+                    <button
+                      onClick={() => eliminarProductoCompra(index)}
+                      className="text-red-400 hover:text-red-300"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid md:grid-cols-3 gap-3">
           <Input
             label="N° Factura (opcional)"
             value={numeroFactura}
@@ -2963,19 +3102,19 @@ function ProveedoresTab({ state, setState }: any) {
             value={fechaCompra}
             onChange={setFechaCompra}
           />
-          <div className="md:col-span-3 pt-4">
-            <Button onClick={registrarCompra} disabled={!proveedorSeleccionado || !productoCompra}>
-              💰 Registrar Compra
+          <div className="pt-6">
+            <Button 
+              onClick={registrarCompra} 
+              disabled={!proveedorSeleccionado || productosCompra.length === 0}
+              tone="emerald"
+            >
+              💰 Registrar Compra ({money(totalCompra)})
             </Button>
-            {proveedorSeleccionado && productoCompra && cantidadCompra && costoUnitario && (
-              <div className="mt-2 text-sm text-emerald-400">
-                Total: {money(parseNum(cantidadCompra) * parseNum(costoUnitario))}
-              </div>
-            )}
           </div>
         </div>
       </Card>
 
+      {/* El resto del componente (Gastos por Proveedor y Lista de Proveedores) se mantiene igual */}
       <Card title="📊 Gastos por Proveedor">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -3013,15 +3152,18 @@ function ProveedoresTab({ state, setState }: any) {
                     <button
                       onClick={() => {
                         const historial = obtenerHistorialProveedor(prov.id);
-                        const historialText = historial.map((compra: any, idx: number) => 
-                          `${idx + 1}. ${new Date(compra.fecha_compra).toLocaleDateString("es-AR")} - ${compra.producto} - ${compra.cantidad} x ${money(compra.costo_unitario)} = ${money(compra.total)}${compra.numero_factura ? ` (Fact: ${compra.numero_factura})` : ''}`
-                        ).join('\n');
+                        if (historial.length === 0) {
+                          alert("No hay compras registradas para este proveedor");
+                          return;
+                        }
                         
-                        alert(`📋 Historial de Compras - ${prov.nombre}\n\n${historialText || "No hay compras registradas"}`);
+                        // Mostrar historial en un modal simple
+                        const compraSeleccionada = historial[0]; // Podrías hacer un selector más avanzado
+                        imprimirHistorialCompra(compraSeleccionada);
                       }}
                       className="text-blue-400 hover:text-blue-300 text-sm"
                     >
-                      📋 Ver Historial
+                      📋 Ver PDF
                     </button>
                   </td>
                 </tr>
