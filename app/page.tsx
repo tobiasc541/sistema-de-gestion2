@@ -3038,58 +3038,81 @@ function ProveedoresTab({ state, setState }: any) {
     }
   }
 
-  function imprimirHistorialCompra(proveedorId: string) {
-    try {
-      const proveedor = proveedores.find((p: any) => p.id === proveedorId); // 👈 Cambiar state.proveedores por proveedores
-      if (!proveedor) {
-        alert("No se encontró información del proveedor");
-        return;
-      }
-
-      // Obtener todas las compras del proveedor
-      const historialCompleto = obtenerHistorialProveedor(proveedorId);
-      if (historialCompleto.length === 0) {
-        alert("No hay compras registradas para este proveedor");
-        return;
-      }
-
-      // Filtrar compras del mes actual
-      const ahora = new Date();
-      const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-      const comprasEsteMes = historialCompleto.filter((compra: any) => 
-        new Date(compra.fecha_compra) >= inicioMes
-      );
-
-      // Calcular totales
-      const totalMes = comprasEsteMes.reduce((sum: number, compra: any) => sum + parseNum(compra.total || 0), 0);
-      const totalGeneral = historialCompleto.reduce((sum: number, compra: any) => sum + parseNum(compra.total || 0), 0);
-
-      const dataImpresion = {
-        type: "HistorialProveedor",
-        proveedor: proveedor,
-        comprasEsteMes: comprasEsteMes,
-        historialCompleto: historialCompleto,
-        totalMes: totalMes,
-        totalGeneral: totalGeneral,
-        mesActual: new Date().toLocaleDateString('es-AR', { year: 'numeric', month: 'long' }),
-        fecha: new Date().toLocaleString("es-AR")
-      };
-
-      console.log("📄 Generando historial de compras:", dataImpresion);
-      
-      window.dispatchEvent(new CustomEvent("print-invoice", { 
-        detail: dataImpresion
-      } as any));
-      
-      setTimeout(() => {
-        window.print();
-      }, 100);
-      
-    } catch (error) {
-      console.error("❌ Error al generar PDF:", error);
-      alert("Error al generar el historial. Por favor, revisa la consola para más detalles.");
+ function imprimirHistorialCompra(proveedorId: string) {
+  try {
+    console.log("🔍 Buscando proveedor con ID:", proveedorId);
+    
+    // Validar que el ID no esté vacío
+    if (!proveedorId) {
+      alert("❌ Error: ID de proveedor no válido");
+      return;
     }
+
+    // Buscar el proveedor
+    const proveedor = proveedores.find((p: any) => p.id === proveedorId);
+
+    console.log("📋 Proveedor encontrado:", proveedor);
+
+    if (!proveedor) {
+      alert("❌ No se encontró información del proveedor con ID: " + proveedorId);
+      return;
+    }
+
+    // Obtener todas las compras del proveedor
+    const historialCompleto = obtenerHistorialProveedor(proveedorId);
+    console.log("📊 Historial completo:", historialCompleto);
+
+    if (historialCompleto.length === 0) {
+      alert("ℹ️ No hay compras registradas para el proveedor: " + proveedor.nombre);
+      return;
+    }
+
+    // Filtrar compras del mes actual
+    const ahora = new Date();
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    const comprasEsteMes = historialCompleto.filter((compra: any) => {
+      return compra && compra.fecha_compra && new Date(compra.fecha_compra) >= inicioMes;
+    });
+
+    console.log("📅 Compras este mes:", comprasEsteMes);
+
+    // Calcular totales
+    const totalMes = comprasEsteMes.reduce((sum: number, compra: any) => {
+      return sum + parseNum(compra.total || 0);
+    }, 0);
+
+    const totalGeneral = historialCompleto.reduce((sum: number, compra: any) => {
+      return sum + parseNum(compra.total || 0);
+    }, 0);
+
+    const dataImpresion = {
+      type: "HistorialProveedor",
+      proveedor: proveedor,
+      comprasEsteMes: comprasEsteMes,
+      historialCompleto: historialCompleto,
+      totalMes: totalMes,
+      totalGeneral: totalGeneral,
+      mesActual: new Date().toLocaleDateString('es-AR', { year: 'numeric', month: 'long' }),
+      fecha: new Date().toLocaleString("es-AR")
+    };
+
+    console.log("📄 Datos para impresión:", dataImpresion);
+    
+    // Disparar evento de impresión
+    window.dispatchEvent(new CustomEvent("print-invoice", { 
+      detail: dataImpresion
+    }));
+    
+    // Esperar un poco antes de imprimir
+    setTimeout(() => {
+      window.print();
+    }, 500);
+    
+  } catch (error) {
+    console.error("❌ Error al generar PDF:", error);
+    alert("Error al generar el historial: " + error.message);
   }
+}
 
   // 👇👇👇 AGREGAR ESTA VALIDACIÓN AL FINAL
   // Si no hay datos, mostrar estado de carga
@@ -3269,71 +3292,74 @@ function ProveedoresTab({ state, setState }: any) {
       </Card>
 
       {/* El resto del componente se mantiene igual */}
-      <Card title="📊 Gastos por Proveedor">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-slate-400">
-              <tr>
-                <th className="py-2 pr-4">Proveedor</th>
-                <th className="py-2 pr-4">Total Gastado</th>
-                <th className="py-2 pr-4">Gasto Este Mes</th>
-                <th className="py-2 pr-4">Compras</th>
-                <th className="py-2 pr-4">Productos</th>
-                <th className="py-2 pr-4">Última Compra</th>
-                <th className="py-2 pr-4">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {gastosPorProveedor.map((prov: any) => (
-                <tr key={prov.id}>
-                  <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
-                  <td className="py-2 pr-4">
-                    <span className="text-red-400 font-semibold">
-                      {money(prov.totalGastado)}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-4">
-                    <span className="text-amber-400 font-semibold">
-                      {money(calcularGastosDelMes(prov.id))}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-4">{prov.compras}</td>
-                  <td className="py-2 pr-4">{prov.productosComprados}</td>
-                  <td className="py-2 pr-4">
-                    {prov.ultimaCompra ? new Date(prov.ultimaCompra).toLocaleDateString("es-AR") : "—"}
-                  </td>
-                  <td className="py-2 pr-4">
-                    <button
-                      onClick={() => {
-                        const historial = obtenerHistorialProveedor(prov.id);
-                        if (historial.length === 0) {
-                          alert("No hay compras registradas para este proveedor");
-                          return;
-                        }
-                        
-                        // Mostrar historial en un modal simple
-                        const compraSeleccionada = historial[0];
-                        imprimirHistorialCompra(compraSeleccionada);
-                      }}
-                      className="text-blue-400 hover:text-blue-300 text-sm"
-                    >
-                      📋 Ver PDF
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              
-              {gastosPorProveedor.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-4 text-center text-slate-400">
-                    No hay compras registradas a proveedores
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+     <Card title="📊 Gastos por Proveedor">
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="text-left text-slate-400">
+        <tr>
+          <th className="py-2 pr-4">Proveedor</th>
+          <th className="py-2 pr-4">Total Gastado</th>
+          <th className="py-2 pr-4">Gasto Este Mes</th>
+          <th className="py-2 pr-4">Compras</th>
+          <th className="py-2 pr-4">Productos</th>
+          <th className="py-2 pr-4">Última Compra</th>
+          <th className="py-2 pr-4">Acciones</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-800">
+        {gastosPorProveedor.map((prov: any) => (
+          <tr key={prov.id}>
+            <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
+            <td className="py-2 pr-4">
+              <span className="text-red-400 font-semibold">
+                {money(prov.totalGastado)}
+              </span>
+            </td>
+            <td className="py-2 pr-4">
+              <span className="text-amber-400 font-semibold">
+                {money(calcularGastosDelMes(prov.id))}
+              </span>
+            </td>
+            <td className="py-2 pr-4">{prov.compras}</td>
+            <td className="py-2 pr-4">{prov.productosComprados}</td>
+            <td className="py-2 pr-4">
+              {prov.ultimaCompra ? new Date(prov.ultimaCompra).toLocaleDateString("es-AR") : "—"}
+            </td>
+            <td className="py-2 pr-4">
+              <button
+                onClick={() => {
+                  console.log("🖨️ Click en PDF para proveedor:", prov.id, prov.nombre);
+                  
+                  // Verificar si hay compras primero
+                  const historial = obtenerHistorialProveedor(prov.id);
+                  if (historial.length === 0) {
+                    alert("No hay compras registradas para este proveedor");
+                    return;
+                  }
+                  
+                  // 👇 CORRECTO: Pasar el ID del proveedor, no una compra
+                  imprimirHistorialCompra(prov.id);
+                }}
+                className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 border border-blue-700 rounded"
+                title="Ver historial en PDF"
+              >
+                📋 Ver PDF
+              </button>
+            </td>
+          </tr>
+        ))}
+        
+        {gastosPorProveedor.length === 0 && (
+          <tr>
+            <td colSpan={7} className="py-4 text-center text-slate-400">
+              No hay compras registradas a proveedores
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</Card>
 
       <Card title="👥 Lista de Proveedores">
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
