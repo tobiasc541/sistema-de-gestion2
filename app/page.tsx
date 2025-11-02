@@ -184,216 +184,220 @@ function seedState() {
 
 async function loadFromSupabase(fallback: any) {
   if (!hasSupabase) return fallback;
+  
   const out = clone(fallback);
   
-  // meta
-  const { data: meta, error: metaErr } = await supabase
-    .from("meta").select("*").eq("key","counters").maybeSingle();
-  if (metaErr) { console.error("SELECT meta:", metaErr); alert("No pude leer 'meta' de Supabase."); }
-  if (meta?.value) out.meta = { ...out.meta, ...meta.value };
-
-  // 👇👇👇 AGREGAR AQUÍ - Cargar comisiones
-  const { data: commissionsData, error: commErr } = await supabase
-    .from("commissions")
-    .select("*");
-
-  if (commErr) {
-    console.error("SELECT commissions:", commErr);
-  } else if (commissionsData) {
-    const commissionsByDate: Record<string, number> = {};
-    commissionsData.forEach((row: any) => {
-      commissionsByDate[row.day] = parseNum(row.amount);
-    });
-    out.meta.commissionsByDate = commissionsByDate;
-  }
-  // 👆👆👆 HASTA AQUÍ
-  // 👇👇👇 AGREGAR AQUÍ - Cargar cash_floats
-const { data: cashFloatsData, error: cashFloatsErr } = await supabase
-  .from("cash_floats")
-  .select("*");
-
-if (cashFloatsErr) {
-  console.error("SELECT cash_floats:", cashFloatsErr);
-} else if (cashFloatsData) {
-  const cashFloatByDate: Record<string, number> = {};
-  cashFloatsData.forEach((row: any) => {
-    cashFloatByDate[row.day] = parseNum(row.amount);
-  });
-  out.meta.cashFloatByDate = cashFloatByDate;
-}
-  // 👇👇👇 AGREGAR AQUÍ - Cargar fondos de Gabi
-const { data: gabiFundsData, error: gabiErr } = await supabase
-  .from("gabi_funds")
-  .select("*")
-  .order("day", { ascending: false });
-
-if (gabiErr) {
-  console.error("SELECT gabi_funds:", gabiErr);
-} else if (gabiFundsData) {
-  const gabiFundsByDate: Record<string, number> = {};
-  gabiFundsData.forEach((row: any) => {
-    gabiFundsByDate[row.day] = parseNum(row.initial_amount);
-  });
-  out.meta.gabiFundsByDate = gabiFundsByDate;
-  out.gabiFunds = gabiFundsData;
-}
- // 👇👇👇 AGREGAR AQUÍ - Cargar proveedores
- const { data: proveedores, error: provErr } = await supabase
-      .from("proveedores")
-      .select("*")
-      .order("nombre");
-
-    if (provErr) {
-      console.error("❌ ERROR cargando proveedores:", provErr);
-      out.proveedores = []; // ← FORZAR ARRAY VACÍO
-    } else {
-      out.proveedores = proveedores || []; // ← ASEGURAR ARRAY
+  try {
+    // META
+    const { data: meta, error: metaErr } = await supabase
+      .from("meta").select("*").eq("key","counters").maybeSingle();
+    if (metaErr) { 
+      console.error("SELECT meta:", metaErr); 
+    } else if (meta?.value) {
+      out.meta = { ...out.meta, ...meta.value };
     }
 
-    // COMPRAS PROVEEDORES - Asegurar que siempre sea array
-    const { data: comprasProveedores, error: compErr } = await supabase
-      .from("compras_proveedores")
-      .select("*")
-      .order("fecha_compra", { ascending: false });
+    // COMISIONES
+    const { data: commissionsData, error: commErr } = await supabase
+      .from("commissions")
+      .select("*");
+    if (commErr) {
+      console.error("SELECT commissions:", commErr);
+    } else if (commissionsData) {
+      const commissionsByDate: Record<string, number> = {};
+      commissionsData.forEach((row: any) => {
+        commissionsByDate[row.day] = parseNum(row.amount);
+      });
+      out.meta.commissionsByDate = commissionsByDate;
+    }
 
-    if (compErr) {
-      console.error("❌ ERROR cargando compras_proveedores:", compErr);
-      out.compras_proveedores = []; // ← FORZAR ARRAY VACÍO
-    } else {
-      out.compras_proveedores = comprasProveedores || []; // ← ASEGURAR ARRAY
+    // CASH FLOATS
+    const { data: cashFloatsData, error: cashFloatsErr } = await supabase
+      .from("cash_floats")
+      .select("*");
+    if (cashFloatsErr) {
+      console.error("SELECT cash_floats:", cashFloatsErr);
+    } else if (cashFloatsData) {
+      const cashFloatByDate: Record<string, number> = {};
+      cashFloatsData.forEach((row: any) => {
+        cashFloatByDate[row.day] = parseNum(row.amount);
+      });
+      out.meta.cashFloatByDate = cashFloatByDate;
+    }
+
+    // GABI FUNDS
+    const { data: gabiFundsData, error: gabiErr } = await supabase
+      .from("gabi_funds")
+      .select("*")
+      .order("day", { ascending: false });
+    if (gabiErr) {
+      console.error("SELECT gabi_funds:", gabiErr);
+    } else if (gabiFundsData) {
+      const gabiFundsByDate: Record<string, number> = {};
+      gabiFundsData.forEach((row: any) => {
+        gabiFundsByDate[row.day] = parseNum(row.initial_amount);
+      });
+      out.meta.gabiFundsByDate = gabiFundsByDate;
+      out.gabiFunds = gabiFundsData;
+    }
+
+    // 👇👇👇 PROVEEDORES - VERSIÓN SEGURA
+    try {
+      const { data: proveedores, error: provErr } = await supabase
+        .from("proveedores")
+        .select("*")
+        .order("nombre");
+      if (provErr) throw provErr;
+      out.proveedores = proveedores || [];
+    } catch (provErr) {
+      console.error("Error cargando proveedores:", provErr);
+      out.proveedores = [];
+    }
+
+    // 👇👇👇 COMPRAS PROVEEDORES - VERSIÓN SEGURA
+    try {
+      const { data: comprasProveedores, error: compErr } = await supabase
+        .from("compras_proveedores")
+        .select("*")
+        .order("fecha_compra", { ascending: false });
+      if (compErr) throw compErr;
+      out.compras_proveedores = comprasProveedores || [];
+    } catch (compErr) {
+      console.error("Error cargando compras_proveedores:", compErr);
+      out.compras_proveedores = [];
+    }
+
+    // VENDORS
+    const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
+    if (vendErr) { 
+      console.error("SELECT vendors:", vendErr); 
+    } else if (vendors) {
+      out.vendors = vendors;
+    }
+    
+    // CLIENTS
+    const { data: clients, error: cliErr } = await supabase.from("clients").select("*");
+    if (cliErr) { 
+      console.error("SELECT clients:", cliErr); 
+    } else if (clients) {
+      out.clients = clients.map((c: any) => ({
+        ...c,
+        creado_por: c.creado_por || "sistema",
+        fecha_creacion: c.fecha_creacion || c.date_iso || todayISO(),
+        deuda_manual: c.deuda_manual || false
+      }));
+    }
+
+    // PRODUCTS
+    const { data: products, error: prodErr } = await supabase.from("products").select("*");
+    if (prodErr) { 
+      console.error("SELECT products:", prodErr); 
+    } else if (products) {
+      out.products = products.map((p: any) => ({
+        ...p,
+        stock_minimo: p.stock_min || 0
+      }));
+    }
+
+    // INVOICES
+    const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").order("number");
+    if (invErr) { 
+      console.error("SELECT invoices:", invErr); 
+    } else if (invoices) {
+      out.invoices = invoices;
+    }
+
+    // DEVOLUCIONES
+    const { data: devoluciones, error: devErr } = await supabase
+      .from("devoluciones").select("*").order("date_iso", { ascending: false });
+    if (devErr) { 
+      console.error("SELECT devoluciones:", devErr); 
+    } else if (devoluciones) {
+      out.devoluciones = devoluciones;
+    }
+
+    // DEBT PAYMENTS
+    const { data: debtPayments, error: dpErr } = await supabase
+      .from("debt_payments")
+      .select("*")
+      .order("date_iso", { ascending: false });
+    if (dpErr) { 
+      console.error("SELECT debt_payments:", dpErr); 
+    } else if (debtPayments) {
+      out.debt_payments = debtPayments;
+    }
+
+    // BUDGETS
+    const { data: budgets, error: budErr } = await supabase.from("budgets").select("*").order("number");
+    if (budErr) { 
+      console.error("SELECT budgets:", budErr); 
+    } else if (budgets) {
+      out.budgets = budgets;
+    }
+
+    // PEDIDOS
+    const { data: pedidos, error: pedidosErr } = await supabase
+      .from("pedidos")
+      .select("*")
+      .order("date_iso", { ascending: false });
+    if (pedidosErr) {
+      console.error("SELECT pedidos:", pedidosErr);
+    } else if (pedidos) {
+      out.pedidos = pedidos;
+    }
+
+    // EMPLEADOS
+    const { data: empleados, error: empErr } = await supabase
+      .from("empleados")
+      .select("*")
+      .order("name");
+    if (empErr) {
+      console.error("SELECT empleados:", empErr);
+    } else if (empleados) {
+      out.empleados = empleados;
+    }
+
+    // REGISTROS HORARIOS
+    const { data: registrosHorarios, error: rhErr } = await supabase
+      .from("registros_horarios")
+      .select("*")
+      .order("fecha", { ascending: false });
+    if (rhErr) {
+      console.error("SELECT registros_horarios:", rhErr);
+    } else if (registrosHorarios) {
+      out.registros_horarios = registrosHorarios;
+    }
+
+    // VALES EMPLEADOS
+    const { data: valesEmpleados, error: valeErr } = await supabase
+      .from("vales_empleados")
+      .select("*")
+      .order("fecha_iso", { ascending: false });
+    if (valeErr) {
+      console.error("SELECT vales_empleados:", valeErr);
+    } else if (valesEmpleados) {
+      out.vales_empleados = valesEmpleados;
+    }
+
+    // Si está vacío, NO sembrar datos de ejemplo
+    if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
+      await supabase.from("meta").upsert({
+        key: "counters",
+        value: {
+          invoiceCounter: 1,
+          budgetCounter: 1,
+          cashFloat: out.meta?.cashFloat ?? 0,
+          cashFloatByDate: out.meta?.cashFloatByDate ?? {},
+          commissionsByDate: out.meta?.commissionsByDate ?? {},
+        },
+      });
     }
 
   } catch (error) {
-    console.error("💥 ERROR GENERAL:", error);
-    // En caso de error, asegurar arrays vacíos
+    console.error("💥 ERROR GENERAL cargando desde Supabase:", error);
+    // Asegurar arrays vacíos en caso de error
     out.proveedores = out.proveedores || [];
     out.compras_proveedores = out.compras_proveedores || [];
-  }
-
-  // vendors (esto ya existe, DEJARLO COMO ESTÁ)
-  const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
-  if (vendErr) { console.error("SELECT vendors:", vendErr); alert("No pude leer 'vendors' de Supabase."); }
-  if (vendors) out.vendors = vendors;
-  
-// clients
-const { data: clients, error: cliErr } = await supabase.from("clients").select("*");
-if (cliErr) { 
-  console.error("SELECT clients:", cliErr); 
-  alert("No pude leer 'clients' de Supabase."); 
-}
-if (clients) {
-  out.clients = clients.map((c: any) => ({
-    ...c,
-    creado_por: c.creado_por || "sistema",
-    fecha_creacion: c.fecha_creacion || c.date_iso || todayISO(),
-    deuda_manual: c.deuda_manual || false
-  }));
-}
-
-  // products
- // products
-const { data: products, error: prodErr } = await supabase.from("products").select("*");
-if (prodErr) { console.error("SELECT products:", prodErr); alert("No pude leer 'products' de Supabase."); }
-if (products) {
-  out.products = products.map((p: any) => ({
-    ...p,
-    stock_minimo: p.stock_min || 0 // ← mapear stock_min de BD a stock_minimo en React
-  }));
-}
-
-  // invoices
-  const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").order("number");
-  if (invErr) { console.error("SELECT invoices:", invErr); alert("No pude leer 'invoices' de Supabase."); }
-  if (invoices) out.invoices = invoices;
-
-  // 👇👇👇 AGREGAR AQUÍ - Cargar devoluciones
-  const { data: devoluciones, error: devErr } = await supabase
-    .from("devoluciones").select("*").order("date_iso", { ascending: false });
-  if (devErr) { 
-    console.error("SELECT devoluciones:", devErr); 
-    alert("No pude leer 'devoluciones' de Supabase."); 
-  }
-  if (devoluciones) out.devoluciones = devoluciones;
-  // 👆👆👆 HASTA AQUÍ
-    // 👇👇👇 AGREGAR AQUÍ - Cargar debt_payments
-  // 👇👇👇 DESCOMENTAR Y CORREGIR ESTA SECCIÓN - Cargar debt_payments
-  const { data: debtPayments, error: dpErr } = await supabase
-    .from("debt_payments")
-    .select("*")
-    .order("date_iso", { ascending: false });
-
-  if (dpErr) { 
-    console.error("SELECT debt_payments:", dpErr); 
-    alert("No pude leer 'debt_payments' de Supabase."); 
-  }
-  if (debtPayments) out.debt_payments = debtPayments;
-  // 👆👆👆 HASTA AQUÍ
-
-  // budgets
-  const { data: budgets, error: budErr } = await supabase.from("budgets").select("*").order("number");
-  if (budErr) { console.error("SELECT budgets:", budErr); alert("No pude leer 'budgets' de Supabase."); }
-  if (budgets) out.budgets = budgets;
-    // 👇👇👇 AGREGAR AQUÍ - Cargar pedidos
-  const { data: pedidos, error: pedidosErr } = await supabase
-    .from("pedidos")
-    .select("*")
-    .order("date_iso", { ascending: false });
-
-  if (pedidosErr) {
-    console.error("SELECT pedidos:", pedidosErr);
-  } else if (pedidos) {
-    out.pedidos = pedidos;
-  }
-  // 👆👆👆 HASTA AQUÍ
-    // 👇👇👇 AGREGAR DESPUÉS DE CARGAR PEDIDOS - Cargar empleados
-  const { data: empleados, error: empErr } = await supabase
-    .from("empleados")
-    .select("*")
-    .order("name");
-
-  if (empErr) {
-    console.error("SELECT empleados:", empErr);
-  } else if (empleados) {
-    out.empleados = empleados;
-  }
-
-  // 👇👇👇 Cargar registros horarios
-  const { data: registrosHorarios, error: rhErr } = await supabase
-    .from("registros_horarios")
-    .select("*")
-    .order("fecha", { ascending: false });
-
-  if (rhErr) {
-    console.error("SELECT registros_horarios:", rhErr);
-  } else if (registrosHorarios) {
-    out.registros_horarios = registrosHorarios;
-  }
-
-  // 👇👇👇 Cargar vales de empleados
-  const { data: valesEmpleados, error: valeErr } = await supabase
-    .from("vales_empleados")
-    .select("*")
-    .order("fecha_iso", { ascending: false });
-
-  if (valeErr) {
-    console.error("SELECT vales_empleados:", valeErr);
-  } else if (valesEmpleados) {
-    out.vales_empleados = valesEmpleados;
-  }
-
-  // Si está vacío, NO sembrar datos de ejemplo (nada de demo).
-  if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
-    // Solo aseguro counters en meta para que la app no falle.
-    await supabase.from("meta").upsert({
-      key: "counters",
-      value: {
-        invoiceCounter: 1,
-        budgetCounter: 1,
-        cashFloat: out.meta?.cashFloat ?? 0,
-        cashFloatByDate: out.meta?.cashFloatByDate ?? {},
-        commissionsByDate: out.meta?.commissionsByDate ?? {},
-      },
-    });
   }
 
   return out;
