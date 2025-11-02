@@ -2750,52 +2750,57 @@ function ProductosTab({ state, setState, role }: any) {
     </div>
   );
 }
-/* ===== NUEVO COMPONENTE: ProveedoresTab ===== */
+/* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS ===== */
 function ProveedoresTab({ state, setState }: any) {
   const [nombreProveedor, setNombreProveedor] = useState("");
   const [contacto, setContacto] = useState("");
   const [telefono, setTelefono] = useState("");
+  
+  // Estados para registrar compras
+  const [proveedorSeleccionado, setProveedorSeleccionado] = useState("");
+  const [productoCompra, setProductoCompra] = useState("");
+  const [seccionCompra, setSeccionCompra] = useState("");
+  const [cantidadCompra, setCantidadCompra] = useState("");
+  const [costoUnitario, setCostoUnitario] = useState("");
+  const [fechaCompra, setFechaCompra] = useState(new Date().toISOString().split('T')[0]);
+  const [numeroFactura, setNumeroFactura] = useState("");
 
-  // Calcular estadísticas de ventas por proveedor
-  const estadisticasProveedores = useMemo(() => {
+  // Calcular gastos por proveedor
+  const gastosPorProveedor = useMemo(() => {
+    const compras = state.compras_proveedores || [];
     const stats: any = {};
     
-    state.products.forEach((producto: any) => {
-      const proveedor = producto.proveedor || "Sin Proveedor";
+    compras.forEach((compra: any) => {
+      const proveedorId = compra.proveedor_id;
       
-      if (!stats[proveedor]) {
-        stats[proveedor] = {
-          nombre: proveedor,
-          productos: 0,
-          stockTotal: 0,
-          costoTotal: 0,
-          ventasTotal: 0,
-          productosVendidos: 0
+      if (!stats[proveedorId]) {
+        const proveedor = state.proveedores?.find((p: any) => p.id === proveedorId);
+        stats[proveedorId] = {
+          id: proveedorId,
+          nombre: proveedor?.nombre || "Proveedor Desconocido",
+          totalGastado: 0,
+          compras: 0,
+          ultimaCompra: "",
+          productosComprados: new Set()
         };
       }
       
-      // Productos en stock
-      stats[proveedor].productos++;
-      stats[proveedor].stockTotal += parseNum(producto.stock);
-      stats[proveedor].costoTotal += parseNum(producto.cost) * parseNum(producto.stock);
+      const montoCompra = parseNum(compra.cantidad) * parseNum(compra.costo_unitario);
+      stats[proveedorId].totalGastado += montoCompra;
+      stats[proveedorId].compras++;
+      stats[proveedorId].productosComprados.add(compra.producto);
+      
+      // Mantener la fecha más reciente
+      if (!stats[proveedorId].ultimaCompra || compra.fecha_compra > stats[proveedorId].ultimaCompra) {
+        stats[proveedorId].ultimaCompra = compra.fecha_compra;
+      }
     });
 
-    // Calcular ventas desde facturas
-    state.invoices.forEach((factura: any) => {
-      factura.items?.forEach((item: any) => {
-        const producto = state.products.find((p: any) => p.id === item.productId);
-        if (producto) {
-          const proveedor = producto.proveedor || "Sin Proveedor";
-          if (stats[proveedor]) {
-            stats[proveedor].ventasTotal += parseNum(item.unitPrice) * parseNum(item.qty);
-            stats[proveedor].productosVendidos += parseNum(item.qty);
-          }
-        }
-      });
-    });
-
-    return Object.values(stats);
-  }, [state.products, state.invoices]);
+    return Object.values(stats).map((stat: any) => ({
+      ...stat,
+      productosComprados: stat.productosComprados.size
+    }));
+  }, [state.compras_proveedores, state.proveedores]);
 
   async function agregarProveedor() {
     if (!nombreProveedor.trim()) return;
@@ -2823,6 +2828,59 @@ function ProveedoresTab({ state, setState }: any) {
     }
 
     alert("Proveedor agregado correctamente");
+  }
+
+  async function registrarCompra() {
+    if (!proveedorSeleccionado || !productoCompra.trim() || !cantidadCompra || !costoUnitario) {
+      return alert("Completá todos los campos obligatorios");
+    }
+
+    const compra = {
+      id: "comp_" + Math.random().toString(36).slice(2, 8),
+      proveedor_id: proveedorSeleccionado,
+      producto: productoCompra.trim(),
+      seccion: seccionCompra.trim() || "General",
+      cantidad: parseNum(cantidadCompra),
+      costo_unitario: parseNum(costoUnitario),
+      total: parseNum(cantidadCompra) * parseNum(costoUnitario),
+      fecha_compra: fechaCompra + "T00:00:00.000Z",
+      numero_factura: numeroFactura.trim() || null,
+      fecha_registro: todayISO()
+    };
+
+    const st = clone(state);
+    st.compras_proveedores = st.compras_proveedores || [];
+    st.compras_proveedores.push(compra);
+    setState(st);
+
+    // Limpiar formulario
+    setProductoCompra("");
+    setSeccionCompra("");
+    setCantidadCompra("");
+    setCostoUnitario("");
+    setNumeroFactura("");
+
+    if (hasSupabase) {
+      await supabase.from("compras_proveedores").insert(compra);
+    }
+
+    alert("✅ Compra registrada correctamente");
+  }
+
+  function obtenerHistorialProveedor(proveedorId: string) {
+    return (state.compras_proveedores || [])
+      .filter((compra: any) => compra.proveedor_id === proveedorId)
+      .sort((a: any, b: any) => new Date(b.fecha_compra).getTime() - new Date(a.fecha_compra).getTime());
+  }
+
+  function calcularGastosDelMes(proveedorId: string) {
+    const historial = obtenerHistorialProveedor(proveedorId);
+    const ahora = new Date();
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    
+    return historial
+      .filter((compra: any) => new Date(compra.fecha_compra) >= inicioMes)
+      .reduce((total: number, compra: any) => total + parseNum(compra.total), 0);
   }
 
   return (
@@ -2855,42 +2913,127 @@ function ProveedoresTab({ state, setState }: any) {
         </div>
       </Card>
 
-      <Card title="📊 Estadísticas de Ventas por Proveedor">
+      <Card title="🛒 Registrar Compra a Proveedor">
+        <div className="grid md:grid-cols-3 gap-3">
+          <Select
+            label="Proveedor"
+            value={proveedorSeleccionado}
+            onChange={setProveedorSeleccionado}
+            options={[
+              { value: "", label: "— Seleccionar Proveedor —" },
+              ...(state.proveedores || []).map((p: any) => ({
+                value: p.id,
+                label: p.nombre
+              }))
+            ]}
+          />
+          <Input
+            label="Producto Comprado"
+            value={productoCompra}
+            onChange={setProductoCompra}
+            placeholder="Ej: Coca-Cola 2.25L"
+          />
+          <Input
+            label="Sección"
+            value={seccionCompra}
+            onChange={setSeccionCompra}
+            placeholder="Ej: Bebidas"
+          />
+          <NumberInput
+            label="Cantidad"
+            value={cantidadCompra}
+            onChange={setCantidadCompra}
+            placeholder="0"
+          />
+          <NumberInput
+            label="Costo Unitario"
+            value={costoUnitario}
+            onChange={setCostoUnitario}
+            placeholder="0"
+          />
+          <Input
+            label="N° Factura (opcional)"
+            value={numeroFactura}
+            onChange={setNumeroFactura}
+            placeholder="Ej: 001-00012345"
+          />
+          <Input
+            label="Fecha de Compra"
+            type="date"
+            value={fechaCompra}
+            onChange={setFechaCompra}
+          />
+          <div className="md:col-span-3 pt-4">
+            <Button onClick={registrarCompra} disabled={!proveedorSeleccionado || !productoCompra}>
+              💰 Registrar Compra
+            </Button>
+            {proveedorSeleccionado && productoCompra && cantidadCompra && costoUnitario && (
+              <div className="mt-2 text-sm text-emerald-400">
+                Total: {money(parseNum(cantidadCompra) * parseNum(costoUnitario))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      <Card title="📊 Gastos por Proveedor">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-slate-400">
               <tr>
                 <th className="py-2 pr-4">Proveedor</th>
+                <th className="py-2 pr-4">Total Gastado</th>
+                <th className="py-2 pr-4">Gasto Este Mes</th>
+                <th className="py-2 pr-4">Compras</th>
                 <th className="py-2 pr-4">Productos</th>
-                <th className="py-2 pr-4">Stock Total</th>
-                <th className="py-2 pr-4">Costo Stock</th>
-                <th className="py-2 pr-4">Ventas Totales</th>
-                <th className="py-2 pr-4">Unid. Vendidas</th>
-                <th className="py-2 pr-4">Rentabilidad</th>
+                <th className="py-2 pr-4">Última Compra</th>
+                <th className="py-2 pr-4">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {estadisticasProveedores.map((prov: any, index: number) => (
-                <tr key={index}>
+              {gastosPorProveedor.map((prov: any) => (
+                <tr key={prov.id}>
                   <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
-                  <td className="py-2 pr-4">{prov.productos}</td>
-                  <td className="py-2 pr-4">{prov.stockTotal}</td>
-                  <td className="py-2 pr-4">{money(prov.costoTotal)}</td>
                   <td className="py-2 pr-4">
-                    <span className="text-emerald-400 font-semibold">
-                      {money(prov.ventasTotal)}
+                    <span className="text-red-400 font-semibold">
+                      {money(prov.totalGastado)}
                     </span>
                   </td>
-                  <td className="py-2 pr-4">{prov.productosVendidos}</td>
                   <td className="py-2 pr-4">
-                    <span className={
-                      prov.ventasTotal > prov.costoTotal ? "text-emerald-400" : "text-amber-400"
-                    }>
-                      {money(prov.ventasTotal - prov.costoTotal)}
+                    <span className="text-amber-400 font-semibold">
+                      {money(calcularGastosDelMes(prov.id))}
                     </span>
+                  </td>
+                  <td className="py-2 pr-4">{prov.compras}</td>
+                  <td className="py-2 pr-4">{prov.productosComprados}</td>
+                  <td className="py-2 pr-4">
+                    {prov.ultimaCompra ? new Date(prov.ultimaCompra).toLocaleDateString("es-AR") : "—"}
+                  </td>
+                  <td className="py-2 pr-4">
+                    <button
+                      onClick={() => {
+                        const historial = obtenerHistorialProveedor(prov.id);
+                        const historialText = historial.map((compra: any, idx: number) => 
+                          `${idx + 1}. ${new Date(compra.fecha_compra).toLocaleDateString("es-AR")} - ${compra.producto} - ${compra.cantidad} x ${money(compra.costo_unitario)} = ${money(compra.total)}${compra.numero_factura ? ` (Fact: ${compra.numero_factura})` : ''}`
+                        ).join('\n');
+                        
+                        alert(`📋 Historial de Compras - ${prov.nombre}\n\n${historialText || "No hay compras registradas"}`);
+                      }}
+                      className="text-blue-400 hover:text-blue-300 text-sm"
+                    >
+                      📋 Ver Historial
+                    </button>
                   </td>
                 </tr>
               ))}
+              
+              {gastosPorProveedor.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-4 text-center text-slate-400">
+                    No hay compras registradas a proveedores
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
