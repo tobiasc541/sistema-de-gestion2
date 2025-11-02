@@ -2799,28 +2799,35 @@ function ProveedoresTab({ state, setState }: any) {
   const [seccionCompra, setSeccionCompra] = useState("");
   const [productoSeleccionado, setProductoSeleccionado] = useState("");
   const [productosCompra, setProductosCompra] = useState<any[]>([]);
-  const totalCompra = productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total), 0);
+  
+  // 👇👇👇 CORREGIR: Agregar seguridad en el reduce
+  const totalCompra = productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total || 0), 0);
 
   const [fechaCompra, setFechaCompra] = useState(new Date().toISOString().split('T')[0]);
   const [numeroFactura, setNumeroFactura] = useState("");
 
-  // Obtener secciones únicas de productos
-  const secciones = useMemo(() => {
-    return ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))];
-  }, [state.products]);
+  // 👇👇👇 AGREGAR VALIDACIONES DE SEGURIDAD AL INICIO
+  const products = Array.isArray(state.products) ? state.products : [];
+  const proveedores = Array.isArray(state.proveedores) ? state.proveedores : [];
+  const comprasProveedores = Array.isArray(state.compras_proveedores) ? state.compras_proveedores : [];
 
-  // Filtrar productos por sección
+  // Obtener secciones únicas de productos - CON SEGURIDAD
+  const secciones = useMemo(() => {
+    return ["Todas", ...Array.from(new Set(products.map((p: any) => p.section || "General")))];
+  }, [products]); // 👈 Cambiar state.products por products
+
+  // Filtrar productos por sección - CON SEGURIDAD
   const productosFiltrados = useMemo(() => {
     if (seccionCompra === "Todas" || !seccionCompra) {
-      return state.products;
+      return products; // 👈 Cambiar state.products por products
     }
-    return state.products.filter((p: any) => p.section === seccionCompra);
-  }, [state.products, seccionCompra]);
+    return products.filter((p: any) => p.section === seccionCompra); // 👈 Cambiar state.products por products
+  }, [products, seccionCompra]); // 👈 Cambiar state.products por products
 
   function agregarProductoACompra() {
     if (!productoSeleccionado) return;
     
-    const producto = state.products.find((p: any) => p.id === productoSeleccionado);
+    const producto = products.find((p: any) => p.id === productoSeleccionado); // 👈 Cambiar state.products por products
     if (!producto) return;
     
     // Verificar si el producto ya está en la compra
@@ -2852,7 +2859,7 @@ function ProveedoresTab({ state, setState }: any) {
     
     // Recalcular total si cambia cantidad o costo
     if (campo === 'cantidad' || campo === 'costo_unitario') {
-      nuevosProductos[index].total = parseNum(nuevosProductos[index].cantidad) * parseNum(nuevosProductos[index].costo_unitario);
+      nuevosProductos[index].total = parseNum(nuevosProductos[index].cantidad || 0) * parseNum(nuevosProductos[index].costo_unitario || 0);
     }
     
     setProductosCompra(nuevosProductos);
@@ -2862,46 +2869,61 @@ function ProveedoresTab({ state, setState }: any) {
     setProductosCompra(productosCompra.filter((_, i) => i !== index));
   }
 
-  // Calcular gastos por proveedor
-// 👇👇👇 REEMPLAZA ESTA FUNCIÓN COMPLETA
-const gastosPorProveedor = useMemo(() => {
-  const compras = state.compras_proveedores || []; // ← AGREGAR ESTA LÍNEA DE SEGURIDAD
-  const stats: any = {};
-  
-  compras.forEach((compra: any) => {
-    const proveedorId = compra.proveedor_id;
-    
-    if (!stats[proveedorId]) {
-      const proveedor = state.proveedores?.find((p: any) => p.id === proveedorId);
-      stats[proveedorId] = {
-        id: proveedorId,
-        nombre: proveedor?.nombre || "Proveedor Desconocido",
-        totalGastado: 0,
-        compras: 0,
-        ultimaCompra: "",
-        productosComprados: new Set()
-      };
-    }
-    
-    stats[proveedorId].totalGastado += parseNum(compra.total);
-    stats[proveedorId].compras++;
-    
-    // Agregar todos los productos de la compra
-    compra.productos.forEach((producto: any) => {
-      stats[proveedorId].productosComprados.add(producto.nombre);
-    });
-    
-    // Mantener la fecha más reciente
-    if (!stats[proveedorId].ultimaCompra || compra.fecha_compra > stats[proveedorId].ultimaCompra) {
-      stats[proveedorId].ultimaCompra = compra.fecha_compra;
-    }
-  });
+  // 👇👇👇 FUNCIÓN CORREGIDA - Usar variables seguras
+  const gastosPorProveedor = useMemo(() => {
+    try {
+      const compras = comprasProveedores || []; // 👈 Cambiar state.compras_proveedores por comprasProveedores
+      const stats: any = {};
+      
+      compras.forEach((compra: any) => {
+        if (!compra) return;
+        
+        const proveedorId = compra.proveedor_id;
+        if (!proveedorId) return;
+        
+        if (!stats[proveedorId]) {
+          const proveedor = proveedores.find((p: any) => p.id === proveedorId); // 👈 Cambiar state.proveedores por proveedores
+          stats[proveedorId] = {
+            id: proveedorId,
+            nombre: proveedor?.nombre || "Proveedor Desconocido",
+            totalGastado: 0,
+            compras: 0,
+            ultimaCompra: "",
+            productosComprados: new Set()
+          };
+        }
+        
+        stats[proveedorId].totalGastado += parseNum(compra.total || 0);
+        stats[proveedorId].compras++;
+        
+        // SEGURIDAD EXTRA PARA productos
+        const productos = compra.productos;
+        if (productos && Array.isArray(productos)) {
+          productos.forEach((producto: any) => {
+            if (producto && producto.nombre) {
+              stats[proveedorId].productosComprados.add(producto.nombre);
+            }
+          });
+        }
+        
+        // Mantener la fecha más reciente
+        if (compra.fecha_compra) {
+          if (!stats[proveedorId].ultimaCompra || compra.fecha_compra > stats[proveedorId].ultimaCompra) {
+            stats[proveedorId].ultimaCompra = compra.fecha_compra;
+          }
+        }
+      });
 
-  return Object.values(stats).map((stat: any) => ({
-    ...stat,
-    productosComprados: stat.productosComprados.size
-  }));
-}, [state.compras_proveedores, state.proveedores]);
+      return Object.values(stats).map((stat: any) => ({
+        ...stat,
+        productosComprados: stat.productosComprados.size
+      }));
+    } catch (error) {
+      console.error("💥 ERROR en gastosPorProveedor:", error);
+      return [];
+    }
+  }, [comprasProveedores, proveedores]); // 👈 Cambiar las dependencias
+
   async function agregarProveedor() {
     if (!nombreProveedor.trim()) return;
 
@@ -2939,7 +2961,8 @@ const gastosPorProveedor = useMemo(() => {
       id: "comp_" + Math.random().toString(36).slice(2, 8),
       proveedor_id: proveedorSeleccionado,
       productos: productosCompra,
-      total: productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total), 0),
+      // 👇👇👇 CORREGIR: Agregar seguridad en el reduce
+      total: productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total || 0), 0),
       fecha_compra: fechaCompra + "T00:00:00.000Z",
       numero_factura: numeroFactura.trim() || null,
       fecha_registro: todayISO()
@@ -2988,76 +3011,108 @@ const gastosPorProveedor = useMemo(() => {
     alert("✅ Compra registrada correctamente y costos actualizados");
   }
 
- function obtenerHistorialProveedor(proveedorId: string) {
-  const compras = state.compras_proveedores || []; // ← AGREGAR SEGURIDAD
-  return compras
-    .filter((compra: any) => compra.proveedor_id === proveedorId)
-    .sort((a: any, b: any) => new Date(b.fecha_compra).getTime() - new Date(a.fecha_compra).getTime());
-}
-  function calcularGastosDelMes(proveedorId: string) {
-  const historial = obtenerHistorialProveedor(proveedorId);
-  const ahora = new Date();
-  const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-  
-  return historial
-    .filter((compra: any) => new Date(compra.fecha_compra) >= inicioMes)
-    .reduce((total: number, compra: any) => total + parseNum(compra.total), 0);
-}
-
-// 👇👇👇 REEMPLAZAR LA FUNCIÓN IMPRIMIR HISTORIAL CON ESTA VERSIÓN CORREGIDA
-// 👇👇👇 REEMPLAZAR LA FUNCIÓN IMPRIMIR HISTORIAL CON ESTA VERSIÓN MEJORADA
-function imprimirHistorialCompra(proveedorId: string) {
-  try {
-    const proveedor = state.proveedores.find((p: any) => p.id === proveedorId);
-    if (!proveedor) {
-      alert("No se encontró información del proveedor");
-      return;
+  function obtenerHistorialProveedor(proveedorId: string) {
+    try {
+      const compras = comprasProveedores || []; // 👈 Cambiar state.compras_proveedores por comprasProveedores
+      return compras
+        .filter((compra: any) => compra && compra.proveedor_id === proveedorId)
+        .sort((a: any, b: any) => new Date(b.fecha_compra || 0).getTime() - new Date(a.fecha_compra || 0).getTime());
+    } catch (error) {
+      console.error("Error en obtenerHistorialProveedor:", error);
+      return [];
     }
-
-    // Obtener todas las compras del proveedor
-    const historialCompleto = obtenerHistorialProveedor(proveedorId);
-    if (historialCompleto.length === 0) {
-      alert("No hay compras registradas para este proveedor");
-      return;
-    }
-
-    // Filtrar compras del mes actual
-    const ahora = new Date();
-    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-    const comprasEsteMes = historialCompleto.filter((compra: any) => 
-      new Date(compra.fecha_compra) >= inicioMes
-    );
-
-    // Calcular totales
-    const totalMes = comprasEsteMes.reduce((sum: number, compra: any) => sum + parseNum(compra.total), 0);
-    const totalGeneral = historialCompleto.reduce((sum: number, compra: any) => sum + parseNum(compra.total), 0);
-
-    const dataImpresion = {
-      type: "HistorialProveedor",
-      proveedor: proveedor,
-      comprasEsteMes: comprasEsteMes,
-      historialCompleto: historialCompleto,
-      totalMes: totalMes,
-      totalGeneral: totalGeneral,
-      mesActual: new Date().toLocaleDateString('es-AR', { year: 'numeric', month: 'long' }),
-      fecha: new Date().toLocaleString("es-AR")
-    };
-
-    console.log("📄 Generando historial de compras:", dataImpresion);
-    
-    window.dispatchEvent(new CustomEvent("print-invoice", { 
-      detail: dataImpresion
-    } as any));
-    
-    setTimeout(() => {
-      window.print();
-    }, 100);
-    
-  } catch (error) {
-    console.error("❌ Error al generar PDF:", error);
-    alert("Error al generar el historial. Por favor, revisa la consola para más detalles.");
   }
-}
+
+  function calcularGastosDelMes(proveedorId: string) {
+    try {
+      const historial = obtenerHistorialProveedor(proveedorId);
+      const ahora = new Date();
+      const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+      
+      return historial
+        .filter((compra: any) => compra && compra.fecha_compra && new Date(compra.fecha_compra) >= inicioMes)
+        .reduce((total: number, compra: any) => total + parseNum(compra.total || 0), 0);
+    } catch (error) {
+      console.error("Error en calcularGastosDelMes:", error);
+      return 0;
+    }
+  }
+
+  function imprimirHistorialCompra(proveedorId: string) {
+    try {
+      const proveedor = proveedores.find((p: any) => p.id === proveedorId); // 👈 Cambiar state.proveedores por proveedores
+      if (!proveedor) {
+        alert("No se encontró información del proveedor");
+        return;
+      }
+
+      // Obtener todas las compras del proveedor
+      const historialCompleto = obtenerHistorialProveedor(proveedorId);
+      if (historialCompleto.length === 0) {
+        alert("No hay compras registradas para este proveedor");
+        return;
+      }
+
+      // Filtrar compras del mes actual
+      const ahora = new Date();
+      const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+      const comprasEsteMes = historialCompleto.filter((compra: any) => 
+        new Date(compra.fecha_compra) >= inicioMes
+      );
+
+      // Calcular totales
+      const totalMes = comprasEsteMes.reduce((sum: number, compra: any) => sum + parseNum(compra.total || 0), 0);
+      const totalGeneral = historialCompleto.reduce((sum: number, compra: any) => sum + parseNum(compra.total || 0), 0);
+
+      const dataImpresion = {
+        type: "HistorialProveedor",
+        proveedor: proveedor,
+        comprasEsteMes: comprasEsteMes,
+        historialCompleto: historialCompleto,
+        totalMes: totalMes,
+        totalGeneral: totalGeneral,
+        mesActual: new Date().toLocaleDateString('es-AR', { year: 'numeric', month: 'long' }),
+        fecha: new Date().toLocaleString("es-AR")
+      };
+
+      console.log("📄 Generando historial de compras:", dataImpresion);
+      
+      window.dispatchEvent(new CustomEvent("print-invoice", { 
+        detail: dataImpresion
+      } as any));
+      
+      setTimeout(() => {
+        window.print();
+      }, 100);
+      
+    } catch (error) {
+      console.error("❌ Error al generar PDF:", error);
+      alert("Error al generar el historial. Por favor, revisa la consola para más detalles.");
+    }
+  }
+
+  // 👇👇👇 AGREGAR ESTA VALIDACIÓN AL FINAL
+  // Si no hay datos, mostrar estado de carga
+  if (!Array.isArray(state.proveedores) || !Array.isArray(state.compras_proveedores)) {
+    return (
+      <div className="max-w-6xl mx-auto p-4">
+        <Card title="Cargando Proveedores...">
+          <div className="text-center py-8">
+            <div className="text-slate-400">Cargando datos de proveedores...</div>
+            <Button 
+              onClick={async () => {
+                const refreshedState = await loadFromSupabase(seedState());
+                setState(refreshedState);
+              }}
+              className="mt-4"
+            >
+              🔄 Recargar Datos
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
