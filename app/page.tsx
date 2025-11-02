@@ -2952,11 +2952,10 @@ function ProveedoresTab({ state, setState }: any) {
   }
 
   function obtenerHistorialProveedor(proveedorId: string) {
-    return (state.compras_proveedores || [])
-      .filter((compra: any) => compra.proveedor_id === proveedorId)
-      .sort((a: any, b: any) => new Date(b.fecha_compra).getTime() - new Date(a.fecha_compra).getTime());
-  }
-
+  return (state.compras_proveedores || [])
+    .filter((compra: any) => compra.proveedor_id === proveedorId)
+    .sort((a: any, b: any) => new Date(b.fecha_compra).getTime() - new Date(a.fecha_compra).getTime());
+}
   function calcularGastosDelMes(proveedorId: string) {
     const historial = obtenerHistorialProveedor(proveedorId);
     const ahora = new Date();
@@ -2968,42 +2967,57 @@ function ProveedoresTab({ state, setState }: any) {
   }
 
 // 👇👇👇 REEMPLAZAR LA FUNCIÓN IMPRIMIR HISTORIAL CON ESTA VERSIÓN CORREGIDA
-function imprimirHistorialCompra(compra: any) {
+// 👇👇👇 REEMPLAZAR LA FUNCIÓN IMPRIMIR HISTORIAL CON ESTA VERSIÓN MEJORADA
+function imprimirHistorialCompra(proveedorId: string) {
   try {
-    const proveedor = state.proveedores.find((p: any) => p.id === compra.proveedor_id);
-    
+    const proveedor = state.proveedores.find((p: any) => p.id === proveedorId);
     if (!proveedor) {
       alert("No se encontró información del proveedor");
       return;
     }
 
+    // Obtener todas las compras del proveedor
+    const historialCompleto = obtenerHistorialProveedor(proveedorId);
+    if (historialCompleto.length === 0) {
+      alert("No hay compras registradas para este proveedor");
+      return;
+    }
+
+    // Filtrar compras del mes actual
+    const ahora = new Date();
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    const comprasEsteMes = historialCompleto.filter((compra: any) => 
+      new Date(compra.fecha_compra) >= inicioMes
+    );
+
+    // Calcular totales
+    const totalMes = comprasEsteMes.reduce((sum: number, compra: any) => sum + parseNum(compra.total), 0);
+    const totalGeneral = historialCompleto.reduce((sum: number, compra: any) => sum + parseNum(compra.total), 0);
+
     const dataImpresion = {
-      type: "CompraProveedor",
-      compra: compra,
+      type: "HistorialProveedor",
       proveedor: proveedor,
-      fecha: new Date().toLocaleString("es-AR"),
-      items: compra.productos || [],
-      total: compra.total || 0
+      comprasEsteMes: comprasEsteMes,
+      historialCompleto: historialCompleto,
+      totalMes: totalMes,
+      totalGeneral: totalGeneral,
+      mesActual: new Date().toLocaleDateString('es-AR', { year: 'numeric', month: 'long' }),
+      fecha: new Date().toLocaleString("es-AR")
     };
 
-    console.log("📄 Generando PDF de compra:", dataImpresion);
+    console.log("📄 Generando historial de compras:", dataImpresion);
     
-    // Usar el mismo sistema de impresión que las facturas
     window.dispatchEvent(new CustomEvent("print-invoice", { 
-      detail: { 
-        ...dataImpresion,
-        type: "CompraProveedor"
-      } 
+      detail: dataImpresion
     } as any));
     
-    // Pequeño delay para asegurar que el DOM se actualice
     setTimeout(() => {
       window.print();
     }, 100);
     
   } catch (error) {
     console.error("❌ Error al generar PDF:", error);
-    alert("Error al generar el PDF. Por favor, revisa la consola para más detalles.");
+    alert("Error al generar el historial. Por favor, revisa la consola para más detalles.");
   }
 }
 
@@ -7252,90 +7266,165 @@ if (inv?.type === "Reporte") {
 }
   // 👇👇👇 PEGA ESTO JUSTO AQUÍ - ANTES de "DetalleDeuda"
 // ==== PLANTILLA: COMPRA DE PROVEEDOR ====
-if (inv?.type === "CompraProveedor") {
+// ==== PLANTILLA: HISTORIAL DE PROVEEDOR ====
+if (inv?.type === "HistorialProveedor") {
   const fmt = (n: number) => money(parseNum(n));
   
   return (
     <div className="only-print print-area p-14">
       <div className="max-w-[780px] mx-auto text-black">
+        {/* Encabezado */}
         <div className="flex items-start justify-between">
           <div>
-            <div style={{ fontWeight: 800, letterSpacing: 1 }}>COMPROBANTE DE COMPRA</div>
-            <div style={{ marginTop: 2 }}>MITOBICEL</div>
+            <div style={{ fontWeight: 800, letterSpacing: 1, fontSize: 24 }}>HISTORIAL DE COMPRAS</div>
+            <div style={{ marginTop: 2, fontSize: 16 }}>MITOBICEL</div>
           </div>
           <div className="text-right">
-            <div><b>Fecha:</b> {new Date(inv.compra.fecha_compra).toLocaleDateString("es-AR")}</div>
-            <div><b>N° Comprobante:</b> {inv.compra.id}</div>
-            {inv.compra.numero_factura && (
-              <div><b>N° Factura:</b> {inv.compra.numero_factura}</div>
-            )}
+            <div><b>Fecha:</b> {inv.fecha}</div>
+            <div><b>Proveedor:</b> {inv.proveedor.nombre}</div>
           </div>
         </div>
 
-        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+        <div style={{ borderTop: "2px solid #000", margin: "10px 0 8px" }} />
 
-        <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+        {/* Resumen de Totales */}
+        <div className="grid grid-cols-3 gap-4 mb-6" style={{ border: "2px solid #000", padding: 12 }}>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 20 }}>{fmt(inv.totalMes)}</div>
+            <div style={{ fontSize: 12 }}>Total {inv.mesActual}</div>
+          </div>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 20 }}>{inv.comprasEsteMes.length}</div>
+            <div style={{ fontSize: 12 }}>Compras este mes</div>
+          </div>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 20 }}>{fmt(inv.totalGeneral)}</div>
+            <div style={{ fontSize: 12 }}>Total General</div>
+          </div>
+        </div>
+
+        {/* Información del Proveedor */}
+        <div className="grid grid-cols-2 gap-4 text-sm mb-6" style={{ border: "1px solid #000", padding: 10 }}>
           <div>
-            <div style={{ fontWeight: 700 }}>Proveedor</div>
-            <div>{inv.proveedor.nombre}</div>
-            {inv.proveedor.contacto && (
-              <div className="text-xs text-slate-600">Contacto: {inv.proveedor.contacto}</div>
-            )}
-            {inv.proveedor.telefono && (
-              <div className="text-xs text-slate-600">Tel: {inv.proveedor.telefono}</div>
-            )}
+            <div style={{ fontWeight: 700 }}>Información del Proveedor</div>
+            <div><b>Nombre:</b> {inv.proveedor.nombre}</div>
+            {inv.proveedor.contacto && <div><b>Contacto:</b> {inv.proveedor.contacto}</div>}
+            {inv.proveedor.telefono && <div><b>Teléfono:</b> {inv.proveedor.telefono}</div>}
+            <div><b>Compras totales:</b> {inv.historialCompleto.length}</div>
           </div>
-          <div className="text-right">
-            <div style={{ fontWeight: 700 }}>Total de la Compra</div>
-            <div style={{ fontSize: "20px", fontWeight: "bold" }}>{fmt(inv.compra.total)}</div>
+          <div>
+            <div style={{ fontWeight: 700 }}>Resumen General</div>
+            <div><b>Primera compra:</b> {inv.historialCompleto.length > 0 ? 
+              new Date(inv.historialCompleto[inv.historialCompleto.length - 1].fecha_compra).toLocaleDateString('es-AR') : 'N/A'
+            }</div>
+            <div><b>Última compra:</b> {inv.historialCompleto.length > 0 ? 
+              new Date(inv.historialCompleto[0].fecha_compra).toLocaleDateString('es-AR') : 'N/A'
+            }</div>
+            <div><b>Promedio por compra:</b> {fmt(inv.totalGeneral / Math.max(inv.historialCompleto.length, 1))}</div>
           </div>
         </div>
 
-        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
-        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Productos Comprados</div>
-        
-        <table className="print-table text-sm">
-          <thead>
-            <tr>
-              <th style={{ width: "6%" }}>#</th>
-              <th>Descripción</th>
-              <th style={{ width: "12%" }}>Cantidad</th>
-              <th style={{ width: "18%" }}>Costo Unit.</th>
-              <th style={{ width: "18%" }}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inv.compra.productos.map((producto: any, i: number) => (
-              <tr key={i}>
-                <td style={{ textAlign: "right" }}>{i + 1}</td>
-                <td>
-                  {producto.nombre}
-                  <div style={{ fontSize: "10px", color: "#666", fontStyle: "italic" }}>
-                    {producto.seccion}
+        {/* Compras del Mes Actual */}
+        <div style={{ borderTop: "2px solid #000", margin: "16px 0 8px", paddingTop: 8 }}>
+          <div style={{ fontWeight: 800, fontSize: 18 }}>COMPRAS DE {inv.mesActual.toUpperCase()}</div>
+        </div>
+
+        {inv.comprasEsteMes.length === 0 ? (
+          <div className="text-center text-slate-500 p-4" style={{ border: "1px dashed #000" }}>
+            No hay compras registradas en {inv.mesActual}
+          </div>
+        ) : (
+          inv.comprasEsteMes.map((compra: any, index: number) => (
+            <div key={compra.id} style={{ 
+              border: "2px solid #000", 
+              marginBottom: 16, 
+              padding: 12,
+              pageBreakInside: 'avoid'
+            }}>
+              {/* Encabezado de la compra */}
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>
+                    Compra #{index + 1} - {new Date(compra.fecha_compra).toLocaleDateString('es-AR')}
                   </div>
-                </td>
-                <td style={{ textAlign: "right" }}>{parseNum(producto.cantidad)}</td>
-                <td style={{ textAlign: "right" }}>{fmt(parseNum(producto.costo_unitario))}</td>
-                <td style={{ textAlign: "right" }}>{fmt(parseNum(producto.total))}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>
-                Total de la Compra
-              </td>
-              <td style={{ textAlign: "right", fontWeight: 700 }}>{fmt(inv.compra.total)}</td>
-            </tr>
-          </tfoot>
-        </table>
+                  {compra.numero_factura && (
+                    <div style={{ fontSize: 12 }}><b>N° Factura:</b> {compra.numero_factura}</div>
+                  )}
+                  <div style={{ fontSize: 12 }}>
+                    <b>Registrado:</b> {new Date(compra.fecha_registro).toLocaleString('es-AR')}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div style={{ fontWeight: 700, fontSize: 18, color: "#059669" }}>
+                    {fmt(compra.total)}
+                  </div>
+                  <div style={{ fontSize: 12 }}>
+                    {compra.productos.length} producto(s)
+                  </div>
+                </div>
+              </div>
 
-        <div className="mt-6 text-center text-sm">
-          <div style={{ fontWeight: 700 }}>Comprobante de Compra a Proveedor</div>
-          <div>Documento interno para control de inventario</div>
+              {/* Detalle de productos */}
+              <table className="print-table" style={{ width: '100%', fontSize: 11 }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f0f0f0' }}>
+                    <th style={{ textAlign: 'left', padding: '6px', width: '40%' }}>Producto</th>
+                    <th style={{ textAlign: 'center', padding: '6px', width: '15%' }}>Sección</th>
+                    <th style={{ textAlign: 'center', padding: '6px', width: '12%' }}>Cantidad</th>
+                    <th style={{ textAlign: 'right', padding: '6px', width: '16%' }}>Costo Unit.</th>
+                    <th style={{ textAlign: 'right', padding: '6px', width: '17%' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {compra.productos.map((producto: any, idx: number) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid #ddd' }}>
+                      <td style={{ padding: '6px' }}>{producto.nombre}</td>
+                      <td style={{ textAlign: 'center', padding: '6px' }}>{producto.seccion}</td>
+                      <td style={{ textAlign: 'center', padding: '6px' }}>{producto.cantidad}</td>
+                      <td style={{ textAlign: 'right', padding: '6px' }}>{fmt(producto.costo_unitario)}</td>
+                      <td style={{ textAlign: 'right', padding: '6px', fontWeight: 600 }}>
+                        {fmt(producto.total)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ backgroundColor: '#f5f5f5', fontWeight: 700 }}>
+                    <td colSpan={4} style={{ textAlign: 'right', padding: '8px' }}>
+                      Total de esta compra:
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '8px' }}>
+                      {fmt(compra.total)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ))
+        )}
+
+        {/* Resumen Final */}
+        <div style={{ borderTop: "3px double #000", margin: "20px 0 10px", paddingTop: 12 }}>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div style={{ fontWeight: 700 }}>Resumen del Mes</div>
+              <div>• Compras realizadas: {inv.comprasEsteMes.length}</div>
+              <div>• Productos diferentes: {new Set(inv.comprasEsteMes.flatMap((c: any) => 
+                c.productos.map((p: any) => p.nombre))).size}</div>
+              <div>• Total gastado: <b>{fmt(inv.totalMes)}</b></div>
+            </div>
+            <div>
+              <div style={{ fontWeight: 700 }}>Resumen General</div>
+              <div>• Compras totales: {inv.historialCompleto.length}</div>
+              <div>• Promedio mensual: {fmt(inv.totalGeneral / Math.max(inv.historialCompleto.length, 1))}</div>
+              <div>• Total histórico: <b>{fmt(inv.totalGeneral)}</b></div>
+            </div>
+          </div>
         </div>
 
-        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+        <div className="mt-10 text-xs text-center" style={{ borderTop: '1px solid #000', paddingTop: 8 }}>
+          {APP_TITLE} • Generado el {new Date().toLocaleString("es-AR")}
+        </div>
       </div>
     </div>
   );
