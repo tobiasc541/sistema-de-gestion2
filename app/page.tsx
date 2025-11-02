@@ -3285,48 +3285,49 @@ function ProveedoresTab({ state, setState }: any) {
                 <th className="py-2 pr-4">Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
-              {gastosPorProveedor && gastosPorProveedor.map((prov: any) => (
-                <tr key={prov.id}>
-                  <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
-                  <td className="py-2 pr-4">
-                    <span className="text-red-400 font-semibold">
-                      {money(prov.totalGastado)}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-4">
-                    <span className="text-amber-400 font-semibold">
-                      {money(calcularGastosDelMes(prov.id))}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-4">{prov.compras}</td>
-                  <td className="py-2 pr-4">{prov.productosComprados}</td>
-                  <td className="py-2 pr-4">
-                    {prov.ultimaCompra ? new Date(prov.ultimaCompra).toLocaleDateString("es-AR") : "—"}
-                  </td>
-                  <td className="py-2 pr-4">
-                    <button
-                      onClick={() => {
-                        console.log("🖨️ Click en PDF para proveedor:", prov.id, prov.nombre);
-                        imprimirHistorialCompra(prov.id);
-                      }}
-                      className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 border border-blue-700 rounded"
-                      title="Ver historial en PDF"
-                    >
-                      📋 Ver PDF
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              
-              {(!gastosPorProveedor || gastosPorProveedor.length === 0) && (
-                <tr>
-                  <td colSpan={7} className="py-4 text-center text-slate-400">
-                    No hay compras registradas a proveedores
-                  </td>
-                </tr>
-              )}
-            </tbody>
+          <tbody className="divide-y divide-slate-800">
+  {/* ✅ REEMPLAZA ESTA PARTE SOLAMENTE */}
+  {gastosPorProveedor && Array.isArray(gastosPorProveedor) ? (
+    gastosPorProveedor.map((prov: any) => (
+      <tr key={prov.id}>
+        <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
+        <td className="py-2 pr-4">
+          <span className="text-red-400 font-semibold">
+            {money(prov.totalGastado)}
+          </span>
+        </td>
+        <td className="py-2 pr-4">
+          <span className="text-amber-400 font-semibold">
+            {money(calcularGastosDelMes(prov.id))}
+          </span>
+        </td>
+        <td className="py-2 pr-4">{prov.compras}</td>
+        <td className="py-2 pr-4">{prov.productosComprados}</td>
+        <td className="py-2 pr-4">
+          {prov.ultimaCompra ? new Date(prov.ultimaCompra).toLocaleDateString("es-AR") : "—"}
+        </td>
+        <td className="py-2 pr-4">
+          <button
+            onClick={() => {
+              console.log("🖨️ Click en PDF para proveedor:", prov.id, prov.nombre);
+              imprimirHistorialCompra(prov.id);
+            }}
+            className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 border border-blue-700 rounded"
+            title="Ver historial en PDF"
+          >
+            📋 Ver PDF
+          </button>
+        </td>
+      </tr>
+    ))
+  ) : (
+    <tr>
+      <td colSpan={7} className="py-4 text-center text-slate-400">
+        No hay compras registradas a proveedores
+      </td>
+    </tr>
+  )}
+</tbody>
           </table>
         </div>
       </Card>
