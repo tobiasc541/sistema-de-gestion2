@@ -3011,32 +3011,46 @@ function ProveedoresTab({ state, setState }: any) {
     alert("✅ Compra registrada correctamente y costos actualizados");
   }
 
-  function obtenerHistorialProveedor(proveedorId: string) {
-    try {
-      const compras = comprasProveedores || []; // 👈 Cambiar state.compras_proveedores por comprasProveedores
-      return compras
-        .filter((compra: any) => compra && compra.proveedor_id === proveedorId)
-        .sort((a: any, b: any) => new Date(b.fecha_compra || 0).getTime() - new Date(a.fecha_compra || 0).getTime());
-    } catch (error) {
-      console.error("Error en obtenerHistorialProveedor:", error);
-      return [];
-    }
-  }
+ function obtenerHistorialProveedor(proveedorId: string) {
+  try {
+    console.log("🔍 Obteniendo historial para proveedor:", proveedorId);
+    
+    // ✅ CORRECCIÓN: Usar state.compras_proveedores en lugar de comprasProveedores
+    const compras = state.compras_proveedores || [];
+    console.log("📋 Total de compras disponibles:", compras.length);
+    
+    const historial = compras
+      .filter((compra: any) => {
+        if (!compra || !compra.proveedor_id) return false;
+        return compra.proveedor_id === proveedorId;
+      })
+      .sort((a: any, b: any) => {
+        const fechaA = new Date(a.fecha_compra || 0).getTime();
+        const fechaB = new Date(b.fecha_compra || 0).getTime();
+        return fechaB - fechaA;
+      });
 
-  function calcularGastosDelMes(proveedorId: string) {
-    try {
-      const historial = obtenerHistorialProveedor(proveedorId);
-      const ahora = new Date();
-      const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-      
-      return historial
-        .filter((compra: any) => compra && compra.fecha_compra && new Date(compra.fecha_compra) >= inicioMes)
-        .reduce((total: number, compra: any) => total + parseNum(compra.total || 0), 0);
-    } catch (error) {
-      console.error("Error en calcularGastosDelMes:", error);
-      return 0;
-    }
+    console.log("📋 Historial encontrado:", historial.length, "compras");
+    return historial;
+  } catch (error) {
+    console.error("Error en obtenerHistorialProveedor:", error);
+    return [];
   }
+}
+ function calcularGastosDelMes(proveedorId: string) {
+  try {
+    const historial = obtenerHistorialProveedor(proveedorId);
+    const ahora = new Date();
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    
+    return historial
+      .filter((compra: any) => compra && compra.fecha_compra && new Date(compra.fecha_compra) >= inicioMes)
+      .reduce((total: number, compra: any) => total + parseNum(compra.total || 0), 0);
+  } catch (error) {
+    console.error("Error en calcularGastosDelMes:", error);
+    return 0;
+  }
+}
 
  function imprimirHistorialCompra(proveedorId: string) {
   try {
@@ -3048,8 +3062,15 @@ function ProveedoresTab({ state, setState }: any) {
       return;
     }
 
+    // ✅ CORRECCIÓN: Usar state.proveedores en lugar de proveedores
+    if (!state.proveedores || !Array.isArray(state.proveedores)) {
+      console.error("❌ Error: Array de proveedores no disponible");
+      alert("Error: No se pudo cargar la información de proveedores");
+      return;
+    }
+
     // Buscar el proveedor
-    const proveedor = proveedores.find((p: any) => p.id === proveedorId);
+    const proveedor = state.proveedores.find((p: any) => p && p.id === proveedorId);
 
     console.log("📋 Proveedor encontrado:", proveedor);
 
@@ -3108,7 +3129,7 @@ function ProveedoresTab({ state, setState }: any) {
       window.print();
     }, 500);
     
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Error al generar PDF:", error);
     alert("Error al generar el historial: " + error.message);
   }
