@@ -2760,6 +2760,7 @@ function ProveedoresTab({ state, setState }: any) {
   // Estados para registrar compras
   const [proveedorSeleccionado, setProveedorSeleccionado] = useState("");
   const [seccionCompra, setSeccionCompra] = useState("");
+  const [productoSeleccionado, setProductoSeleccionado] = useState("");
   const [productosCompra, setProductosCompra] = useState<any[]>([]);
   const [fechaCompra, setFechaCompra] = useState(new Date().toISOString().split('T')[0]);
   const [numeroFactura, setNumeroFactura] = useState("");
@@ -2778,16 +2779,13 @@ function ProveedoresTab({ state, setState }: any) {
   }, [state.products, seccionCompra]);
 
   function agregarProductoACompra() {
-    const productoSelect = document.getElementById("productoSelect") as HTMLSelectElement;
-    const productoId = productoSelect.value;
+    if (!productoSeleccionado) return;
     
-    if (!productoId) return;
-    
-    const producto = state.products.find((p: any) => p.id === productoId);
+    const producto = state.products.find((p: any) => p.id === productoSeleccionado);
     if (!producto) return;
     
     // Verificar si el producto ya está en la compra
-    const yaExiste = productosCompra.find((p: any) => p.id === productoId);
+    const yaExiste = productosCompra.find((p: any) => p.id === productoSeleccionado);
     if (yaExiste) {
       alert("Este producto ya está en la compra. Modificá la cantidad desde la lista.");
       return;
@@ -2803,7 +2801,7 @@ function ProveedoresTab({ state, setState }: any) {
     }]);
     
     // Limpiar selección
-    productoSelect.value = "";
+    setProductoSeleccionado("");
   }
 
   function actualizarProductoCompra(index: number, campo: string, valor: any) {
@@ -2847,7 +2845,11 @@ function ProveedoresTab({ state, setState }: any) {
       
       stats[proveedorId].totalGastado += parseNum(compra.total);
       stats[proveedorId].compras++;
-      stats[proveedorId].productosComprados.add(compra.productos[0]?.nombre); // Primer producto como referencia
+      
+      // Agregar todos los productos de la compra
+      compra.productos.forEach((producto: any) => {
+        stats[proveedorId].productosComprados.add(producto.nombre);
+      });
       
       // Mantener la fecha más reciente
       if (!stats[proveedorId].ultimaCompra || compra.fecha_compra > stats[proveedorId].ultimaCompra) {
@@ -2924,6 +2926,7 @@ function ProveedoresTab({ state, setState }: any) {
     // Limpiar formulario
     setProductosCompra([]);
     setSeccionCompra("");
+    setProductoSeleccionado("");
     setNumeroFactura("");
 
     if (hasSupabase) {
@@ -2932,11 +2935,12 @@ function ProveedoresTab({ state, setState }: any) {
       
       // Actualizar productos
       for (const productoCompra of productosCompra) {
+        const productoOriginal = state.products.find((p: any) => p.id === productoCompra.id);
         await supabase
           .from("products")
           .update({ 
             cost: productoCompra.costo_unitario,
-            stock: parseNum(state.products.find((p: any) => p.id === productoCompra.id)?.stock || 0) + parseNum(productoCompra.cantidad)
+            stock: parseNum(productoOriginal?.stock || 0) + parseNum(productoCompra.cantidad)
           })
           .eq("id", productoCompra.id);
       }
@@ -3031,7 +3035,8 @@ function ProveedoresTab({ state, setState }: any) {
             <div className="flex-1">
               <Select
                 label="Producto"
-                id="productoSelect"
+                value={productoSeleccionado}
+                onChange={setProductoSeleccionado}
                 options={[
                   { value: "", label: "— Seleccionar Producto —" },
                   ...productosFiltrados.map((p: any) => ({
@@ -3041,7 +3046,11 @@ function ProveedoresTab({ state, setState }: any) {
                 ]}
               />
             </div>
-            <Button onClick={agregarProductoACompra} tone="slate">
+            <Button 
+              onClick={agregarProductoACompra} 
+              tone="slate"
+              disabled={!productoSeleccionado}
+            >
               ➕
             </Button>
           </div>
@@ -3053,7 +3062,7 @@ function ProveedoresTab({ state, setState }: any) {
             <div className="text-sm font-semibold mb-2">Productos en la Compra:</div>
             <div className="space-y-2 max-h-60 overflow-y-auto">
               {productosCompra.map((producto, index) => (
-                <div key={index} className="grid grid-cols-12 gap-2 items-center p-2 border border-slate-700 rounded">
+                <div key={index} className="grid grid-cols-12 gap-2 items-center p-3 border border-slate-700 rounded-lg bg-slate-800/30">
                   <div className="col-span-4">
                     <div className="text-sm font-medium">{producto.nombre}</div>
                     <div className="text-xs text-slate-400">{producto.seccion}</div>
@@ -3072,19 +3081,28 @@ function ProveedoresTab({ state, setState }: any) {
                       onChange={(v: string) => actualizarProductoCompra(index, 'costo_unitario', v)}
                     />
                   </div>
-                  <div className="col-span-2 text-sm font-semibold text-emerald-400">
+                  <div className="col-span-2 text-sm font-semibold text-emerald-400 text-center">
                     {money(producto.total)}
                   </div>
-                  <div className="col-span-1">
+                  <div className="col-span-1 flex justify-center">
                     <button
                       onClick={() => eliminarProductoCompra(index)}
-                      className="text-red-400 hover:text-red-300"
+                      className="text-red-400 hover:text-red-300 text-lg"
+                      title="Eliminar producto"
                     >
                       ✕
                     </button>
                   </div>
                 </div>
               ))}
+            </div>
+            
+            {/* Total de la compra */}
+            <div className="mt-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold">Total de la Compra:</span>
+                <span className="text-lg font-bold text-emerald-400">{money(totalCompra)}</span>
+              </div>
             </div>
           </div>
         )}
@@ -3107,6 +3125,7 @@ function ProveedoresTab({ state, setState }: any) {
               onClick={registrarCompra} 
               disabled={!proveedorSeleccionado || productosCompra.length === 0}
               tone="emerald"
+              className="w-full"
             >
               💰 Registrar Compra ({money(totalCompra)})
             </Button>
@@ -3114,7 +3133,7 @@ function ProveedoresTab({ state, setState }: any) {
         </div>
       </Card>
 
-      {/* El resto del componente (Gastos por Proveedor y Lista de Proveedores) se mantiene igual */}
+      {/* El resto del componente se mantiene igual */}
       <Card title="📊 Gastos por Proveedor">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -3158,7 +3177,7 @@ function ProveedoresTab({ state, setState }: any) {
                         }
                         
                         // Mostrar historial en un modal simple
-                        const compraSeleccionada = historial[0]; // Podrías hacer un selector más avanzado
+                        const compraSeleccionada = historial[0];
                         imprimirHistorialCompra(compraSeleccionada);
                       }}
                       className="text-blue-400 hover:text-blue-300 text-sm"
