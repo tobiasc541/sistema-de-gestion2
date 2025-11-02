@@ -2965,21 +2965,45 @@ function ProveedoresTab({ state, setState }: any) {
       .reduce((total: number, compra: any) => total + parseNum(compra.total), 0);
   }
 
-  function imprimirHistorialCompra(compra: any) {
+// 👇👇👇 REEMPLAZAR LA FUNCIÓN IMPRIMIR HISTORIAL CON ESTA VERSIÓN CORREGIDA
+function imprimirHistorialCompra(compra: any) {
+  try {
     const proveedor = state.proveedores.find((p: any) => p.id === compra.proveedor_id);
     
+    if (!proveedor) {
+      alert("No se encontró información del proveedor");
+      return;
+    }
+
     const dataImpresion = {
       type: "CompraProveedor",
       compra: compra,
       proveedor: proveedor,
-      fecha: new Date().toLocaleString("es-AR")
+      fecha: new Date().toLocaleString("es-AR"),
+      items: compra.productos || [],
+      total: compra.total || 0
     };
 
-    window.dispatchEvent(new CustomEvent("print-invoice", { detail: dataImpresion } as any));
-    setTimeout(() => window.print(), 100);
+    console.log("📄 Generando PDF de compra:", dataImpresion);
+    
+    // Usar el mismo sistema de impresión que las facturas
+    window.dispatchEvent(new CustomEvent("print-invoice", { 
+      detail: { 
+        ...dataImpresion,
+        type: "CompraProveedor"
+      } 
+    } as any));
+    
+    // Pequeño delay para asegurar que el DOM se actualice
+    setTimeout(() => {
+      window.print();
+    }, 100);
+    
+  } catch (error) {
+    console.error("❌ Error al generar PDF:", error);
+    alert("Error al generar el PDF. Por favor, revisa la consola para más detalles.");
   }
-
-  const totalCompra = productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total), 0);
+}
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
@@ -7223,7 +7247,95 @@ if (inv?.type === "Reporte") {
   );
 }
   // 👇👇👇 PEGA ESTO JUSTO AQUÍ - ANTES de "DetalleDeuda"
+// ==== PLANTILLA: COMPRA DE PROVEEDOR ====
+if (inv?.type === "CompraProveedor") {
+  const fmt = (n: number) => money(parseNum(n));
+  
+  return (
+    <div className="only-print print-area p-14">
+      <div className="max-w-[780px] mx-auto text-black">
+        <div className="flex items-start justify-between">
+          <div>
+            <div style={{ fontWeight: 800, letterSpacing: 1 }}>COMPROBANTE DE COMPRA</div>
+            <div style={{ marginTop: 2 }}>MITOBICEL</div>
+          </div>
+          <div className="text-right">
+            <div><b>Fecha:</b> {new Date(inv.compra.fecha_compra).toLocaleDateString("es-AR")}</div>
+            <div><b>N° Comprobante:</b> {inv.compra.id}</div>
+            {inv.compra.numero_factura && (
+              <div><b>N° Factura:</b> {inv.compra.numero_factura}</div>
+            )}
+          </div>
+        </div>
 
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+
+        <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+          <div>
+            <div style={{ fontWeight: 700 }}>Proveedor</div>
+            <div>{inv.proveedor.nombre}</div>
+            {inv.proveedor.contacto && (
+              <div className="text-xs text-slate-600">Contacto: {inv.proveedor.contacto}</div>
+            )}
+            {inv.proveedor.telefono && (
+              <div className="text-xs text-slate-600">Tel: {inv.proveedor.telefono}</div>
+            )}
+          </div>
+          <div className="text-right">
+            <div style={{ fontWeight: 700 }}>Total de la Compra</div>
+            <div style={{ fontSize: "20px", fontWeight: "bold" }}>{fmt(inv.compra.total)}</div>
+          </div>
+        </div>
+
+        <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
+        <div className="text-sm" style={{ fontWeight: 700, marginBottom: 6 }}>Productos Comprados</div>
+        
+        <table className="print-table text-sm">
+          <thead>
+            <tr>
+              <th style={{ width: "6%" }}>#</th>
+              <th>Descripción</th>
+              <th style={{ width: "12%" }}>Cantidad</th>
+              <th style={{ width: "18%" }}>Costo Unit.</th>
+              <th style={{ width: "18%" }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {inv.compra.productos.map((producto: any, i: number) => (
+              <tr key={i}>
+                <td style={{ textAlign: "right" }}>{i + 1}</td>
+                <td>
+                  {producto.nombre}
+                  <div style={{ fontSize: "10px", color: "#666", fontStyle: "italic" }}>
+                    {producto.seccion}
+                  </div>
+                </td>
+                <td style={{ textAlign: "right" }}>{parseNum(producto.cantidad)}</td>
+                <td style={{ textAlign: "right" }}>{fmt(parseNum(producto.costo_unitario))}</td>
+                <td style={{ textAlign: "right" }}>{fmt(parseNum(producto.total))}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={4} style={{ textAlign: "right", fontWeight: 600 }}>
+                Total de la Compra
+              </td>
+              <td style={{ textAlign: "right", fontWeight: 700 }}>{fmt(inv.compra.total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div className="mt-6 text-center text-sm">
+          <div style={{ fontWeight: 700 }}>Comprobante de Compra a Proveedor</div>
+          <div>Documento interno para control de inventario</div>
+        </div>
+
+        <div className="mt-10 text-xs text-center">{APP_TITLE}</div>
+      </div>
+    </div>
+  );
+}
 // ==== PLANTILLA: IMPRESIÓN DE STOCK ====
 if (inv?.type === "StockProductos") {
   const fmt = (n: number) => money(parseNum(n));
