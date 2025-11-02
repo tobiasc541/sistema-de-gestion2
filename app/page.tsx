@@ -2751,6 +2751,179 @@ function ProductosTab({ state, setState, role }: any) {
     </div>
   );
 }
+/* ===== NUEVO COMPONENTE: ProveedoresTab ===== */
+function ProveedoresTab({ state, setState }: any) {
+  const [nombreProveedor, setNombreProveedor] = useState("");
+  const [contacto, setContacto] = useState("");
+  const [telefono, setTelefono] = useState("");
+
+  // Calcular estadísticas de ventas por proveedor
+  const estadisticasProveedores = useMemo(() => {
+    const stats: any = {};
+    
+    state.products.forEach((producto: any) => {
+      const proveedor = producto.proveedor || "Sin Proveedor";
+      
+      if (!stats[proveedor]) {
+        stats[proveedor] = {
+          nombre: proveedor,
+          productos: 0,
+          stockTotal: 0,
+          costoTotal: 0,
+          ventasTotal: 0,
+          productosVendidos: 0
+        };
+      }
+      
+      // Productos en stock
+      stats[proveedor].productos++;
+      stats[proveedor].stockTotal += parseNum(producto.stock);
+      stats[proveedor].costoTotal += parseNum(producto.cost) * parseNum(producto.stock);
+    });
+
+    // Calcular ventas desde facturas
+    state.invoices.forEach((factura: any) => {
+      factura.items?.forEach((item: any) => {
+        const producto = state.products.find((p: any) => p.id === item.productId);
+        if (producto) {
+          const proveedor = producto.proveedor || "Sin Proveedor";
+          if (stats[proveedor]) {
+            stats[proveedor].ventasTotal += parseNum(item.unitPrice) * parseNum(item.qty);
+            stats[proveedor].productosVendidos += parseNum(item.qty);
+          }
+        }
+      });
+    });
+
+    return Object.values(stats);
+  }, [state.products, state.invoices]);
+
+  async function agregarProveedor() {
+    if (!nombreProveedor.trim()) return;
+
+    const proveedor = {
+      id: "prov_" + Math.random().toString(36).slice(2, 8),
+      nombre: nombreProveedor.trim(),
+      contacto: contacto.trim(),
+      telefono: telefono.trim(),
+      fecha_creacion: todayISO(),
+    };
+
+    const st = clone(state);
+    st.proveedores = st.proveedores || [];
+    st.proveedores.push(proveedor);
+    setState(st);
+
+    // Limpiar formulario
+    setNombreProveedor("");
+    setContacto("");
+    setTelefono("");
+
+    if (hasSupabase) {
+      await supabase.from("proveedores").insert(proveedor);
+    }
+
+    alert("Proveedor agregado correctamente");
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card title="➕ Agregar Proveedor">
+        <div className="grid md:grid-cols-4 gap-3">
+          <Input 
+            label="Nombre del Proveedor" 
+            value={nombreProveedor} 
+            onChange={setNombreProveedor} 
+            placeholder="Ej: Distribuidora XYZ"
+          />
+          <Input 
+            label="Contacto" 
+            value={contacto} 
+            onChange={setContacto} 
+            placeholder="Nombre de contacto"
+          />
+          <Input 
+            label="Teléfono" 
+            value={telefono} 
+            onChange={setTelefono} 
+            placeholder="+54 9 11 1234-5678"
+          />
+          <div className="pt-6">
+            <Button onClick={agregarProveedor}>
+              Agregar Proveedor
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card title="📊 Estadísticas de Ventas por Proveedor">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-4">Proveedor</th>
+                <th className="py-2 pr-4">Productos</th>
+                <th className="py-2 pr-4">Stock Total</th>
+                <th className="py-2 pr-4">Costo Stock</th>
+                <th className="py-2 pr-4">Ventas Totales</th>
+                <th className="py-2 pr-4">Unid. Vendidas</th>
+                <th className="py-2 pr-4">Rentabilidad</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {estadisticasProveedores.map((prov: any, index: number) => (
+                <tr key={index}>
+                  <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
+                  <td className="py-2 pr-4">{prov.productos}</td>
+                  <td className="py-2 pr-4">{prov.stockTotal}</td>
+                  <td className="py-2 pr-4">{money(prov.costoTotal)}</td>
+                  <td className="py-2 pr-4">
+                    <span className="text-emerald-400 font-semibold">
+                      {money(prov.ventasTotal)}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4">{prov.productosVendidos}</td>
+                  <td className="py-2 pr-4">
+                    <span className={
+                      prov.ventasTotal > prov.costoTotal ? "text-emerald-400" : "text-amber-400"
+                    }>
+                      {money(prov.ventasTotal - prov.costoTotal)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card title="👥 Lista de Proveedores">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {(state.proveedores || []).map((prov: any) => (
+            <div key={prov.id} className="border border-slate-700 rounded-lg p-4">
+              <div className="font-semibold">{prov.nombre}</div>
+              {prov.contacto && (
+                <div className="text-sm text-slate-400">Contacto: {prov.contacto}</div>
+              )}
+              {prov.telefono && (
+                <div className="text-sm text-slate-400">Tel: {prov.telefono}</div>
+              )}
+              <div className="text-xs text-slate-500 mt-2">
+                Creado: {new Date(prov.fecha_creacion).toLocaleDateString("es-AR")}
+              </div>
+            </div>
+          ))}
+          
+          {(state.proveedores || []).length === 0 && (
+            <div className="col-span-3 text-center text-slate-400 py-8">
+              No hay proveedores registrados
+            </div>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
 
 function DeudoresTab({ state, setState, session }: any) {
 // ✅ FILTRAR MEJORADO: Incluye deuda manual Y deuda de facturas
@@ -8689,6 +8862,9 @@ export default function Page() {
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Productos" && (
               <ProductosTab state={state} setState={setState} role={session.role} />
             )}
+            {session.role === "admin" && tab === "Proveedores" && (
+  <ProveedoresTab state={state} setState={setState} />
+)}
 {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Deudores" && (
   <DeudoresTab state={state} setState={setState} session={session} /> // 👈 AGREGAR session={session}
 )}
