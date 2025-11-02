@@ -2790,6 +2790,7 @@ function ProductosTab({ state, setState, role }: any) {
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS ===== */
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS MEJORADO ===== */
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS MEJORADO ===== */
+/* ===== COMPONENTE: ProveedoresTab - VERSIÓN COMPLETAMENTE NUEVA ===== */
 function ProveedoresTab({ state, setState }: any) {
   const [nombreProveedor, setNombreProveedor] = useState("");
   const [contacto, setContacto] = useState("");
@@ -2806,17 +2807,17 @@ function ProveedoresTab({ state, setState }: any) {
   const [fechaCompra, setFechaCompra] = useState(new Date().toISOString().split('T')[0]);
   const [numeroFactura, setNumeroFactura] = useState("");
 
-  // 👇👇👇 AGREGAR VALIDACIONES DE SEGURIDAD AL INICIO
+  // Validaciones de seguridad
   const products = Array.isArray(state.products) ? state.products : [];
   const proveedores = Array.isArray(state.proveedores) ? state.proveedores : [];
   const comprasProveedores = Array.isArray(state.compras_proveedores) ? state.compras_proveedores : [];
 
-  // Obtener secciones únicas de productos - CON SEGURIDAD
+  // Obtener secciones únicas de productos
   const secciones = useMemo(() => {
     return ["Todas", ...Array.from(new Set(products.map((p: any) => p.section || "General")))];
   }, [products]);
 
-  // Filtrar productos por sección - CON SEGURIDAD
+  // Filtrar productos por sección
   const productosFiltrados = useMemo(() => {
     if (seccionCompra === "Todas" || !seccionCompra) {
       return products;
@@ -2824,23 +2825,18 @@ function ProveedoresTab({ state, setState }: any) {
     return products.filter((p: any) => p.section === seccionCompra);
   }, [products, seccionCompra]);
 
-  // 👇👇👇 FUNCIÓN CORREGIDA - SIN DUPLICACIONES
+  // FUNCIÓN NUEVA Y CORRECTA: Calcular gastos por proveedor
   const gastosPorProveedor = useMemo(() => {
     try {
-      console.log("📊 Calculando gastos por proveedor...");
       const compras = state.compras_proveedores || [];
       const proveedoresList = state.proveedores || [];
-      
-      console.log("Compras disponibles:", compras.length);
-      console.log("Proveedores disponibles:", proveedoresList.length);
 
       const stats: any = {};
       
       compras.forEach((compra: any) => {
-        if (!compra) return;
+        if (!compra || !compra.proveedor_id) return;
         
         const proveedorId = compra.proveedor_id;
-        if (!proveedorId) return;
         
         if (!stats[proveedorId]) {
           const proveedor = proveedoresList.find((p: any) => p.id === proveedorId);
@@ -2857,15 +2853,16 @@ function ProveedoresTab({ state, setState }: any) {
         stats[proveedorId].totalGastado += parseNum(compra.total || 0);
         stats[proveedorId].compras++;
         
-        const productos = compra.productos;
-        if (productos && Array.isArray(productos)) {
-          productos.forEach((producto: any) => {
+        // Agregar productos a la lista
+        if (compra.productos && Array.isArray(compra.productos)) {
+          compra.productos.forEach((producto: any) => {
             if (producto && producto.nombre) {
               stats[proveedorId].productosComprados.add(producto.nombre);
             }
           });
         }
         
+        // Actualizar última compra
         if (compra.fecha_compra) {
           if (!stats[proveedorId].ultimaCompra || compra.fecha_compra > stats[proveedorId].ultimaCompra) {
             stats[proveedorId].ultimaCompra = compra.fecha_compra;
@@ -2873,46 +2870,40 @@ function ProveedoresTab({ state, setState }: any) {
         }
       });
 
+      // Convertir a array y formatear
       const resultado = Object.values(stats).map((stat: any) => ({
         ...stat,
         productosComprados: stat.productosComprados.size
       }));
 
-      console.log("✅ Gastos por proveedor calculados:", resultado);
       return resultado;
     } catch (error) {
-      console.error("💥 ERROR en gastosPorProveedor:", error);
+      console.error("Error calculando gastos por proveedor:", error);
       return [];
     }
   }, [state.compras_proveedores, state.proveedores]);
 
-  // 👇👇👇 FUNCIÓN CORREGIDA - SIN DUPLICACIONES
+  // FUNCIÓN NUEVA Y CORRECTA: Obtener historial de proveedor
   function obtenerHistorialProveedor(proveedorId: string) {
     try {
-      console.log("🔍 Obteniendo historial para proveedor:", proveedorId);
-      
       const compras = state.compras_proveedores || [];
-      console.log("📋 Total de compras disponibles:", compras.length);
       
       const historial = compras
-        .filter((compra: any) => {
-          return compra && compra.proveedor_id === proveedorId;
-        })
+        .filter((compra: any) => compra && compra.proveedor_id === proveedorId)
         .sort((a: any, b: any) => {
           const fechaA = new Date(a.fecha_compra || 0).getTime();
           const fechaB = new Date(b.fecha_compra || 0).getTime();
-          return fechaB - fechaA;
+          return fechaB - fechaA; // Más reciente primero
         });
 
-      console.log("📋 Historial encontrado:", historial.length, "compras");
       return historial;
     } catch (error) {
-      console.error("Error en obtenerHistorialProveedor:", error);
+      console.error("Error obteniendo historial:", error);
       return [];
     }
   }
 
-  // 👇👇👇 FUNCIÓN CORREGIDA - SIN DUPLICACIONES
+  // FUNCIÓN NUEVA Y CORRECTA: Calcular gastos del mes
   function calcularGastosDelMes(proveedorId: string) {
     try {
       const historial = obtenerHistorialProveedor(proveedorId);
@@ -2923,56 +2914,46 @@ function ProveedoresTab({ state, setState }: any) {
         .filter((compra: any) => compra && compra.fecha_compra && new Date(compra.fecha_compra) >= inicioMes)
         .reduce((total: number, compra: any) => total + parseNum(compra.total || 0), 0);
     } catch (error) {
-      console.error("Error en calcularGastosDelMes:", error);
+      console.error("Error calculando gastos del mes:", error);
       return 0;
     }
   }
 
-  // 👇👇👇 FUNCIÓN CORREGIDA - ÚNICA VERSIÓN
+  // FUNCIÓN NUEVA Y CORRECTA: Imprimir historial - SIMPLIFICADA Y FUNCIONAL
   function imprimirHistorialCompra(proveedorId: string) {
     try {
-      console.log("🔍 INICIANDO IMPRESIÓN para proveedor:", proveedorId);
-      
       if (!proveedorId) {
         alert("❌ Error: ID de proveedor no válido");
         return;
       }
 
-      const proveedoresList = state.proveedores || [];
-      console.log("Proveedores disponibles:", proveedoresList.length);
-
-      const proveedor = proveedoresList.find((p: any) => p && p.id === proveedorId);
-      console.log("📋 Proveedor encontrado:", proveedor);
-
+      const proveedor = state.proveedores.find((p: any) => p && p.id === proveedorId);
       if (!proveedor) {
-        alert("❌ No se encontró información del proveedor con ID: " + proveedorId);
+        alert("❌ No se encontró información del proveedor");
         return;
       }
 
       const historialCompleto = obtenerHistorialProveedor(proveedorId);
-      console.log("📊 Historial completo:", historialCompleto);
-
       if (!historialCompleto || historialCompleto.length === 0) {
-        alert("ℹ️ No hay compras registradas para el proveedor: " + proveedor.nombre);
+        alert("ℹ️ No hay compras registradas para este proveedor");
         return;
       }
 
       const ahora = new Date();
       const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-      const comprasEsteMes = historialCompleto.filter((compra: any) => {
-        return compra && compra.fecha_compra && new Date(compra.fecha_compra) >= inicioMes;
-      });
+      const comprasEsteMes = historialCompleto.filter((compra: any) => 
+        compra && compra.fecha_compra && new Date(compra.fecha_compra) >= inicioMes
+      );
 
-      console.log("📅 Compras este mes:", comprasEsteMes);
+      const totalMes = comprasEsteMes.reduce((sum: number, compra: any) => 
+        sum + parseNum(compra.total || 0), 0
+      );
 
-      const totalMes = comprasEsteMes.reduce((sum: number, compra: any) => {
-        return sum + parseNum(compra.total || 0);
-      }, 0);
+      const totalGeneral = historialCompleto.reduce((sum: number, compra: any) => 
+        sum + parseNum(compra.total || 0), 0
+      );
 
-      const totalGeneral = historialCompleto.reduce((sum: number, compra: any) => {
-        return sum + parseNum(compra.total || 0);
-      }, 0);
-
+      // Datos para la impresión - estructura simple y clara
       const dataImpresion = {
         type: "HistorialProveedor",
         proveedor: proveedor,
@@ -2984,15 +2965,17 @@ function ProveedoresTab({ state, setState }: any) {
         fecha: new Date().toLocaleString("es-AR")
       };
 
-      console.log("📄 Datos para impresión:", dataImpresion);
+      console.log("📄 Generando PDF con datos:", dataImpresion);
       
+      // Disparar evento de impresión
       window.dispatchEvent(new CustomEvent("print-invoice", { 
         detail: dataImpresion
       }));
       
+      // Pequeño delay para asegurar que se procese el evento
       setTimeout(() => {
         window.print();
-      }, 500);
+      }, 300);
       
     } catch (error: any) {
       console.error("❌ Error al generar PDF:", error);
@@ -3000,6 +2983,7 @@ function ProveedoresTab({ state, setState }: any) {
     }
   }
 
+  // Funciones auxiliares para compras
   function agregarProductoACompra() {
     if (!productoSeleccionado) return;
     
@@ -3089,6 +3073,7 @@ function ProveedoresTab({ state, setState }: any) {
     st.compras_proveedores.push(compra);
     setState(st);
 
+    // Actualizar costos y stock de productos
     productosCompra.forEach(productoCompra => {
       const producto = st.products.find((p: any) => p.id === productoCompra.id);
       if (producto) {
@@ -3097,6 +3082,7 @@ function ProveedoresTab({ state, setState }: any) {
       }
     });
 
+    // Limpiar formulario
     setProductosCompra([]);
     setSeccionCompra("");
     setProductoSeleccionado("");
@@ -3105,6 +3091,7 @@ function ProveedoresTab({ state, setState }: any) {
     if (hasSupabase) {
       await supabase.from("compras_proveedores").insert(compra);
       
+      // Actualizar productos en Supabase
       for (const productoCompra of productosCompra) {
         const productoOriginal = state.products.find((p: any) => p.id === productoCompra.id);
         await supabase
@@ -3287,41 +3274,14 @@ function ProveedoresTab({ state, setState }: any) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {/* ✅ VERSIÓN DEFINITIVA - 100% SEGURA */}
-              {(() => {
-                // Validación extrema antes de renderizar
-                if (!gastosPorProveedor) {
-                  return (
-                    <tr>
-                      <td colSpan={7} className="py-4 text-center text-slate-400">
-                        Cargando datos...
-                      </td>
-                    </tr>
-                  );
-                }
-                
-                if (!Array.isArray(gastosPorProveedor)) {
-                  return (
-                    <tr>
-                      <td colSpan={7} className="py-4 text-center text-slate-400">
-                        Error en los datos
-                      </td>
-                    </tr>
-                  );
-                }
-                
-                if (gastosPorProveedor.length === 0) {
-                  return (
-                    <tr>
-                      <td colSpan={7} className="py-4 text-center text-slate-400">
-                        No hay compras registradas a proveedores
-                      </td>
-                    </tr>
-                  );
-                }
-                
-                // Solo si pasa todas las validaciones, hacer el map
-                return gastosPorProveedor.map((prov: any) => (
+              {gastosPorProveedor.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-4 text-center text-slate-400">
+                    No hay compras registradas a proveedores
+                  </td>
+                </tr>
+              ) : (
+                gastosPorProveedor.map((prov: any) => (
                   <tr key={prov.id}>
                     <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
                     <td className="py-2 pr-4">
@@ -3341,10 +3301,7 @@ function ProveedoresTab({ state, setState }: any) {
                     </td>
                     <td className="py-2 pr-4">
                       <button
-                        onClick={() => {
-                          console.log("🖨️ Click en PDF para proveedor:", prov.id, prov.nombre);
-                          imprimirHistorialCompra(prov.id);
-                        }}
+                        onClick={() => imprimirHistorialCompra(prov.id)}
                         className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 border border-blue-700 rounded"
                         title="Ver historial en PDF"
                       >
@@ -3352,8 +3309,8 @@ function ProveedoresTab({ state, setState }: any) {
                       </button>
                     </td>
                   </tr>
-                ));
-              })()}
+                ))
+              )}
             </tbody>
           </table>
         </div>
