@@ -2773,6 +2773,8 @@ function ProductosTab({ state, setState, role }: any) {
     </div>
   );
 }
+  }  // 👈👈👈 AGREGÁ ESTA LÍNEA - CIERRA EL COMPONENTE ProductosTab
+
 
 function DeudoresTab({ state, setState, session }: any) {
 // ✅ FILTRAR MEJORADO: Incluye deuda manual Y deuda de facturas
