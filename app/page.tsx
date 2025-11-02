@@ -1072,6 +1072,7 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     "Presupuestos",
     "Gastos y Devoluciones",
     "Cola",
+     "Proveedores",
     "Pedidos Online", // 👈 NUEVA PESTAÑA
     // 👇👇👇 AGREGAR ESTAS NUEVAS PESTAÑAS SOLO PARA ADMIN
   ...(role === "admin" ? [
@@ -1250,17 +1251,25 @@ function FacturacionTab({ state, setState, session }: any) {
   const [listFilter, setListFilter] = useState("Todas");
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<any[]>([]);
- const [payCash, setPayCash] = useState("");
-const [payTransf, setPayTransf] = useState("");
-const [payChange, setPayChange] = useState(""); // vuelto (opcional)
-const [alias, setAlias] = useState("");
+  const [payCash, setPayCash] = useState("");
+  const [payTransf, setPayTransf] = useState("");
+  const [payChange, setPayChange] = useState(""); // vuelto (opcional)
+  const [alias, setAlias] = useState("");
  
   // 👇👇👇 NUEVO ESTADO PARA EL BUSCADOR DE CLIENTES
   const [clienteSearch, setClienteSearch] = useState("");
 
+  // 👇👇👇 NUEVO ESTADO PARA EL BUSCADOR AVANZADO DE PRODUCTOS
+  const [busquedaAvanzada, setBusquedaAvanzada] = useState({
+    seccion: "",
+    nombre: "",
+    codigo: ""
+  });
+
   const client = state.clients.find((c: any) => c.id === clientId);
   const vendor = state.vendors.find((v: any) => v.id === vendorId);
-    // 👇👇👇 FUNCIÓN PARA FILTRAR CLIENTES
+  
+  // 👇👇👇 FUNCIÓN PARA FILTRAR CLIENTES
   const filteredClients = state.clients.filter((c: any) => {
     if (!clienteSearch.trim()) return true;
     
@@ -1274,13 +1283,20 @@ const [alias, setAlias] = useState("");
   const sections = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "Otros")))];
   const lists = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.list_label || "General")))];
 
+  // 👇👇👇 FILTRO MEJORADO DE PRODUCTOS CON BÚSQUEDA AVANZADA
   const filteredProducts = state.products.filter((p: any) => {
     const okS = sectionFilter === "Todas" || p.section === sectionFilter;
     const okL = listFilter === "Todas" || p.list_label === listFilter;
-    const okQ = !query || p.name.toLowerCase().includes(query.toLowerCase());
-    return okS && okL && okQ;
+    
+    // 👇 NUEVA LÓGICA DE BÚSQUEDA AVANZADA
+    const okNombre = !busquedaAvanzada.nombre || 
+      p.name.toLowerCase().includes(busquedaAvanzada.nombre.toLowerCase());
+    const okSeccion = !busquedaAvanzada.seccion || 
+      p.section.toLowerCase().includes(busquedaAvanzada.seccion.toLowerCase()) ||
+      p.id.toLowerCase().includes(busquedaAvanzada.seccion.toLowerCase());
+    
+    return okS && okL && okNombre && okSeccion;
   });
-
 
   function addItem(p: any) {
     const existing = items.find((it: any) => it.productId === p.id);
@@ -1547,45 +1563,145 @@ const toPay = Math.max(0, total - applied);
       </div>
 
       <Card title="Productos" className={isMobile ? 'text-sm' : ''}>
+        {/* 👇👇👇 NUEVO DISEÑO MEJORADO PARA FILTROS */}
         <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-4'} gap-2 mb-3`}>
-          <Select label="Sección" value={sectionFilter} onChange={setSectionFilter} options={sections.map((s: any) => ({ value: s, label: s }))} />
-          <Select label="Lista" value={listFilter} onChange={setListFilter} options={lists.map((s: any) => ({ value: s, label: s }))} />
-          <Input label="Buscar" value={query} onChange={setQuery} placeholder="Nombre del producto..." />
+          <Select 
+            label="Sección" 
+            value={sectionFilter} 
+            onChange={setSectionFilter} 
+            options={sections.map((s: any) => ({ value: s, label: s }))} 
+          />
+          <Select 
+            label="Lista" 
+            value={listFilter} 
+            onChange={setListFilter} 
+            options={lists.map((s: any) => ({ value: s, label: s }))} 
+          />
+          
+          {/* 👇👇👇 NUEVO BUSCADOR AVANZADO */}
+          <div className="space-y-1">
+            <Input 
+              label="Buscar por nombre" 
+              value={busquedaAvanzada.nombre}
+              onChange={(v: string) => setBusquedaAvanzada({...busquedaAvanzada, nombre: v})}
+              placeholder="Nombre del producto..."
+            />
+            <Input 
+              label="Buscar por código/sección" 
+              value={busquedaAvanzada.seccion}
+              onChange={(v: string) => setBusquedaAvanzada({...busquedaAvanzada, seccion: v})}
+              placeholder="Código o sección..."
+            />
+          </div>
+          
           <div className={`${isMobile ? 'text-center' : 'pt-6'}`}>
             <Chip tone="emerald">Productos: {filteredProducts.length}</Chip>
+            {(busquedaAvanzada.nombre || busquedaAvanzada.seccion) && (
+              <div className="text-xs text-slate-400 mt-1">
+                Búsqueda activa
+              </div>
+            )}
           </div>
         </div>
 
+        {/* 👇👇👇 BOTONES PARA LIMPIAR BÚSQUEDAS */}
+        {(busquedaAvanzada.nombre || busquedaAvanzada.seccion) && (
+          <div className="flex gap-2 mb-3">
+            <Button 
+              tone="slate" 
+              onClick={() => setBusquedaAvanzada({ nombre: "", seccion: "", codigo: "" })}
+              className="text-xs"
+            >
+              ✕ Limpiar búsquedas
+            </Button>
+            {(busquedaAvanzada.nombre || busquedaAvanzada.seccion) && (
+              <Chip tone="emerald">
+                Filtrado: {busquedaAvanzada.nombre ? `Nombre: "${busquedaAvanzada.nombre}"` : ''} 
+                {busquedaAvanzada.nombre && busquedaAvanzada.seccion ? ' + ' : ''}
+                {busquedaAvanzada.seccion ? `Sección: "${busquedaAvanzada.seccion}"` : ''}
+              </Chip>
+            )}
+          </div>
+        )}
+
         <div className={`${isMobile ? 'space-y-4' : 'grid md:grid-cols-2 gap-4'}`}>
           <div className="space-y-3">
-            {Object.entries(grouped).map(([sec, arr]: any) => (
-              <div key={sec} className="border border-slate-800 rounded-xl">
-                <div className="px-3 py-2 text-xs font-semibold bg-slate-800/70">{sec}</div>
-                <div className="divide-y divide-slate-800 max-h-[300px] overflow-y-auto">
-                  {arr.map((p: any) => (
-                    <div key={p.id} className="flex items-center justify-between px-3 py-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium truncate">{p.name}</div>
-                        <div className="text-xs text-slate-400 truncate">
-                          Mitobicel: {money(p.price1)} · ElshoppingDlc: {money(p.price2)}
-                        </div>
-                      </div>
-                      <Button onClick={() => addItem(p)} tone="slate" className="shrink-0 text-xs">
-                        {isMobile ? "+" : "Añadir"}
-                      </Button>
-                    </div>
-                  ))}
+            <div className="flex justify-between items-center">
+              <div className="text-sm font-semibold">Productos Disponibles</div>
+              {filteredProducts.length > 0 && (
+                <div className="text-xs text-slate-400">
+                  {filteredProducts.length} producto(s) encontrado(s)
                 </div>
+              )}
+            </div>
+            
+            {filteredProducts.length === 0 ? (
+              <div className="text-center p-6 border border-slate-800 rounded-xl">
+                <div className="text-slate-400">No se encontraron productos</div>
+                <div className="text-xs text-slate-500 mt-1">
+                  {busquedaAvanzada.nombre || busquedaAvanzada.seccion 
+                    ? "Intenta con otros términos de búsqueda" 
+                    : "No hay productos en esta categoría"}
+                </div>
+                {(busquedaAvanzada.nombre || busquedaAvanzada.seccion) && (
+                  <Button 
+                    tone="slate" 
+                    onClick={() => setBusquedaAvanzada({ nombre: "", seccion: "", codigo: "" })}
+                    className="mt-2 text-xs"
+                  >
+                    ✕ Limpiar búsquedas
+                  </Button>
+                )}
               </div>
-            ))}
+            ) : (
+              <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                {Object.entries(grouped).map(([sec, arr]: any) => (
+                  <div key={sec} className="border border-slate-800 rounded-xl">
+                    <div className="px-3 py-2 text-xs font-semibold bg-slate-800/70 flex justify-between items-center">
+                      <span>🗂️ {sec}</span>
+                      <span className="text-slate-400">{arr.length} producto(s)</span>
+                    </div>
+                    <div className="divide-y divide-slate-800">
+                      {arr.map((p: any) => (
+                        <div key={p.id} className="flex items-center justify-between px-3 py-2 hover:bg-slate-800/30 transition-colors">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium truncate">{p.name}</div>
+                            <div className="text-xs text-slate-400 truncate">
+                              Precio: {money(priceList === "1" ? p.price1 : p.price2)} · 
+                              Stock: {p.stock || 0}
+                              {p.stock_minimo && p.stock < p.stock_minimo && (
+                                <span className="text-amber-400 ml-1">⚠️ Bajo stock</span>
+                              )}
+                            </div>
+                          </div>
+                          <Button 
+                            onClick={() => addItem(p)} 
+                            tone="slate" 
+                            className="shrink-0 text-xs"
+                            disabled={parseNum(p.stock) <= 0}
+                          >
+                            {parseNum(p.stock) <= 0 ? "Sin stock" : (isMobile ? "+" : "Añadir")}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-3">
-            <div className="text-sm font-semibold">Carrito</div>
+            <div className="text-sm font-semibold">Carrito ({items.length} producto(s))</div>
             <div className="rounded-xl border border-slate-800 divide-y divide-slate-800 max-h-[400px] overflow-y-auto">
-              {items.length === 0 && <div className="p-3 text-sm text-slate-400 text-center">Vacío</div>}
+              {items.length === 0 && (
+                <div className="p-6 text-center text-slate-400">
+                  <div>🛒 El carrito está vacío</div>
+                  <div className="text-xs mt-1">Agregá productos del listado</div>
+                </div>
+              )}
               {items.map((it, idx) => (
-                <div key={idx} className="p-3">
+                <div key={idx} className="p-3 hover:bg-slate-800/20 transition-colors">
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">{it.name}</div>
@@ -1593,7 +1709,8 @@ const toPay = Math.max(0, total - applied);
                     </div>
                     <button 
                       onClick={() => setItems(items.filter((_: any, i: number) => i !== idx))}
-                      className="text-red-400 hover:text-red-300 ml-2"
+                      className="text-red-400 hover:text-red-300 ml-2 flex-shrink-0"
+                      title="Eliminar producto"
                     >
                       ✕
                     </button>
@@ -1619,10 +1736,21 @@ const toPay = Math.max(0, total - applied);
                     />
                   </div>
                   <div className="text-right text-xs text-slate-300 pt-1">
-                    Subtotal: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                    Subtotal: <span className="font-semibold">
+                      {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                    </span>
                   </div>
                 </div>
               ))}
+              
+              {items.length > 0 && (
+                <div className="p-3 bg-slate-800/50 border-t border-slate-700">
+                  <div className="flex justify-between items-center font-semibold">
+                    <span>Total del Carrito:</span>
+                    <span className="text-lg">{money(total)}</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2099,6 +2227,74 @@ function ProductosTab({ state, setState, role }: any) {
   const [stockMinimo, setStockMinimo] = useState("");
   const [cost, setCost] = useState("");
   const [editando, setEditando] = useState<string | null>(null);
+  function ProductosTab({ state, setState, role }: any) {
+  const [name, setName] = useState("");
+  const [section, setSection] = useState("");
+  const [price1, setPrice1] = useState("");
+  const [price2, setPrice2] = useState("");
+  const [stock, setStock] = useState("");
+  const [stockMinimo, setStockMinimo] = useState("");
+  const [cost, setCost] = useState("");
+  const [editando, setEditando] = useState<string | null>(null);
+  
+  // 👇👇👇 PEGA ESTOS NUEVOS ESTADOS AQUÍ
+  const [ingresoStock, setIngresoStock] = useState({ 
+    productoId: "", 
+    cantidad: "", 
+    costo: "" 
+  });
+
+  // 👇👇👇 ESTADOS PARA IMPRESIÓN
+  const [filtroImpresion, setFiltroImpresion] = useState("todos");
+  const [seccionImpresion, setSeccionImpresion] = useState("Todas");
+
+  // 👇👇👇 FUNCIÓN PARA IMPRIMIR STOCK
+  function imprimirStockCompleto() {
+    let productosFiltrados = state.products;
+    
+    // Aplicar filtros
+    if (filtroImpresion === "faltante") {
+      productosFiltrados = state.products.filter((p: any) => 
+        parseNum(p.stock) < parseNum(p.stock_minimo || 0)
+      );
+    }
+    
+    if (seccionImpresion !== "Todas") {
+      productosFiltrados = productosFiltrados.filter((p: any) => 
+        p.section === seccionImpresion
+      );
+    }
+    
+    // Ordenar por sección y nombre
+    productosFiltrados = productosFiltrados.sort((a: any, b: any) => {
+      if (a.section !== b.section) {
+        return a.section.localeCompare(b.section);
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    const dataImpresion = {
+      type: "StockProductos",
+      titulo: filtroImpresion === "faltante" ? "STOCK FALTANTE" : "STOCK COMPLETO",
+      filtroSeccion: seccionImpresion,
+      productos: productosFiltrados,
+      totalProductos: productosFiltrados.length,
+      stockTotal: productosFiltrados.reduce((sum: number, p: any) => sum + parseNum(p.stock), 0),
+      costoTotal: productosFiltrados.reduce((sum: number, p: any) => 
+        sum + (parseNum(p.stock) * parseNum(p.cost || 0)), 0),
+      fecha: new Date().toLocaleString("es-AR")
+    };
+
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: dataImpresion } as any));
+    setTimeout(() => window.print(), 100);
+  }
+
+  // 👆👆👆 HASTA AQUÍ EL CÓDIGO NUEVO
+
+  // ... el resto de tu código existente continúa aquí ...
+  const productosBajoStock = state.products.filter(
+    (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
+  );
   
   // 👇👇👇 ESTADO PARA INGRESO DE STOCK
   const [ingresoStock, setIngresoStock] = useState({ 
@@ -2537,6 +2733,41 @@ function ProductosTab({ state, setState, role }: any) {
               })}
             </tbody>
           </table>
+        </div>
+      </Card>
+            {/* 🖨️ SISTEMA DE IMPRESIÓN DE STOCK */}
+      <Card title="🖨️ Impresión de Stock">
+        <div className="grid md:grid-cols-4 gap-3">
+          <Select
+            label="Tipo de Listado"
+            value={filtroImpresion}
+            onChange={setFiltroImpresion}
+            options={[
+              { value: "todos", label: "Stock Completo" },
+              { value: "faltante", label: "Solo Faltante" },
+            ]}
+          />
+          
+          <Select
+            label="Filtrar por Sección"
+            value={seccionImpresion}
+            onChange={setSeccionImpresion}
+            options={[
+              { value: "Todas", label: "Todas las Secciones" },
+              ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))
+                .map((s: string) => ({ value: s, label: s }))
+            ]}
+          />
+          
+          <div className="pt-6">
+            <Button onClick={imprimirStockCompleto} tone="emerald">
+              📄 Imprimir Listado
+            </Button>
+          </div>
+          
+          <div className="pt-6 text-sm text-slate-400">
+            {filtroImpresion === "faltante" ? "Imprimir productos con stock bajo" : "Imprimir todo el stock"}
+          </div>
         </div>
       </Card>
     </div>
@@ -6537,6 +6768,148 @@ if (inv?.type === "Reporte") {
     </div>
   );
 }
+  // 👇👇👇 PEGA ESTO JUSTO AQUÍ - ANTES de "DetalleDeuda"
+
+// ==== PLANTILLA: IMPRESIÓN DE STOCK ====
+if (inv?.type === "StockProductos") {
+  const fmt = (n: number) => money(parseNum(n));
+  
+  return (
+    <div className="only-print print-area p-10">
+      <div className="max-w-[780px] mx-auto text-black">
+        <div className="text-center mb-4">
+          <div style={{ fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>
+            {inv.titulo}
+          </div>
+          <div style={{ fontSize: 16, marginTop: 4 }}>MITOBICEL</div>
+          <div style={{ fontSize: 12, marginTop: 8 }}>
+            {inv.filtroSeccion !== "Todas" ? `Sección: ${inv.filtroSeccion} • ` : ""}
+            Fecha: {inv.fecha}
+          </div>
+        </div>
+
+        <div style={{ borderTop: "2px solid #000", margin: "8px 0 12px" }} />
+
+        {/* RESUMEN */}
+        <div className="grid grid-cols-4 gap-3 text-sm mb-6" style={{ border: "1px solid #000", padding: 10 }}>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 16 }}>{inv.totalProductos}</div>
+            <div>Productos</div>
+          </div>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 16 }}>{inv.stockTotal}</div>
+            <div>Stock Total</div>
+          </div>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 16 }}>{fmt(inv.costoTotal)}</div>
+            <div>Costo Total</div>
+          </div>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 16 }}>
+              {fmt(inv.productos.reduce((sum: number, p: any) => 
+                sum + (parseNum(p.stock) * parseNum(p.price1 || 0)), 0))}
+            </div>
+            <div>Valor Venta</div>
+          </div>
+        </div>
+
+        {/* LISTADO POR SECCIÓN */}
+        {(() => {
+          const productosPorSeccion = inv.productos.reduce((acc: any, producto: any) => {
+            const seccion = producto.section || "General";
+            if (!acc[seccion]) acc[seccion] = [];
+            acc[seccion].push(producto);
+            return acc;
+          }, {});
+
+          return Object.entries(productosPorSeccion).map(([seccion, productos]: [string, any]) => (
+            <div key={seccion} style={{ marginBottom: 20, pageBreakInside: 'avoid' }}>
+              <div style={{ 
+                backgroundColor: '#f0f0f0', 
+                padding: '6px 10px', 
+                fontWeight: 700, 
+                border: '1px solid #000',
+                marginBottom: 8 
+              }}>
+                🗂️ {seccion}
+              </div>
+              
+              <table className="print-table" style={{ width: '100%', fontSize: 11 }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#e5e5e5' }}>
+                    <th style={{ textAlign: 'left', padding: '4px 6px', width: '50%' }}>Producto</th>
+                    <th style={{ textAlign: 'center', padding: '4px 6px', width: '12%' }}>Stock</th>
+                    <th style={{ textAlign: 'center', padding: '4px 6px', width: '12%' }}>Mínimo</th>
+                    <th style={{ textAlign: 'right', padding: '4px 6px', width: '13%' }}>Costo</th>
+                    <th style={{ textAlign: 'right', padding: '4px 6px', width: '13%' }}>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productos.map((producto: any, idx: number) => {
+                    const stock = parseNum(producto.stock);
+                    const minimo = parseNum(producto.stock_minimo || 0);
+                    const costo = parseNum(producto.cost || 0);
+                    const precio = parseNum(producto.price1 || 0);
+                    
+                    return (
+                      <tr key={producto.id} style={{ 
+                        borderBottom: '1px solid #ddd',
+                        backgroundColor: stock < minimo ? '#fff0f0' : 'transparent'
+                      }}>
+                        <td style={{ padding: '4px 6px' }}>
+                          {producto.name}
+                          {stock < minimo && (
+                            <span style={{ color: '#ff4444', fontSize: 9, marginLeft: 4 }}>
+                              ⚠️ BAJO STOCK
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '4px 6px', fontWeight: stock < minimo ? 700 : 400 }}>
+                          {stock}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '4px 6px' }}>
+                          {minimo || "-"}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '4px 6px' }}>
+                          {fmt(costo)}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600 }}>
+                          {fmt(stock * precio)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ backgroundColor: '#f5f5f5', fontWeight: 700 }}>
+                    <td style={{ padding: '6px' }}>Total {seccion}:</td>
+                    <td style={{ textAlign: 'center', padding: '6px' }}>
+                      {productos.reduce((sum: number, p: any) => sum + parseNum(p.stock), 0)}
+                    </td>
+                    <td style={{ textAlign: 'center', padding: '6px' }}>-</td>
+                    <td style={{ textAlign: 'right', padding: '6px' }}>
+                      {fmt(productos.reduce((sum: number, p: any) => 
+                        sum + (parseNum(p.stock) * parseNum(p.cost || 0)), 0))}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '6px' }}>
+                      {fmt(productos.reduce((sum: number, p: any) => 
+                        sum + (parseNum(p.stock) * parseNum(p.price1 || 0)), 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ));
+        })()}
+
+        <div className="mt-8 text-center text-xs" style={{ borderTop: '1px solid #000', paddingTop: 8 }}>
+          {APP_TITLE} • Generado el {new Date().toLocaleString("es-AR")}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 // ==== PLANTILLA: DETALLE DE DEUDAS ====
 if (inv?.type === "DetalleDeuda") {
