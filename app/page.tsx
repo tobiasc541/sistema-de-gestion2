@@ -3348,12 +3348,16 @@ function ProveedoresTab({ state, setState }: any) {
             title="Ver historial en PDF"
           >
             📋 Ver PDF
-          </button>
-        </td>
-      </tr>
-    ));
-  })()}
-</tbody>
+                         </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       <Card title="👥 Lista de Proveedores">
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
