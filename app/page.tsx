@@ -170,18 +170,17 @@ function seedState() {
     budgets: [] as any[],
     gastos: [] as any[],
     devoluciones: [] as any[],
-    debt_payments: [] as DebtPayment[], // 👈 ESTA LÍNEA DEBE USAR EL TIPO DebtPayment
+    debt_payments: [] as DebtPayment[],
     queue: [] as any[],
     gabiFunds: [] as any[],
     pedidos: [] as Pedido[],
     empleados: [] as Empleado[],
     registros_horarios: [] as RegistroHorario[],
     vales_empleados: [] as ValeEmpleado[],
-    proveedores: [] as any[],
-    compras_proveedores: [] as any[],
+    proveedores: [] as any[], // Asegurar inicialización
+    compras_proveedores: [] as any[], // Asegurar inicialización
   };
 }
-
 
 async function loadFromSupabase(fallback: any) {
   if (!hasSupabase) return fallback;
@@ -238,29 +237,35 @@ if (gabiErr) {
   out.meta.gabiFundsByDate = gabiFundsByDate;
   out.gabiFunds = gabiFundsData;
 }
-   // 👇👇👇 AGREGAR AQUÍ - Cargar proveedores
-  const { data: proveedores, error: provErr } = await supabase
-    .from("proveedores")
-    .select("*")
-    .order("nombre");
+ // 👇👇👇 AGREGAR AQUÍ - Cargar proveedores
+const { data: proveedores, error: provErr } = await supabase
+  .from("proveedores")
+  .select("*")
+  .order("nombre");
 
-  if (provErr) {
-    console.error("SELECT proveedores:", provErr);
-  } else if (proveedores) {
-    out.proveedores = proveedores;
-  }
+if (provErr) {
+  console.error("❌ ERROR cargando proveedores:", provErr);
+  // Inicializar array vacío en caso de error
+  out.proveedores = [];
+} else {
+  console.log("✅ Proveedores cargados:", proveedores?.length || 0);
+  out.proveedores = proveedores || [];
+}
 
-  // 👇👇👇 AGREGAR AQUÍ - Cargar compras a proveedores
-  const { data: comprasProveedores, error: compErr } = await supabase
-    .from("compras_proveedores")
-    .select("*")
-    .order("fecha_compra", { ascending: false });
+// 👇👇👇 AGREGAR AQUÍ - Cargar compras a proveedores
+const { data: comprasProveedores, error: compErr } = await supabase
+  .from("compras_proveedores")
+  .select("*")
+  .order("fecha_compra", { ascending: false });
 
-  if (compErr) {
-    console.error("SELECT compras_proveedores:", compErr);
-  } else if (comprasProveedores) {
-    out.compras_proveedores = comprasProveedores;
-  }
+if (compErr) {
+  console.error("❌ ERROR cargando compras_proveedores:", compErr);
+  // Inicializar array vacío en caso de error
+  out.compras_proveedores = [];
+} else {
+  console.log("✅ Compras a proveedores cargadas:", comprasProveedores?.length || 0);
+  out.compras_proveedores = comprasProveedores || [];
+}
 
   // vendors (esto ya existe, DEJARLO COMO ESTÁ)
   const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
