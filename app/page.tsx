@@ -2826,99 +2826,132 @@ function ProveedoresTab({ state, setState }: any) {
   }, [products, seccionCompra]);
 
   // FUNCIÓN NUEVA Y CORRECTA: Calcular gastos por proveedor
-  const gastosPorProveedor = useMemo(() => {
-    try {
-      const compras = state.compras_proveedores || [];
-      const proveedoresList = state.proveedores || [];
+ // 👇👇👇 ACTUALIZAR esta función también
+const gastosPorProveedor = useMemo(() => {
+  try {
+    const compras = state.compras_proveedores || [];
+    const proveedoresList = state.proveedores || [];
 
-      const stats: any = {};
+    const stats: any = {};
+    
+    compras.forEach((compra: any) => {
+      if (!compra || !compra.proveedor_id) return;
       
-      compras.forEach((compra: any) => {
-        if (!compra || !compra.proveedor_id) return;
-        
-        const proveedorId = compra.proveedor_id;
-        
-        if (!stats[proveedorId]) {
-          const proveedor = proveedoresList.find((p: any) => p.id === proveedorId);
-          stats[proveedorId] = {
-            id: proveedorId,
-            nombre: proveedor?.nombre || "Proveedor Desconocido",
-            totalGastado: 0,
-            compras: 0,
-            ultimaCompra: "",
-            productosComprados: new Set()
-          };
+      const proveedorId = compra.proveedor_id;
+      
+      if (!stats[proveedorId]) {
+        const proveedor = proveedoresList.find((p: any) => p.id === proveedorId);
+        stats[proveedorId] = {
+          id: proveedorId,
+          nombre: proveedor?.nombre || "Proveedor Desconocido",
+          totalGastado: 0,
+          compras: 0,
+          ultimaCompra: "",
+          productosComprados: new Set()
+        };
+      }
+      
+      stats[proveedorId].totalGastado += parseNum(compra.total || 0);
+      stats[proveedorId].compras++;
+      
+      // ✅ ADAPTADO a estructura real
+      if (compra.producto) {
+        stats[proveedorId].productosComprados.add(compra.producto);
+      }
+      
+      // Actualizar última compra
+      if (compra.fecha_compra) {
+        if (!stats[proveedorId].ultimaCompra || compra.fecha_compra > stats[proveedorId].ultimaCompra) {
+          stats[proveedorId].ultimaCompra = compra.fecha_compra;
         }
-        
-        stats[proveedorId].totalGastado += parseNum(compra.total || 0);
-        stats[proveedorId].compras++;
-        
-        // Agregar productos a la lista
-        if (compra.productos && Array.isArray(compra.productos)) {
-          compra.productos.forEach((producto: any) => {
-            if (producto && producto.nombre) {
-              stats[proveedorId].productosComprados.add(producto.nombre);
-            }
-          });
-        }
-        
-        // Actualizar última compra
-        if (compra.fecha_compra) {
-          if (!stats[proveedorId].ultimaCompra || compra.fecha_compra > stats[proveedorId].ultimaCompra) {
-            stats[proveedorId].ultimaCompra = compra.fecha_compra;
-          }
-        }
-      });
+      }
+    });
 
-      // Convertir a array y formatear
-      const resultado = Object.values(stats).map((stat: any) => ({
-        ...stat,
-        productosComprados: stat.productosComprados.size
-      }));
+    // Convertir a array y formatear
+    const resultado = Object.values(stats).map((stat: any) => ({
+      ...stat,
+      productosComprados: stat.productosComprados.size
+    }));
 
-      return resultado;
-    } catch (error) {
-      console.error("Error calculando gastos por proveedor:", error);
-      return [];
-    }
-  }, [state.compras_proveedores, state.proveedores]);
+    return resultado;
+  } catch (error) {
+    console.error("Error calculando gastos por proveedor:", error);
+    return [];
+  }
+}, [state.compras_proveedores, state.proveedores]);
 
   // FUNCIÓN NUEVA Y CORRECTA: Obtener historial de proveedor
-  function obtenerHistorialProveedor(proveedorId: string) {
-    try {
-      const compras = state.compras_proveedores || [];
-      
-      const historial = compras
-        .filter((compra: any) => compra && compra.proveedor_id === proveedorId)
-        .sort((a: any, b: any) => {
-          const fechaA = new Date(a.fecha_compra || 0).getTime();
-          const fechaB = new Date(b.fecha_compra || 0).getTime();
-          return fechaB - fechaA; // Más reciente primero
-        });
+ // 👇👇👇 FUNCIÓN CORREGIDA para tu estructura REAL de tabla
+function obtenerHistorialProveedor(proveedorId: string) {
+  try {
+    const compras = state.compras_proveedores || [];
+    
+    console.log('🔍 Compras encontradas:', compras.length);
+    
+    const historial = compras
+      .filter((compra: any) => {
+        if (!compra || !compra.proveedor_id) return false;
+        return compra.proveedor_id === proveedorId;
+      })
+      .sort((a: any, b: any) => {
+        const fechaA = new Date(a.fecha_compra || 0).getTime();
+        const fechaB = new Date(b.fecha_compra || 0).getTime();
+        return fechaB - fechaA; // Más reciente primero
+      })
+      .map((compra: any) => {
+        // ✅ ADAPTADO a tu estructura REAL
+        return {
+          id: compra.id,
+          proveedor_id: compra.proveedor_id,
+          productos: [
+            {
+              nombre: compra.producto || "Producto no especificado",
+              seccion: compra.seccion || "General",
+              cantidad: parseNum(compra.cantidad || 0),
+              costo_unitario: parseNum(compra.costo_unitario || 0),
+              total: parseNum(compra.total || 0)
+            }
+          ],
+          total: parseNum(compra.total || 0),
+          fecha_compra: compra.fecha_compra,
+          numero_factura: compra.numero_factura,
+          fecha_registro: compra.fecha_registro
+        };
+      });
 
-      return historial;
-    } catch (error) {
-      console.error("Error obteniendo historial:", error);
-      return [];
-    }
+    console.log('📦 Historial procesado para', proveedorId, ':', historial);
+    return historial;
+  } catch (error) {
+    console.error("❌ Error en obtenerHistorialProveedor:", error);
+    return [];
   }
+}
 
-  // FUNCIÓN NUEVA Y CORRECTA: Calcular gastos del mes
-  function calcularGastosDelMes(proveedorId: string) {
-    try {
-      const historial = obtenerHistorialProveedor(proveedorId);
-      const ahora = new Date();
-      const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-      
-      return historial
-        .filter((compra: any) => compra && compra.fecha_compra && new Date(compra.fecha_compra) >= inicioMes)
-        .reduce((total: number, compra: any) => total + parseNum(compra.total || 0), 0);
-    } catch (error) {
-      console.error("Error calculando gastos del mes:", error);
-      return 0;
-    }
+ // 👇👇👇 ACTUALIZAR esta función también
+function calcularGastosDelMes(proveedorId: string) {
+  try {
+    const historial = obtenerHistorialProveedor(proveedorId);
+    const ahora = new Date();
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    
+    return historial
+      .filter((compra: any) => {
+        if (!compra || !compra.fecha_compra) return false;
+        try {
+          return new Date(compra.fecha_compra) >= inicioMes;
+        } catch {
+          return false;
+        }
+      })
+      .reduce((total: number, compra: any) => {
+        const totalCompra = parseNum(compra.total || 0);
+        return isNaN(totalCompra) ? total : total + totalCompra;
+      }, 0);
+  } catch (error) {
+    console.error("Error calculando gastos del mes:", error);
+    return 0;
   }
-
+}
   // FUNCIÓN NUEVA Y CORRECTA: Imprimir historial - SIMPLIFICADA Y FUNCIONAL
   function imprimirHistorialCompra(proveedorId: string) {
     try {
