@@ -2,8 +2,7 @@
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
-import React, { useEffect, useState } from "react";
-import "./globals.css";
+import React, { useEffect, useState, useMemo } from "react";import "./globals.css";
 import { supabase, hasSupabase } from "../lib/supabaseClient";
 
 const useIsMobile = () => {
