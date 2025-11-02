@@ -177,6 +177,8 @@ function seedState() {
     empleados: [] as Empleado[],
     registros_horarios: [] as RegistroHorario[],
     vales_empleados: [] as ValeEmpleado[],
+    proveedores: [] as any[],
+    compras_proveedores: [] as any[],
   };
 }
 
@@ -236,6 +238,29 @@ if (gabiErr) {
   out.meta.gabiFundsByDate = gabiFundsByDate;
   out.gabiFunds = gabiFundsData;
 }
+   // 👇👇👇 AGREGAR AQUÍ - Cargar proveedores
+  const { data: proveedores, error: provErr } = await supabase
+    .from("proveedores")
+    .select("*")
+    .order("nombre");
+
+  if (provErr) {
+    console.error("SELECT proveedores:", provErr);
+  } else if (proveedores) {
+    out.proveedores = proveedores;
+  }
+
+  // 👇👇👇 AGREGAR AQUÍ - Cargar compras a proveedores
+  const { data: comprasProveedores, error: compErr } = await supabase
+    .from("compras_proveedores")
+    .select("*")
+    .order("fecha_compra", { ascending: false });
+
+  if (compErr) {
+    console.error("SELECT compras_proveedores:", compErr);
+  } else if (comprasProveedores) {
+    out.compras_proveedores = comprasProveedores;
+  }
 
   // vendors (esto ya existe, DEJARLO COMO ESTÁ)
   const { data: vendors, error: vendErr } = await supabase.from("vendors").select("*");
@@ -9254,6 +9279,41 @@ export default function Page() {
           }
         )
         .subscribe();
+      // 👇👇👇 AGREGAR SUSCRIPCIÓN PARA PROVEEDORES
+    const proveedoresSubscription = supabase
+      .channel('proveedores-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'proveedores'
+        },
+        async () => {
+          console.log("🔄 Cambios en proveedores detectados, recargando...");
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+        }
+      )
+      .subscribe();
+
+    // 👇👇👇 AGREGAR SUSCRIPCIÓN PARA COMPRAS A PROVEEDORES
+    const comprasProveedoresSubscription = supabase
+      .channel('compras-proveedores-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'compras_proveedores'
+        },
+        async () => {
+          console.log("🔄 Cambios en compras_proveedores detectados, recargando...");
+          const refreshedState = await loadFromSupabase(seedState());
+          setState(refreshedState);
+        }
+      )
+      .subscribe();
 
       // 👇👇👇 AGREGAR ESTA SUSCRIPCIÓN PARA FACTURAS
       const invoicesSubscription = supabase
@@ -9313,6 +9373,8 @@ export default function Page() {
         supabase.removeChannel(invoicesSubscription);
         supabase.removeChannel(pedidosSubscription); // 👈 AGREGAR ESTA LÍNEA
          supabase.removeChannel(debtPaymentsSubscription);
+        supabase.removeChannel(proveedoresSubscription);
+      supabase.removeChannel(comprasProveedoresSubscription);
       };
     }
   }, []);
