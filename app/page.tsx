@@ -2762,6 +2762,8 @@ function ProveedoresTab({ state, setState }: any) {
   const [seccionCompra, setSeccionCompra] = useState("");
   const [productoSeleccionado, setProductoSeleccionado] = useState("");
   const [productosCompra, setProductosCompra] = useState<any[]>([]);
+  const totalCompra = productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total), 0);
+
   const [fechaCompra, setFechaCompra] = useState(new Date().toISOString().split('T')[0]);
   const [numeroFactura, setNumeroFactura] = useState("");
 
@@ -3125,8 +3127,9 @@ function imprimirHistorialCompra(compra: any) {
             <div className="mt-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
               <div className="flex justify-between items-center">
                 <span className="font-semibold">Total de la Compra:</span>
-                <span className="text-lg font-bold text-emerald-400">{money(totalCompra)}</span>
-              </div>
+<span className="text-lg font-bold text-emerald-400">
+  {money(productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total), 0))}
+</span>              </div>
             </div>
           </div>
         )}
@@ -3151,7 +3154,8 @@ function imprimirHistorialCompra(compra: any) {
               tone="emerald"
               className="w-full"
             >
-              💰 Registrar Compra ({money(totalCompra)})
+              💰 Registrar Compra ({money(productosCompra.reduce((sum: number, p: any) => sum + parseNum(p.total), 0))}
+)
             </Button>
           </div>
         </div>
