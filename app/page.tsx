@@ -2287,9 +2287,7 @@ function ProductosTab({ state, setState, role }: any) {
   // 👆👆👆 HASTA AQUÍ EL CÓDIGO NUEVO
 
   // ... el resto de tu código existente continúa aquí ...
-  const productosBajoStock = state.products.filter(
-    (p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0)
-  );
+
   
   // 👇👇👇 ESTADO PARA INGRESO DE STOCK
   const [ingresoStock, setIngresoStock] = useState({ 
