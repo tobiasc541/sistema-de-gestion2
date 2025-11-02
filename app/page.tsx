@@ -2789,6 +2789,7 @@ function ProductosTab({ state, setState, role }: any) {
 }
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS ===== */
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS MEJORADO ===== */
+/* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS MEJORADO ===== */
 function ProveedoresTab({ state, setState }: any) {
   const [nombreProveedor, setNombreProveedor] = useState("");
   const [contacto, setContacto] = useState("");
@@ -3285,75 +3286,74 @@ function ProveedoresTab({ state, setState }: any) {
                 <th className="py-2 pr-4">Acciones</th>
               </tr>
             </thead>
-         <tbody className="divide-y divide-slate-800">
-  {/* ✅ VERSIÓN DEFINITIVA - 100% SEGURA */}
-  {(() => {
-    // Validación extrema antes de renderizar
-    if (!gastosPorProveedor) {
-      return (
-        <tr>
-          <td colSpan={7} className="py-4 text-center text-slate-400">
-            Cargando datos...
-          </td>
-        </tr>
-      );
-    }
-    
-    if (!Array.isArray(gastosPorProveedor)) {
-      return (
-        <tr>
-          <td colSpan={7} className="py-4 text-center text-slate-400">
-            Error en los datos
-          </td>
-        </tr>
-      );
-    }
-    
-    if (gastosPorProveedor.length === 0) {
-      return (
-        <tr>
-          <td colSpan={7} className="py-4 text-center text-slate-400">
-            No hay compras registradas a proveedores
-          </td>
-        </tr>
-      );
-    }
-    
-    // Solo si pasa todas las validaciones, hacer el map
-    return gastosPorProveedor.map((prov: any) => (
-      <tr key={prov.id}>
-        <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
-        <td className="py-2 pr-4">
-          <span className="text-red-400 font-semibold">
-            {money(prov.totalGastado)}
-          </span>
-        </td>
-        <td className="py-2 pr-4">
-          <span className="text-amber-400 font-semibold">
-            {money(calcularGastosDelMes(prov.id))}
-          </span>
-        </td>
-        <td className="py-2 pr-4">{prov.compras}</td>
-        <td className="py-2 pr-4">{prov.productosComprados}</td>
-        <td className="py-2 pr-4">
-          {prov.ultimaCompra ? new Date(prov.ultimaCompra).toLocaleDateString("es-AR") : "—"}
-        </td>
-        <td className="py-2 pr-4">
-          <button
-            onClick={() => {
-              console.log("🖨️ Click en PDF para proveedor:", prov.id, prov.nombre);
-              imprimirHistorialCompra(prov.id);
-            }}
-            className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 border border-blue-700 rounded"
-            title="Ver historial en PDF"
-          >
-            📋 Ver PDF
-                         </button>
-                      </div>
+            <tbody className="divide-y divide-slate-800">
+              {/* ✅ VERSIÓN DEFINITIVA - 100% SEGURA */}
+              {(() => {
+                // Validación extrema antes de renderizar
+                if (!gastosPorProveedor) {
+                  return (
+                    <tr>
+                      <td colSpan={7} className="py-4 text-center text-slate-400">
+                        Cargando datos...
+                      </td>
+                    </tr>
+                  );
+                }
+                
+                if (!Array.isArray(gastosPorProveedor)) {
+                  return (
+                    <tr>
+                      <td colSpan={7} className="py-4 text-center text-slate-400">
+                        Error en los datos
+                      </td>
+                    </tr>
+                  );
+                }
+                
+                if (gastosPorProveedor.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan={7} className="py-4 text-center text-slate-400">
+                        No hay compras registradas a proveedores
+                      </td>
+                    </tr>
+                  );
+                }
+                
+                // Solo si pasa todas las validaciones, hacer el map
+                return gastosPorProveedor.map((prov: any) => (
+                  <tr key={prov.id}>
+                    <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
+                    <td className="py-2 pr-4">
+                      <span className="text-red-400 font-semibold">
+                        {money(prov.totalGastado)}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4">
+                      <span className="text-amber-400 font-semibold">
+                        {money(calcularGastosDelMes(prov.id))}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-4">{prov.compras}</td>
+                    <td className="py-2 pr-4">{prov.productosComprados}</td>
+                    <td className="py-2 pr-4">
+                      {prov.ultimaCompra ? new Date(prov.ultimaCompra).toLocaleDateString("es-AR") : "—"}
+                    </td>
+                    <td className="py-2 pr-4">
+                      <button
+                        onClick={() => {
+                          console.log("🖨️ Click en PDF para proveedor:", prov.id, prov.nombre);
+                          imprimirHistorialCompra(prov.id);
+                        }}
+                        className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 border border-blue-700 rounded"
+                        title="Ver historial en PDF"
+                      >
+                        📋 Ver PDF
+                      </button>
                     </td>
                   </tr>
-                );
-              })}
+                ));
+              })()}
             </tbody>
           </table>
         </div>
