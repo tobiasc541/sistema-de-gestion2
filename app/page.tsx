@@ -3285,10 +3285,42 @@ function ProveedoresTab({ state, setState }: any) {
                 <th className="py-2 pr-4">Acciones</th>
               </tr>
             </thead>
-          <tbody className="divide-y divide-slate-800">
-  {/* ✅ REEMPLAZA ESTA PARTE SOLAMENTE */}
-  {gastosPorProveedor && Array.isArray(gastosPorProveedor) ? (
-    gastosPorProveedor.map((prov: any) => (
+         <tbody className="divide-y divide-slate-800">
+  {/* ✅ VERSIÓN DEFINITIVA - 100% SEGURA */}
+  {(() => {
+    // Validación extrema antes de renderizar
+    if (!gastosPorProveedor) {
+      return (
+        <tr>
+          <td colSpan={7} className="py-4 text-center text-slate-400">
+            Cargando datos...
+          </td>
+        </tr>
+      );
+    }
+    
+    if (!Array.isArray(gastosPorProveedor)) {
+      return (
+        <tr>
+          <td colSpan={7} className="py-4 text-center text-slate-400">
+            Error en los datos
+          </td>
+        </tr>
+      );
+    }
+    
+    if (gastosPorProveedor.length === 0) {
+      return (
+        <tr>
+          <td colSpan={7} className="py-4 text-center text-slate-400">
+            No hay compras registradas a proveedores
+          </td>
+        </tr>
+      );
+    }
+    
+    // Solo si pasa todas las validaciones, hacer el map
+    return gastosPorProveedor.map((prov: any) => (
       <tr key={prov.id}>
         <td className="py-2 pr-4 font-medium">{prov.nombre}</td>
         <td className="py-2 pr-4">
@@ -3319,18 +3351,9 @@ function ProveedoresTab({ state, setState }: any) {
           </button>
         </td>
       </tr>
-    ))
-  ) : (
-    <tr>
-      <td colSpan={7} className="py-4 text-center text-slate-400">
-        No hay compras registradas a proveedores
-      </td>
-    </tr>
-  )}
+    ));
+  })()}
 </tbody>
-          </table>
-        </div>
-      </Card>
 
       <Card title="👥 Lista de Proveedores">
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
