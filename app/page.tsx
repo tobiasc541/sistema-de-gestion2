@@ -36,6 +36,28 @@ type Empleado = {
   activo: boolean;
   fecha_creacion: string;
 };
+// 👇👇👇 NUEVO TIPO PARA PORCENTAJES DE GANANCIA
+type PorcentajeGanancia = {
+  producto_id: string;
+  producto_nombre: string;
+  seccion: string;
+  costo: number;
+  precio1: number;
+  precio2: number;
+  precio3: number;
+  precio4: number;
+  precio5: number;
+  margen1: number;  // Porcentaje
+  margen2: number;
+  margen3: number;
+  margen4: number;
+  margen5: number;
+  ganancia1: number; // Valor en pesos
+  ganancia2: number;
+  ganancia3: number;
+  ganancia4: number;
+  ganancia5: number;
+};
 // 👇👇👇 NUEVO TIPO PARA PEDIDOS PENDIENTES
 type PedidoPendiente = {
   id: string;
@@ -1164,26 +1186,27 @@ const deudaTotalAntes = cliente ? calcularDeudaTotal(detalleDeudasCliente, clien
 function Navbar({ current, setCurrent, role, onLogout }: any) {
   const isMobile = useIsMobile();
   const [showMenu, setShowMenu] = useState(false);
-  const TABS = [
-    "Facturación",
-    "Clientes", 
-    "Productos",
-    "Deudores",
-    "Vendedores",
-    "Reportes",
-    "Presupuestos",
-    "Gastos y Devoluciones",
-    "Cola",
-     "Proveedores",
-    "Pedidos Online",
-     "Pedidos Pendientes",
-     "Preparar Pedidos",// 👈 NUEVA PESTAÑA
-    // 👇👇👇 AGREGAR ESTAS NUEVAS PESTAÑAS SOLO PARA ADMIN
+const TABS = [
+  "Facturación",
+  "Clientes", 
+  "Productos",
+  "Deudores",
+  "Vendedores",
+  "Reportes",
+  "Presupuestos",
+  "Gastos y Devoluciones",
+  "Cola",
+  "Proveedores",
+  "Pedidos Online",
+  "Pedidos Pendientes",
+  "Preparar Pedidos",
+  // 👇👇👇 AGREGAR ESTAS NUEVAS PESTAÑAS SOLO PARA ADMIN
   ...(role === "admin" ? [
     "Empleados",
     "Control Horario", 
     "Vales Empleados",
-    "Cálculo Sueldos"
+    "Cálculo Sueldos",
+    "Porcentajes Ganancia" // 👈 NUEVA PESTAÑA AGREGADA AQUÍ
   ] : []),
   ];
 
@@ -8803,6 +8826,322 @@ return (
   </div>
 );
 }
+/* ===== PORCENTAJES DE GANANCIA ===== */
+function PorcentajesGananciaTab({ state, setState }: any) {
+  const [filtroSeccion, setFiltroSeccion] = useState("Todas");
+  const [ordenarPor, setOrdenarPor] = useState("margen1");
+  const [soloConCosto, setSoloConCosto] = useState(true);
+  
+  // Obtener secciones únicas
+  const secciones = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))];
+
+  // Función para calcular porcentajes de ganancia
+  function calcularPorcentajes(): PorcentajeGanancia[] {
+    let productosFiltrados = state.products;
+    
+    // Filtrar por sección
+    if (filtroSeccion !== "Todas") {
+      productosFiltrados = productosFiltrados.filter((p: any) => 
+        p.section === filtroSeccion
+      );
+    }
+    
+    // Filtrar productos sin costo si está activado
+    if (soloConCosto) {
+      productosFiltrados = productosFiltrados.filter((p: any) => 
+        parseNum(p.cost || 0) > 0
+      );
+    }
+    
+    // Calcular porcentajes para cada producto
+    const porcentajes = productosFiltrados.map((producto: any) => {
+      const costo = parseNum(producto.cost || 0);
+      const precio1 = parseNum(producto.price1 || 0);
+      const precio2 = parseNum(producto.price2 || 0);
+      const precio3 = parseNum(producto.price3 || 0);
+      const precio4 = parseNum(producto.price4 || 0);
+      const precio5 = parseNum(producto.price5 || 0);
+      
+      // Calcular márgenes para cada lista
+      const calcularMargen = (precio: number) => {
+        if (costo <= 0 || precio <= 0) return { porcentaje: 0, ganancia: 0 };
+        const ganancia = precio - costo;
+        const porcentaje = (ganancia / costo) * 100;
+        return {
+          porcentaje: Math.round(porcentaje * 100) / 100,
+          ganancia: Math.round(ganancia * 100) / 100
+        };
+      };
+      
+      const margen1 = calcularMargen(precio1);
+      const margen2 = calcularMargen(precio2);
+      const margen3 = calcularMargen(precio3);
+      const margen4 = calcularMargen(precio4);
+      const margen5 = calcularMargen(precio5);
+      
+      return {
+        producto_id: producto.id,
+        producto_nombre: producto.name,
+        seccion: producto.section || "General",
+        costo,
+        precio1,
+        precio2,
+        precio3,
+        precio4,
+        precio5,
+        margen1: margen1.porcentaje,
+        margen2: margen2.porcentaje,
+        margen3: margen3.porcentaje,
+        margen4: margen4.porcentaje,
+        margen5: margen5.porcentaje,
+        ganancia1: margen1.ganancia,
+        ganancia2: margen2.ganancia,
+        ganancia3: margen3.ganancia,
+        ganancia4: margen4.ganancia,
+        ganancia5: margen5.ganancia,
+      };
+    });
+    
+    // Ordenar según selección
+    porcentajes.sort((a, b) => {
+      switch (ordenarPor) {
+        case "nombre":
+          return a.producto_nombre.localeCompare(b.producto_nombre);
+        case "seccion":
+          return a.seccion.localeCompare(b.seccion);
+        case "costo":
+          return b.costo - a.costo;
+        case "margen1":
+          return b.margen1 - a.margen1;
+        case "margen2":
+          return b.margen2 - a.margen2;
+        case "margen3":
+          return b.margen3 - a.margen3;
+        case "margen4":
+          return b.margen4 - a.margen4;
+        case "margen5":
+          return b.margen5 - a.margen5;
+        default:
+          return b.margen1 - a.margen1;
+      }
+    });
+    
+    return porcentajes;
+  }
+
+  const porcentajes = calcularPorcentajes();
+  
+  // Calcular promedios
+  const productosConCosto = porcentajes.filter(p => p.costo > 0);
+  const promedioMargen1 = productosConCosto.length > 0 
+    ? Math.round(productosConCosto.reduce((sum, p) => sum + p.margen1, 0) / productosConCosto.length * 100) / 100
+    : 0;
+  const promedioMargen2 = productosConCosto.length > 0 
+    ? Math.round(productosConCosto.reduce((sum, p) => sum + p.margen2, 0) / productosConCosto.length * 100) / 100
+    : 0;
+  const promedioMargen3 = productosConCosto.length > 0 
+    ? Math.round(productosConCosto.reduce((sum, p) => sum + p.margen3, 0) / productosConCosto.length * 100) / 100
+    : 0;
+  const promedioMargen4 = productosConCosto.length > 0 
+    ? Math.round(productosConCosto.reduce((sum, p) => sum + p.margen4, 0) / productosConCosto.length * 100) / 100
+    : 0;
+  const promedioMargen5 = productosConCosto.length > 0 
+    ? Math.round(productosConCosto.reduce((sum, p) => sum + p.margen5, 0) / productosConCosto.length * 100) / 100
+    : 0;
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card title="📊 Porcentajes de Ganancia">
+        <div className="grid md:grid-cols-4 gap-3 mb-4">
+          <Select
+            label="Filtrar por Sección"
+            value={filtroSeccion}
+            onChange={setFiltroSeccion}
+            options={secciones.map((s: string) => ({ value: s, label: s }))}
+          />
+          <Select
+            label="Ordenar por"
+            value={ordenarPor}
+            onChange={setOrdenarPor}
+            options={[
+              { value: "nombre", label: "Nombre" },
+              { value: "seccion", label: "Sección" },
+              { value: "costo", label: "Costo" },
+              { value: "margen1", label: "Margen Lista 1 (MITOBICEL LOCAL)" },
+              { value: "margen2", label: "Margen Lista 2 (MITOBICEL PROVINCIAS)" },
+              { value: "margen3", label: "Margen Lista 3 (MITOBICEL EXCLUSIVO)" },
+              { value: "margen4", label: "Margen Lista 4 (ALE LOCAL)" },
+              { value: "margen5", label: "Margen Lista 5 (ALE PROVINCIA)" },
+            ]}
+          />
+          <div className="flex items-center gap-2 p-3 bg-slate-800/30 rounded-lg">
+            <input
+              type="checkbox"
+              id="soloConCosto"
+              checked={soloConCosto}
+              onChange={(e) => setSoloConCosto(e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="soloConCosto" className="text-sm">
+              Solo productos con costo
+            </label>
+          </div>
+          <div className="text-sm text-slate-400">
+            Productos: {porcentajes.length}
+            {soloConCosto && ` (con costo: ${productosConCosto.length})`}
+          </div>
+        </div>
+
+        {/* Resumen de promedios */}
+        {productosConCosto.length > 0 && (
+          <Card title="📈 Promedios de Margen">
+            <div className="grid md:grid-cols-5 gap-3 text-center">
+              <div>
+                <div className="text-lg font-bold text-emerald-400">{promedioMargen1}%</div>
+                <div className="text-xs text-slate-400">MITOBICEL LOCAL</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold text-blue-400">{promedioMargen2}%</div>
+                <div className="text-xs text-slate-400">MITOBICEL PROVINCIAS</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold text-purple-400">{promedioMargen3}%</div>
+                <div className="text-xs text-slate-400">MITOBICEL EXCLUSIVO</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold text-amber-400">{promedioMargen4}%</div>
+                <div className="text-xs text-slate-400">ALE LOCAL</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold text-cyan-400">{promedioMargen5}%</div>
+                <div className="text-xs text-slate-400">ALE PROVINCIA</div>
+              </div>
+            </div>
+          </Card>
+        )}
+      </Card>
+
+      <Card title="📋 Detalle por Producto">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-4">Producto</th>
+                <th className="py-2 pr-4">Sección</th>
+                <th className="py-2 pr-4 text-right">Costo</th>
+                <th className="py-2 pr-4 text-right">Precio 1</th>
+                <th className="py-2 pr-4 text-center">%</th>
+                <th className="py-2 pr-4 text-right">Precio 2</th>
+                <th className="py-2 pr-4 text-center">%</th>
+                <th className="py-2 pr-4 text-right">Precio 3</th>
+                <th className="py-2 pr-4 text-center">%</th>
+                <th className="py-2 pr-4 text-right">Precio 4</th>
+                <th className="py-2 pr-4 text-center">%</th>
+                <th className="py-2 pr-4 text-right">Precio 5</th>
+                <th className="py-2 pr-4 text-center">%</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {porcentajes.map((p: PorcentajeGanancia) => {
+                // Función para determinar color según porcentaje
+                const getColor = (porcentaje: number) => {
+                  if (porcentaje <= 0) return "text-red-400";
+                  if (porcentaje < 20) return "text-amber-400";
+                  if (porcentaje < 50) return "text-yellow-400";
+                  if (porcentaje < 100) return "text-green-400";
+                  return "text-emerald-400";
+                };
+                
+                return (
+                  <tr key={p.producto_id}>
+                    <td className="py-2 pr-4">
+                      <div className="font-medium">{p.producto_nombre}</div>
+                      {p.costo <= 0 && (
+                        <div className="text-xs text-red-400">⚠️ Sin costo</div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-4">{p.seccion}</td>
+                    <td className="py-2 pr-4 text-right">
+                      {p.costo > 0 ? money(p.costo) : "—"}
+                    </td>
+                    
+                    {/* Lista 1 */}
+                    <td className="py-2 pr-4 text-right">{money(p.precio1)}</td>
+                    <td className={`py-2 pr-4 text-center font-bold ${getColor(p.margen1)}`}>
+                      {p.costo > 0 ? `${p.margen1}%` : "—"}
+                    </td>
+                    
+                    {/* Lista 2 */}
+                    <td className="py-2 pr-4 text-right">{money(p.precio2)}</td>
+                    <td className={`py-2 pr-4 text-center font-bold ${getColor(p.margen2)}`}>
+                      {p.costo > 0 ? `${p.margen2}%` : "—"}
+                    </td>
+                    
+                    {/* Lista 3 */}
+                    <td className="py-2 pr-4 text-right">{money(p.precio3)}</td>
+                    <td className={`py-2 pr-4 text-center font-bold ${getColor(p.margen3)}`}>
+                      {p.costo > 0 ? `${p.margen3}%` : "—"}
+                    </td>
+                    
+                    {/* Lista 4 */}
+                    <td className="py-2 pr-4 text-right">{money(p.precio4)}</td>
+                    <td className={`py-2 pr-4 text-center font-bold ${getColor(p.margen4)}`}>
+                      {p.costo > 0 ? `${p.margen4}%` : "—"}
+                    </td>
+                    
+                    {/* Lista 5 */}
+                    <td className="py-2 pr-4 text-right">{money(p.precio5)}</td>
+                    <td className={`py-2 pr-4 text-center font-bold ${getColor(p.margen5)}`}>
+                      {p.costo > 0 ? `${p.margen5}%` : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+              
+              {porcentajes.length === 0 && (
+                <tr>
+                  <td className="py-4 text-slate-400 text-center" colSpan={13}>
+                    {soloConCosto && state.products.length > 0 
+                      ? "No hay productos con costo registrado. Desactiva el filtro 'Solo productos con costo' para ver todos."
+                      : "No hay productos para mostrar."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Productos sin costo (si el filtro está activado) */}
+      {soloConCosto && (
+        <Card title="⚠️ Productos que Necesitan Atención">
+          <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-amber-400">📝</span>
+              <span className="font-semibold">
+                Tienes {state.products.filter((p: any) => parseNum(p.cost || 0) <= 0).length} producto(s) sin costo
+              </span>
+            </div>
+            <div className="text-sm text-amber-200">
+              Estos productos no están incluidos en el cálculo de porcentajes. Es importante asignarles un costo para tener un control preciso de los márgenes de ganancia.
+            </div>
+            <div className="mt-3">
+              <Button 
+                tone="amber" 
+                onClick={() => {
+                  setSoloConCosto(false);
+                  alert("Filtro desactivado. Ahora verás todos los productos, incluyendo los sin costo.");
+                }}
+              >
+                Ver todos los productos (incluyendo sin costo)
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 function Login({ onLogin, vendors, adminKey, clients }: any) {
   const [role, setRole] = useState("vendedor");
@@ -10543,6 +10882,9 @@ export default function Page() {
 )}
 {session.role === "admin" && tab === "Cálculo Sueldos" && (
   <CalculoSueldosTab state={state} setState={setState} />
+)}
+            {session.role === "admin" && tab === "Porcentajes Ganancia" && (
+  <PorcentajesGananciaTab state={state} setState={setState} />
 )}
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Pedidos Pendientes" && (
   <PedidosPendientesTab state={state} setState={setState} session={session} />
