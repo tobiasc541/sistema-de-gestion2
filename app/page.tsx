@@ -9582,6 +9582,7 @@ function CalculoSueldosTab({ state, setState }: any) {
 function PedidosPendientesTab({ state, setState, session }: any) {
   const [filtro, setFiltro] = useState<"todos" | "pendiente" | "completado" | "cancelado">("pendiente");
   
+  
   // Filtrar pedidos según estado
   const pedidosFiltrados = (state.pedidos_pendientes || []).filter((pedido: any) => {
     if (filtro === "todos") return true;
@@ -9802,17 +9803,16 @@ function PedidosPendientesTab({ state, setState, session }: any) {
 
                 {/* Acciones según estado */}
                 <div className="flex gap-2">
-                  {pedido.status === "pendiente" && session?.role === "admin" && (
-                    <>
-                      <Button onClick={() => completarPedido(pedido)} tone="emerald">
-                        💰 Completar Pago
-                      </Button>
-                      <Button tone="red" onClick={() => cancelarPedido(pedido.id)}>
-                        ❌ Cancelar Pedido
-                      </Button>
-                    </>
-                  )}
-                  
+                 {pedido.status === "pendiente" && (session?.role === "admin" || session?.role === "vendedor") && (
+  <>
+    <Button onClick={() => completarPedido(pedido)} tone="emerald">
+      💰 Completar Pago
+    </Button>
+    <Button tone="red" onClick={() => cancelarPedido(pedido.id)}>
+      ❌ Cancelar Pedido
+    </Button>
+  </>
+)}
                   <Button tone="slate" onClick={() => {
                     // Ver detalles
                     const detalle = {
