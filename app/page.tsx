@@ -1564,50 +1564,97 @@ async function saveAndPrint() {
       product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
     }
   });
+  
 
-  const invoice = {
-    id,
-    number,
-    date_iso: todayISO(),
-    client_id: client.id,
-    client_name: client.name,
-    vendor_id: vendor.id,
-    vendor_name: vendor.name,
-    items: clone(items),
-    total,
-    total_after_credit: totalTrasSaldo,
-    cost: calcInvoiceCost(items),
-    payments: { cash, transfer: transf, change, alias: alias.trim(), saldo_aplicado: saldoAplicado },
-    status,
-    type: "Factura",
-    // ✅ REMOVER: client_debt_total: cl.debt, // Esto causa duplicación
-  };
+ const invoice = {
+  id,
+  number,
+  date_iso: todayISO(),
+  client_id: client.id,
+  client_name: client.name,
+  vendor_id: vendor.id,
+  vendor_name: vendor.name,
+  items: clone(items),
+  total,
+  total_after_credit: totalTrasSaldo,
+  cost: calcInvoiceCost(items),
+  payments: { cash, transfer: transf, change, alias: alias.trim(), saldo_aplicado: saldoAplicado },
+  status,
+  type: "Factura",
+  // ✅ REMOVER: client_debt_total: cl.debt, // Esto causa duplicación
+};
 
-  st.invoices.push(invoice);
-  st.meta.lastSavedInvoiceId = id;
-  setState(st);
+// ====== AGREGAR PEDIDO A PREPARAR (SIEMPRE) ======
+// ✅ CAMBIADO: AHORA SIEMPRE, SIN IMPORTAR STATUS
+const pedidoPreparar = {
+  id: "prep_" + Math.random().toString(36).slice(2, 8),
+  factura_id: id,
+  tipo: "facturacion",
+  client_id: client.id,
+  client_name: client.name,
+  client_number: client.number,
+  items: items.map((item: any) => ({
+    name: item.name,
+    section: item.section || "General",
+    qty: item.qty,
+    // SIN precio, SIN total
+  })),
+  observaciones: "", // Las facturas normales no tienen observaciones
+  fecha_creacion: todayISO(),
+  status: "pendiente"
+};
 
-  if (hasSupabase) {
-    await supabase.from("invoices").insert(invoice);
-    
-    // ✅ CORRECCIÓN: Solo actualizar saldo_favor, NO la deuda
-    await supabase.from("clients").update({ 
-      saldo_favor: cl.saldo_favor 
-      // ❌ NO actualizar debt aquí
-    }).eq("id", client.id);
-    
-    // ⭐⭐⭐⭐ ACTUALIZAR STOCK EN SUPABASE ⭐⭐⭐⭐⭐
-    for (const item of items) {
-      const product = st.products.find((p: any) => p.id === item.productId);
-      if (product) {
-        await supabase.from("products")
-          .update({ stock: product.stock })
-          .eq("id", item.productId);
-      }
-    }
-    
-    await saveCountersSupabase(st.meta);
+// Agregar al estado local
+st.pedidos_preparar = st.pedidos_preparar || [];
+st.pedidos_preparar.push(pedidoPreparar);
+// ====== FIN AGREGAR ======
+
+st.invoices.push(invoice);
+st.meta.lastSavedInvoiceId = id;
+setState(st);
+if (hasSupabase) {
+await supabase.from("invoices").insert(invoice);
+
+// ====== GUARDAR PEDIDO A PREPARAR EN SUPABASE ======
+// ✅ CAMBIADO: AHORA SIEMPRE, SIN IMPORTAR SI HAY DEUDA O NO
+const pedidoPreparar = {
+  id: "prep_" + Math.random().toString(36).slice(2, 8),
+  factura_id: id,
+  tipo: "facturacion",
+  client_id: client.id,
+  client_name: client.name,
+  client_number: client.number,
+  items: items.map((item: any) => ({
+    name: item.name,
+    section: item.section || "General",
+    qty: item.qty,
+  })),
+  observaciones: "",
+  fecha_creacion: todayISO(),
+  status: "pendiente"
+};
+
+await supabase.from("pedidos_preparar").insert(pedidoPreparar);
+// ====== FIN GUARDAR ======
+
+// ✅ CORRECCIÓN: Solo actualizar saldo_favor, NO la deuda
+await supabase.from("clients").update({ 
+  saldo_favor: cl.saldo_favor 
+  // ❌ NO actualizar debt aquí
+}).eq("id", client.id);
+
+// ⭐⭐⭐⭐ ACTUALIZAR STOCK EN SUPABASE ⭐⭐⭐⭐⭐
+for (const item of items) {
+  const product = st.products.find((p: any) => p.id === item.productId);
+  if (product) {
+    await supabase.from("products")
+      .update({ stock: product.stock })
+      .eq("id", item.productId);
   }
+}
+
+await saveCountersSupabase(st.meta);
+}
 
   window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
   await nextPaint();
