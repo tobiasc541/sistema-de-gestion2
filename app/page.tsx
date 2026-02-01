@@ -118,8 +118,9 @@ type Pedido = {
   accepted_by?: string;
   accepted_at?: string;
   completed_at?: string;
-   comprobante_url?: string;
+  comprobante_url?: string;
   comprobante_subido_at?: string;
+  lista_usada?: string; // 👈 AGREGAR ESTA LÍNEA
 };
 // 👇👇👇 AGREGAR ESTE NUEVO TIPO PARA DETALLE DE DEUDAS
 type DetalleDeuda = {
