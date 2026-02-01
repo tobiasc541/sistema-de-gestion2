@@ -36,6 +36,20 @@ type Empleado = {
   activo: boolean;
   fecha_creacion: string;
 };
+// 👇👇👇 NUEVO TIPO PARA PEDIDOS PENDIENTES
+type PedidoPendiente = {
+  id: string;
+  number: number;
+  date_iso: string;
+  client_id: string;
+  client_name: string;
+  vendor_id: string;
+  vendor_name: string;
+  items: any[];
+  total: number;
+  status: "pendiente" | "completado" | "cancelado";
+  observaciones?: string;
+};
 
 // 👇👇👇 ACTUALIZAR EL TIPO REGISTROHORARIO - REEMPLAZAR COMPLETAMENTE
 type RegistroHorario = {
@@ -178,7 +192,8 @@ function seedState() {
     registros_horarios: [] as RegistroHorario[],
     vales_empleados: [] as ValeEmpleado[],
     proveedores: [] as any[], // Asegurar inicialización
-    compras_proveedores: [] as any[], // Asegurar inicialización
+    compras_proveedores: [] as any[], 
+    pedidos_pendientes: [] as PedidoPendiente[],// Asegurar inicialización
   };
 }
 
@@ -345,7 +360,23 @@ async function loadFromSupabase(fallback: any) {
     } else if (pedidos) {
       out.pedidos = pedidos;
     }
-
+try {
+  const { data: pedidosPendientes, error: ppErr } = await supabase
+    .from("pedidos_pendientes")
+    .select("*")
+    .order("date_iso", { ascending: false });
+  
+  if (ppErr) {
+    console.error("SELECT pedidos_pendientes:", ppErr);
+    out.pedidos_pendientes = []; // Inicializar como array vacío
+  } else {
+    out.pedidos_pendientes = pedidosPendientes || [];
+    console.log(`✅ Cargados ${out.pedidos_pendientes.length} pedidos pendientes`);
+  }
+} catch (error) {
+  console.error("Error cargando pedidos_pendientes:", error);
+  out.pedidos_pendientes = [];
+}
     // EMPLEADOS
     const { data: empleados, error: empErr } = await supabase
       .from("empleados")
@@ -1109,7 +1140,8 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     "Gastos y Devoluciones",
     "Cola",
      "Proveedores",
-    "Pedidos Online", // 👈 NUEVA PESTAÑA
+    "Pedidos Online",
+     "Pedidos Pendientes",// 👈 NUEVA PESTAÑA
     // 👇👇👇 AGREGAR ESTAS NUEVAS PESTAÑAS SOLO PARA ADMIN
   ...(role === "admin" ? [
     "Empleados",
@@ -1123,7 +1155,7 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     role === "admin"
       ? TABS
       : role === "vendedor"
-      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online"] // 👈 AGREGAR
+      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online","Pedidos Pendientes"] // 👈 AGREGAR
       : role === "pedido-online"
       ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
       : ["Panel"];
@@ -1340,7 +1372,107 @@ function FacturacionTab({ state, setState, session }: any) {
     if (existing) setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it)));
     else setItems([...items, { productId: p.id, name: p.name, section: p.section, qty: 1, unitPrice: unit, cost: p.cost }]);
   }
+// 👇👇👇 PEGA ESTA FUNCIÓN COMPLETA JUSTO ANTES de saveAndPrint
+async function enviarAMili() {
+  if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
+  if (items.length === 0) return alert("Agregá productos al carrito.");
+  
+  // Validar stock
+  const validacionStock = validarStockDisponible(state.products, items);
+  if (!validacionStock.valido) {
+    const mensajeError = `No hay suficiente stock para los siguientes productos:\n\n${validacionStock.productosSinStock.join('\n')}`;
+    return alert(mensajeError);
+  }
+  
+  const total = calcInvoiceTotal(items);
+  const observaciones = prompt("Observaciones para Mili (opcional):", "");
+  
+  const st = clone(state);
+  const number = st.meta.invoiceCounter++;
+  const id = "pend_" + number;
+  
+  // Crear pedido pendiente
+  const pedidoPendiente = {
+    id,
+    number,
+    date_iso: todayISO(),
+    client_id: client.id,
+    client_name: client.name,
+    vendor_id: vendor.id,
+    vendor_name: vendor.name,
+    items: clone(items),
+    total,
+    status: "pendiente",
+    observaciones: observaciones?.trim()
+  };
+  
+  // Agregar al estado local
+  st.pedidos_pendientes = st.pedidos_pendientes || [];
+  st.pedidos_pendientes.push(pedidoPendiente);
+  
+  // Descontar stock inmediatamente
+  items.forEach(item => {
+    const product = st.products.find((p: any) => p.id === item.productId);
+    if (product) {
+      product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
+    }
+  });
+  
+  setState(st);
+  
+  // Guardar en Supabase
+  if (hasSupabase) {
+    try {
+      // Guardar pedido pendiente
+      await supabase.from("pedidos_pendientes").insert(pedidoPendiente);
+      
+      // Actualizar stock en Supabase
+      for (const item of items) {
+        const product = st.products.find((p: any) => p.id === item.productId);
+        if (product) {
+          await supabase.from("products")
+            .update({ stock: product.stock })
+            .eq("id", item.productId);
+        }
+      }
+      
+      // Actualizar contador
+      await saveCountersSupabase(st.meta);
+      
+    } catch (error: any) {
+      console.error("Error al guardar pedido pendiente:", error);
+      alert("Error al guardar el pedido. Intenta nuevamente.");
+      return;
+    }
+  }
+  
+  // Imprimir comprobante de pedido
+  const comprobantePedido = {
+    ...pedidoPendiente,
+    type: "PedidoPendiente",
+    mensaje: "PEDIDO PENDIENTE DE PAGO - ENTREGAR A MILI"
+  };
+  
+  window.dispatchEvent(new CustomEvent("print-invoice", { detail: comprobantePedido } as any));
+  await nextPaint();
+  window.print();
+  
+  // Limpiar UI
+  setPayCash("");
+  setPayTransf("");
+  setPayChange("");
+  setAlias("");
+  setItems([]);
+  
+  alert(`✅ Pedido enviado a Mili\nNúmero: ${number}\nTotal: ${money(total)}\nMili completará el pago.`);
+}
 
+// 👆👆👆 HASTA AQUÍ LA NUEVA FUNCIÓN
+
+// 👇👇👇 AQUÍ SIGUE TU FUNCIÓN saveAndPrint EXISTENTE
+async function saveAndPrint() {
+  // ... tu código existente de saveAndPrint ...
+}
 async function saveAndPrint() {
   if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
   if (items.length === 0) return alert("Agregá productos al carrito.");
@@ -1579,25 +1711,40 @@ const toPay = Math.max(0, total - applied);
           </div>
         </Card>
 
-        <Card title="Totales" className={isMobile ? 'text-sm' : ''}>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span>Subtotal</span>
-              <span>{money(total)}</span>
-            </div>
-            <div className="flex items-center justify-between text-lg font-bold">
-              <span>Total</span>
-              <span>{money(total)}</span>
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button onClick={saveAndPrint} className="w-full md:w-auto text-center justify-center">
-                {isMobile ? "🖨️ Guardar" : "Guardar e Imprimir"}
-              </Button>
-            </div>
-          </div>
-        </Card>
-      </div>
-
+   <Card title="Totales" className={isMobile ? 'text-sm' : ''}>
+  <div className="space-y-2">
+    <div className="flex items-center justify-between">
+      <span>Subtotal</span>
+      <span>{money(total)}</span>
+    </div>
+    <div className="flex items-center justify-between text-lg font-bold">
+      <span>Total</span>
+      <span>{money(total)}</span>
+    </div>
+    <div className="flex items-center justify-end gap-2 pt-2">
+      {/* 👇👇👇 NUEVO BOTÓN PARA VENDEDORES - AGREGADO AQUÍ */}
+      {session?.role === "vendedor" && (
+        <Button 
+          onClick={enviarAMili}
+          tone="blue"
+          className="flex-1 md:flex-none text-center justify-center"
+        >
+          {isMobile ? "📤 Mili" : "Enviar a Mili"}
+        </Button>
+      )}
+      
+      {/* Botón original */}
+      <Button 
+        onClick={saveAndPrint} 
+        tone="emerald"
+        className={`${session?.role === "vendedor" ? 'flex-1 md:flex-none' : 'w-full md:w-auto'} text-center justify-center`}
+      >
+        {isMobile ? "🖨️ Guardar" : "Guardar e Imprimir"}
+      </Button>
+    </div>
+  </div>
+</Card>
+</div> {/* 👈 ESTE ES EL DIV QUE FALTABA CERRAR */}
       <Card title="Productos" className={isMobile ? 'text-sm' : ''}>
         {/* 👇👇👇 NUEVO DISEÑO MEJORADO PARA FILTROS */}
         <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-4'} gap-2 mb-3`}>
@@ -7962,6 +8109,108 @@ if (inv?.type === "ValeEmpleado") {
   );
 }
 
+
+// 👇👇👇 PEGA ESTA PLANTILLA COMPLETA JUSTO AQUÍ
+// ==== PLANTILLA: PEDIDO PENDIENTE ====
+if (inv?.type === "PedidoPendiente") {
+  const fmt = (n: number) => money(parseNum(n));
+  
+  return (
+    <div className="only-print print-area p-14">
+      <div className="max-w-[520px] mx-auto text-black">
+        <div className="text-center">
+          <div style={{ fontWeight: 800, letterSpacing: 1, fontSize: 24 }}>PEDIDO PENDIENTE DE PAGO</div>
+          <div style={{ marginTop: 2, fontSize: 14, color: "#dc2626" }}>⚠️ ENTREGAR A MILI PARA COBRAR ⚠️</div>
+          <div style={{ marginTop: 4, fontSize: 12 }}>MITOBICEL</div>
+        </div>
+
+        <div style={{ borderTop: "2px solid #000", margin: "10px 0 8px" }} />
+
+        <div className="text-sm space-y-2">
+          <div className="flex justify-between">
+            <span><b>N° Pedido:</b></span>
+            <span>{pad(inv.number)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span><b>Fecha:</b></span>
+            <span>{new Date(inv.date_iso).toLocaleString("es-AR")}</span>
+          </div>
+          <div className="flex justify-between">
+            <span><b>Cliente:</b></span>
+            <span>{inv.client_name}</span>
+          </div>
+          <div className="flex justify-between">
+            <span><b>Vendedor:</b></span>
+            <span>{inv.vendor_name}</span>
+          </div>
+        </div>
+
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+        
+        <div className="text-sm">
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Productos:</div>
+          <table className="print-table" style={{ width: "100%", fontSize: 11 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", width: "60%" }}>Producto</th>
+                <th style={{ textAlign: "center", width: "15%" }}>Cant.</th>
+                <th style={{ textAlign: "right", width: "25%" }}>Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inv.items.map((it: any, i: number) => (
+                <tr key={i}>
+                  <td>
+                    {it.name}
+                    <div style={{ fontSize: "10px", color: "#666", fontStyle: "italic" }}>
+                      {it.section || "General"}
+                    </div>
+                  </td>
+                  <td style={{ textAlign: "center" }}>{it.qty}</td>
+                  <td style={{ textAlign: "right" }}>
+                    {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ borderTop: "2px solid #000", margin: "10px 0 8px" }} />
+        
+        <div className="text-center">
+          <div style={{ fontSize: 20, fontWeight: 900 }}>TOTAL: {fmt(inv.total)}</div>
+          <div style={{ fontSize: 12, color: "#dc2626", marginTop: 4 }}>
+            {inv.mensaje || "PENDIENTE DE PAGO - NO ENTREGAR SIN COBRAR"}
+          </div>
+        </div>
+
+        {inv.observaciones && (
+          <div style={{ borderTop: "1px dashed #000", margin: "10px 0", paddingTop: 8 }}>
+            <div style={{ fontSize: 11 }}>
+              <b>Observaciones:</b> {inv.observaciones}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-10 text-xs text-center">
+          <div style={{ borderTop: "1px solid #000", paddingTop: 8 }}>
+            {APP_TITLE}<br/>
+            Firma del Vendedor: _________________________
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+// 👆👆👆 HASTA AQUÍ LA NUEVA PLANTILLA
+
+// 👇👇👇 AQUÍ SIGUE LA PLANTILLA DE PlanillaSueldos (o la que sigue)
+// ==== PLANTILLA: PLANILLA DE SUELDOS ====
+if (inv?.type === "PlanillaSueldos") {
+  // ... código existente ...
+}
+
 // ==== PLANTILLA: PLANILLA DE SUELDOS ====
 if (inv?.type === "PlanillaSueldos") {
   return (
@@ -9329,6 +9578,268 @@ function CalculoSueldosTab({ state, setState }: any) {
     </div>
   );
 }
+} // Esto cierra CalculoSueldosTab
+
+// 👇👇👇 PEGA ESTE COMPONENTE COMPLETO JUSTO AQUÍ
+/* ===== PEDIDOS PENDIENTES ===== */
+function PedidosPendientesTab({ state, setState, session }: any) {
+  const [filtro, setFiltro] = useState<"todos" | "pendiente" | "completado" | "cancelado">("pendiente");
+  
+  // Filtrar pedidos según estado
+  const pedidosFiltrados = (state.pedidos_pendientes || []).filter((pedido: any) => {
+    if (filtro === "todos") return true;
+    return pedido.status === filtro;
+  });
+
+  async function completarPedido(pedido: any) {
+    // Preguntar datos de pago
+    const efectivoStr = prompt("¿Cuánto pagó en EFECTIVO?", "0") ?? "0";
+    const transferenciaStr = prompt("¿Cuánto pagó por TRANSFERENCIA?", "0") ?? "0";
+    const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
+    
+    const efectivo = parseNum(efectivoStr);
+    const transferencia = parseNum(transferenciaStr);
+    const alias = aliasStr.trim();
+    const totalPagos = efectivo + transferencia;
+    
+    if (totalPagos < pedido.total) {
+      if (!confirm(`El cliente pagó ${money(totalPagos)} pero el total es ${money(pedido.total)}. ¿Marcar como completado igual?`)) {
+        return;
+      }
+    }
+    
+    const st = clone(state);
+    
+    // 1. Crear factura normal
+    const invoiceNumber = st.meta.invoiceCounter++;
+    const invoiceId = "inv_" + invoiceNumber;
+    
+    const invoice = {
+      id: invoiceId,
+      number: invoiceNumber,
+      date_iso: todayISO(),
+      client_id: pedido.client_id,
+      client_name: pedido.client_name,
+      vendor_id: pedido.vendor_id,
+      vendor_name: pedido.vendor_name,
+      items: clone(pedido.items),
+      total: pedido.total,
+      cost: calcInvoiceCost(pedido.items),
+      payments: { 
+        cash: efectivo, 
+        transfer: transferencia, 
+        change: Math.max(0, totalPagos - pedido.total),
+        alias: alias,
+        saldo_aplicado: 0
+      },
+      status: totalPagos >= pedido.total ? "Pagada" : "No Pagada",
+      type: "Factura",
+    };
+    
+    // 2. Agregar a facturas
+    st.invoices.push(invoice);
+    
+    // 3. Actualizar cliente (deuda si no pagó completo)
+    const cliente = st.clients.find((c: any) => c.id === pedido.client_id);
+    if (cliente && totalPagos < pedido.total) {
+      const deudaAdicional = pedido.total - totalPagos;
+      cliente.debt = parseNum(cliente.debt) + deudaAdicional;
+    }
+    
+    // 4. Actualizar estado del pedido
+    const pedidoIndex = (st.pedidos_pendientes || []).findIndex((p: any) => p.id === pedido.id);
+    if (pedidoIndex !== -1) {
+      st.pedidos_pendientes[pedidoIndex].status = "completado";
+    }
+    
+    setState(st);
+    
+    // Guardar en Supabase
+    if (hasSupabase) {
+      try {
+        // Guardar factura
+        await supabase.from("invoices").insert(invoice);
+        
+        // Actualizar cliente
+        if (cliente) {
+          await supabase.from("clients")
+            .update({ debt: cliente.debt })
+            .eq("id", pedido.client_id);
+        }
+        
+        // Actualizar pedido pendiente
+        await supabase.from("pedidos_pendientes")
+          .update({ status: "completado" })
+          .eq("id", pedido.id);
+        
+        // Actualizar contador
+        await saveCountersSupabase(st.meta);
+        
+      } catch (error) {
+        console.error("Error al completar pedido:", error);
+        alert("Error al guardar. Los datos pueden estar inconsistentes.");
+      }
+    }
+    
+    // Imprimir factura
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+    await nextPaint();
+    window.print();
+    
+    alert(`✅ Pedido completado\nFactura Nº ${invoiceNumber}\nTotal: ${money(pedido.total)}`);
+  }
+  
+  async function cancelarPedido(pedidoId: string) {
+    if (!confirm("¿Cancelar este pedido? Se revertirá el stock.")) return;
+    
+    const st = clone(state);
+    const pedido = (st.pedidos_pendientes || []).find((p: any) => p.id === pedidoId);
+    
+    if (pedido) {
+      // Revertir stock
+      pedido.items.forEach((item: any) => {
+        const product = st.products.find((p: any) => p.id === item.productId);
+        if (product) {
+          product.stock = parseNum(product.stock) + parseNum(item.qty);
+        }
+      });
+      
+      // Marcar como cancelado
+      pedido.status = "cancelado";
+      setState(st);
+      
+      // Actualizar en Supabase
+      if (hasSupabase) {
+        await supabase.from("pedidos_pendientes")
+          .update({ status: "cancelado" })
+          .eq("id", pedidoId);
+        
+        // Actualizar stock
+        for (const item of pedido.items) {
+          const product = st.products.find((p: any) => p.id === item.productId);
+          if (product) {
+            await supabase.from("products")
+              .update({ stock: product.stock })
+              .eq("id", item.productId);
+          }
+        }
+      }
+      
+      alert("✅ Pedido cancelado y stock revertido");
+    }
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card 
+        title="📋 Pedidos Pendientes de Pago"
+        actions={
+          <div className="flex gap-2">
+            <Select
+              value={filtro}
+              onChange={setFiltro}
+              options={[
+                { value: "pendiente", label: "Pendientes" },
+                { value: "completado", label: "Completados" },
+                { value: "cancelado", label: "Cancelados" },
+                { value: "todos", label: "Todos" },
+              ]}
+            />
+            <Button tone="slate" onClick={async () => {
+              const refreshedState = await loadFromSupabase(seedState());
+              setState(refreshedState);
+            }}>
+              Actualizar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {pedidosFiltrados.length === 0 ? (
+            <div className="text-center text-slate-400 py-8">
+              No hay pedidos {filtro !== "todos" ? `con estado "${filtro}"` : ""}.
+            </div>
+          ) : (
+            pedidosFiltrados.map((pedido: any) => (
+              <div key={pedido.id} className="border border-slate-700 rounded-xl p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <div className="font-semibold">
+                      Pedido #{pedido.number} - {pedido.client_name}
+                    </div>
+                    <div className="text-sm text-slate-400">
+                      Vendedor: {pedido.vendor_name} · 
+                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
+                    </div>
+                    {pedido.observaciones && (
+                      <div className="text-sm text-slate-300 mt-1">
+                        <strong>Observaciones:</strong> {pedido.observaciones}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold">{money(pedido.total)}</div>
+                    <Chip tone={
+                      pedido.status === "pendiente" ? "amber" :
+                      pedido.status === "completado" ? "emerald" : "red"
+                    }>
+                      {pedido.status === "pendiente" && "⏳ Pendiente"}
+                      {pedido.status === "completado" && "✅ Completado"}
+                      {pedido.status === "cancelado" && "❌ Cancelado"}
+                    </Chip>
+                  </div>
+                </div>
+
+                {/* Items del pedido */}
+                <div className="mb-4">
+                  <div className="text-sm font-semibold mb-2">Productos:</div>
+                  <div className="grid gap-2">
+                    {pedido.items.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span>{item.name} × {item.qty}</span>
+                        <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Acciones según estado */}
+                <div className="flex gap-2">
+                  {pedido.status === "pendiente" && session?.role === "admin" && (
+                    <>
+                      <Button onClick={() => completarPedido(pedido)} tone="emerald">
+                        💰 Completar Pago
+                      </Button>
+                      <Button tone="red" onClick={() => cancelarPedido(pedido.id)}>
+                        ❌ Cancelar Pedido
+                      </Button>
+                    </>
+                  )}
+                  
+                  <Button tone="slate" onClick={() => {
+                    // Ver detalles
+                    const detalle = {
+                      ...pedido,
+                      type: "PedidoPendiente",
+                      mensaje: "DETALLE DE PEDIDO PENDIENTE"
+                    };
+                    window.dispatchEvent(new CustomEvent("print-invoice", { detail: detalle } as any));
+                    setTimeout(() => window.print(), 0);
+                  }}>
+                    📄 Imprimir Detalle
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+// 👆👆👆 HASTA AQUÍ EL NUEVO COMPONENTE
+
+// AQUÍ SIGUE EL RESTO DE TU CÓDIGO (PrintArea, Login, etc.)
 /* ===== Página principal ===== */
 export default function Page() {
   const [state, setState] = useState<any>(seedState());
@@ -9551,6 +10062,9 @@ export default function Page() {
 )}
 {session.role === "admin" && tab === "Cálculo Sueldos" && (
   <CalculoSueldosTab state={state} setState={setState} />
+)}
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Pedidos Pendientes" && (
+  <PedidosPendientesTab state={state} setState={setState} session={session} />
 )}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
