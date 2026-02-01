@@ -1965,13 +1965,20 @@ const toPay = Math.max(0, total - applied);
                         <div key={p.id} className="flex items-center justify-between px-3 py-2 hover:bg-slate-800/30 transition-colors">
                           <div className="min-w-0 flex-1">
                             <div className="text-sm font-medium truncate">{p.name}</div>
-                            <div className="text-xs text-slate-400 truncate">
-                              Precio: {money(priceList === "1" ? p.price1 : p.price2)} · 
-                              Stock: {p.stock || 0}
-                              {p.stock_minimo && p.stock < p.stock_minimo && (
-                                <span className="text-amber-400 ml-1">⚠️ Bajo stock</span>
-                              )}
-                            </div>
+                          <div className="text-xs text-slate-400">
+  {/* 👇 MUESTRA EL PRECIO SEGÚN LA LISTA DEL CLIENTE */}
+  Precio: {money(
+    priceList === "1" ? p.price1 :
+    priceList === "2" ? p.price2 :
+    priceList === "3" ? (p.price3 || 0) :
+    priceList === "4" ? (p.price4 || 0) :
+    priceList === "5" ? (p.price5 || 0) : p.price1
+  )} · 
+  Stock: {p.stock || 0}
+  {p.stock_minimo && p.stock < p.stock_minimo && (
+    <span className="text-amber-400 ml-1">⚠️ Bajo stock</span>
+  )}
+</div>
                           </div>
                           <Button 
                             onClick={() => addItem(p)} 
@@ -6768,9 +6775,14 @@ ${cli.debt > 0 ? `Se aplicó saldo a favor a la deuda existente. Deuda actual: $
   );
 }
 
-// 👇👇👇 NUEVO COMPONENTE: Panel de Pedidos Online
+// 👇👇👇 NUEVO COMPONENTE: Panel de Pedidos Online MODIFICADO
 function PedidosOnlineTab({ state, setState, session }: any) {
-  const [priceList, setPriceList] = useState("1");
+  // 👇 OBTENER AUTOMÁTICAMENTE LA LISTA DEL CLIENTE
+  const clienteActual = state.clients.find((c: any) => c.id === session.id);
+  const listaCliente = clienteActual?.lista_precio || "1"; // Default a MITOBICEL LOCAL si no tiene
+  
+  // 👇 USAR LA LISTA DEL CLIENTE AUTOMÁTICAMENTE
+  const [priceList, setPriceList] = useState(listaCliente);
   const [sectionFilter, setSectionFilter] = useState("Todas");
   const [listFilter, setListFilter] = useState("Todas");
   const [query, setQuery] = useState("");
@@ -6779,6 +6791,25 @@ function PedidosOnlineTab({ state, setState, session }: any) {
 
   const sections = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "Otros")))];
   const lists = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.list_label || "General")))];
+
+  // 👇 CALCULAR NOMBRE DE LA LISTA (solo para uso interno)
+  const obtenerNombreLista = (codigo: string) => {
+    switch(codigo) {
+      case "1": return "MITOBICEL LOCAL";
+      case "2": return "MITOBICEL PROVINCIAS";
+      case "3": return "MITOBICEL EXCLUSIVO";
+      case "4": return "ALE LOCAL";
+      case "5": return "ALE PROVINCIA";
+      default: return "Lista General";
+    }
+  };
+
+  // 👇 EFECTO PARA ACTUALIZAR LA LISTA SI CAMBIA EL CLIENTE
+  useEffect(() => {
+    if (clienteActual?.lista_precio) {
+      setPriceList(clienteActual.lista_precio);
+    }
+  }, [clienteActual]);
 
   const filteredProducts = state.products.filter((p: any) => {
     const okS = sectionFilter === "Todas" || p.section === sectionFilter;
@@ -6797,7 +6828,14 @@ function addItem(p: any) {
   }
   
   const existing = items.find((it: any) => it.productId === p.id);
-  const unit = priceList === "1" ? p.price1 : p.price2;
+  
+  // 👇 CALCULAR PRECIO SEGÚN LA LISTA AUTOMÁTICA DEL CLIENTE
+  let unit = p.price1; // Default a MITOBICEL LOCAL
+  
+  if (priceList === "2") unit = p.price2; // MITOBICEL PROVINCIAS
+  else if (priceList === "3") unit = p.price3 || 0; // MITOBICEL EXCLUSIVO
+  else if (priceList === "4") unit = p.price4 || 0; // ALE LOCAL
+  else if (priceList === "5") unit = p.price5 || 0; // ALE PROVINCIA
   
   if (existing) {
     // Verificar si al agregar una unidad más supera el stock
@@ -6807,7 +6845,14 @@ function addItem(p: any) {
     }
     setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: nuevaCantidad } : it)));
   } else {
-    setItems([...items, { productId: p.id, name: p.name, section: p.section, qty: 1, unitPrice: unit, cost: p.cost }]);
+    setItems([...items, { 
+      productId: p.id, 
+      name: p.name, 
+      section: p.section, 
+      qty: 1, 
+      unitPrice: unit, 
+      cost: p.cost 
+    }]);
   }
 }
 
@@ -6828,6 +6873,8 @@ function addItem(p: any) {
       status: "pendiente",
       date_iso: todayISO(),
       observaciones: observaciones.trim() || undefined,
+      // 👇 GUARDAMOS LA LISTA USADA (para referencia interna)
+      lista_usada: listaCliente
     };
 
     st.pedidos.push(pedido);
@@ -6848,29 +6895,30 @@ function addItem(p: any) {
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card title={`Hacer Pedido Online - Cliente: ${session.name} (N° ${session.number})`}>
-        <div className="grid md:grid-cols-4 gap-3 mb-4">
-            <Select
-      label="Lista de precios"
-      value={priceList}
-      onChange={setPriceList}
-      options={LISTAS_PRECIOS}
+     <Card title={`Hacer Pedido Online - Cliente: ${session.name} (N° ${session.number})`}>
+  {/* 👇 INFORMACIÓN DISCRETA SOBRE LA LISTA (solo para admin, pero oculta) */}
+  {session.role === "admin" && (
+    <div className="mb-3 p-2 bg-slate-800/30 rounded text-sm text-slate-400">
+      📋 Lista asignada: <span className="text-emerald-400">{obtenerNombreLista(listaCliente)}</span>
+    </div>
+  )}
+  
+  <div className="grid md:grid-cols-3 gap-3 mb-4">
+    {/* 👇 REMOVEMOS EL SELECTOR DE LISTA - SE USA AUTOMÁTICAMENTE */}
+    <Select 
+      label="Sección" 
+      value={sectionFilter} 
+      onChange={setSectionFilter} 
+      options={sections.map((s: any) => ({ value: s, label: s }))} 
     />
-          <Select 
-            label="Sección" 
-            value={sectionFilter} 
-            onChange={setSectionFilter} 
-            options={sections.map((s: any) => ({ value: s, label: s }))} 
-          />
-          <Select 
-            label="Lista" 
-            value={listFilter} 
-            onChange={setListFilter} 
-            options={lists.map((s: any) => ({ value: s, label: s }))} 
-          />
-          <Input label="Buscar" value={query} onChange={setQuery} placeholder="Nombre del producto..." />
-        </div>
-
+    <Select 
+      label="Lista interna (filtro)" 
+      value={listFilter} 
+      onChange={setListFilter} 
+      options={lists.map((s: any) => ({ value: s, label: s }))} 
+    />
+    <Input label="Buscar producto" value={query} onChange={setQuery} placeholder="Nombre del producto..." />
+  </div>
         <div className="grid md:grid-cols-2 gap-6">
           {/* Lista de productos */}
           <div className="space-y-4">
@@ -6885,8 +6933,18 @@ function addItem(p: any) {
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium truncate">{p.name}</div>
                           <div className="text-xs text-slate-400">
-                            Precio: {money(priceList === "1" ? p.price1 : p.price2)} · 
+                            {/* 👇 MUESTRA EL PRECIO SEGÚN LA LISTA DEL CLIENTE */}
+                            Precio: {money(
+                              priceList === "1" ? p.price1 :
+                              priceList === "2" ? p.price2 :
+                              priceList === "3" ? (p.price3 || 0) :
+                              priceList === "4" ? (p.price4 || 0) :
+                              priceList === "5" ? (p.price5 || 0) : p.price1
+                            )} · 
                             Stock: {p.stock || 0}
+                            {p.stock_minimo && p.stock < p.stock_minimo && (
+                              <span className="text-amber-400 ml-1">⚠️ Bajo stock</span>
+                            )}
                           </div>
                         </div>
                         <Button onClick={() => addItem(p)} tone="slate" className="shrink-0">
@@ -6949,18 +7007,42 @@ function addItem(p: any) {
                 placeholder="Ej: Urgente, color específico, etc."
               />
               
+              {/* 👇 MENSAJE INFORMATIVO DISCRETO */}
+              <div className="mb-3 p-3 bg-slate-800/30 rounded-lg text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-400">ℹ️</span>
+                  <span>Los precios mostrados corresponden a tu categoría de cliente.</span>
+                </div>
+                {session.role === "admin" && (
+                  <div className="text-xs text-slate-400 mt-1">
+                    (Lista: {obtenerNombreLista(listaCliente)})
+                  </div>
+                )}
+              </div>
+              
               <div className="flex items-center justify-between text-lg font-bold border-t border-slate-700 pt-3">
                 <span>Total del Pedido:</span>
                 <span>{money(total)}</span>
               </div>
+<div className="mb-3 p-3 bg-slate-800/30 rounded-lg text-sm">
+  <div className="flex items-center gap-2">
+    <span className="text-emerald-400">ℹ️</span>
+    <span>Los precios mostrados corresponden a tu categoría de cliente.</span>
+  </div>
+  {session.role === "admin" && (
+    <div className="text-xs text-slate-400 mt-1">
+      (Lista: {obtenerNombreLista(listaCliente)})
+    </div>
+  )}
+</div>
 
-              <Button 
-                onClick={hacerPedido} 
-                disabled={items.length === 0}
-                className="w-full py-3 text-base"
-              >
-                🚀 Hacer Pedido
-              </Button>
+<Button 
+  onClick={hacerPedido} 
+  disabled={items.length === 0}
+  className="w-full py-3 text-base"
+>
+  🚀 Hacer Pedido
+</Button>
 
               <div className="text-xs text-slate-400 text-center">
                 Tu pedido será revisado y te contactaremos para coordinar el pago y entrega.
@@ -7017,7 +7099,6 @@ function addItem(p: any) {
     </div>
   );
 }
-
 // 👇👇👇 NUEVO COMPONENTE: Gestión de Pedidos (para admin/vendedores)
 function GestionPedidosTab({ state, setState, session }: any) {
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
