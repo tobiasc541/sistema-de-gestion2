@@ -147,9 +147,23 @@ type Cliente = {
   name: string;
   debt: number;
   saldo_favor: number;
-  creado_por?: string; // Para saber quién creó el cliente
+  creado_por?: string;
   fecha_creacion?: string;
-  deuda_manual?: boolean; // Para identificar si la deuda fue asignada manualmente
+  deuda_manual?: boolean;
+  lista_precio?: string; // 👈 NUEVO: '1', '2', '3', '4', '5'
+};
+/* ===== LISTAS DE PRECIOS ===== */
+const LISTAS_PRECIOS = [
+  { value: "1", label: "MITOBICEL LOCAL" },
+  { value: "2", label: "MITOBICEL PROVINCIAS" },
+  { value: "3", label: "MITOBICEL EXCLUSIVO" },
+  { value: "4", label: "ALE LOCAL" },
+  { value: "5", label: "ALE PROVINCIA" },
+];
+
+const obtenerNombreLista = (valor: string) => {
+  const lista = LISTAS_PRECIOS.find(l => l.value === valor);
+  return lista ? lista.label : "Sin lista";
 };
 /* ===== helpers ===== */
 const pad = (n: number, width = 8) => String(n).padStart(width, "0");
@@ -304,14 +318,17 @@ async function loadFromSupabase(fallback: any) {
       }));
     }
 
-    // PRODUCTS
+        // PRODUCTS
     const { data: products, error: prodErr } = await supabase.from("products").select("*");
     if (prodErr) { 
       console.error("SELECT products:", prodErr); 
     } else if (products) {
       out.products = products.map((p: any) => ({
         ...p,
-        stock_minimo: p.stock_min || 0
+        stock_minimo: p.stock_min || 0,
+        price3: p.price3 || 0, // 👈 AGREGAR
+        price4: p.price4 || 0, // 👈 AGREGAR
+        price5: p.price5 || 0  // 👈 AGREGAR
       }));
     }
 
@@ -1170,11 +1187,11 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
   ] : []),
   ];
 
-  const visibleTabs =
+ const visibleTabs =
     role === "admin"
       ? TABS
       : role === "vendedor"
-      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online","Pedidos Pendientes","Preparar Pedidos"] // 👈 AGREGAR
+      ? ["Facturación", "Clientes", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online","Pedidos Pendientes","Preparar Pedidos"] // 👈 QUITAR "Productos"
       : role === "pedido-online"
       ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
       : ["Panel"];
@@ -1385,11 +1402,28 @@ function FacturacionTab({ state, setState, session }: any) {
     return okS && okL && okNombre && okSeccion;
   });
 
-  function addItem(p: any) {
+   function addItem(p: any) {
     const existing = items.find((it: any) => it.productId === p.id);
-    const unit = priceList === "1" ? p.price1 : p.price2;
-    if (existing) setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it)));
-    else setItems([...items, { productId: p.id, name: p.name, section: p.section, qty: 1, unitPrice: unit, cost: p.cost }]);
+    
+    // Determinar precio según lista seleccionada
+    let unit = p.price1; // MITOBICEL LOCAL por defecto
+    if (priceList === "2") unit = p.price2; // MITOBICEL PROVINCIAS
+    else if (priceList === "3") unit = p.price3 || 0; // MITOBICEL EXCLUSIVO
+    else if (priceList === "4") unit = p.price4 || 0; // ALE LOCAL
+    else if (priceList === "5") unit = p.price5 || 0; // ALE PROVINCIA
+    
+    if (existing) {
+      setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it)));
+    } else {
+      setItems([...items, { 
+        productId: p.id, 
+        name: p.name, 
+        section: p.section, 
+        qty: 1, 
+        unitPrice: unit, 
+        cost: p.cost 
+      }]);
+    }
   }
 // 👇👇👇 PEGA ESTA FUNCIÓN COMPLETA JUSTO ANTES de saveAndPrint
 // 👇👇👇 REEMPLAZAR LA FUNCIÓN enviarAMili con esta versión
@@ -1698,30 +1732,40 @@ const toPay = Math.max(0, total - applied);
       </div>
       
       {/* Mostrar cliente seleccionado actualmente */}
-      {client && (
-        <div className="mt-2 p-2 bg-slate-800/50 rounded-lg border border-slate-700">
-          <div className="text-sm font-medium">Cliente seleccionado:</div>
-          <div className="text-sm">
-            <span className="font-semibold">{client.name}</span> 
-            <span className="text-slate-400 ml-2">(N° {client.number})</span>
-          </div>
-          <div className="text-xs text-slate-400 mt-1">
-            Deuda: {(() => {
-              const detalleDeudas = calcularDetalleDeudas(state, client.id);
-              const deudaNeta = calcularDeudaTotal(detalleDeudas, client);
-              return deudaNeta > 0 ? (
-                <span className="text-amber-400 font-semibold">{money(deudaNeta)}</span>
-              ) : (
-                <span className="text-emerald-400">✅ Al día</span>
-              );
-            })()}
-            <span className="mx-2">·</span>
-            Saldo a favor: <span className="text-emerald-400 font-semibold">
-              {money(client.saldo_favor || 0)}
-            </span>
-          </div>
-        </div>
-      )}
+              {/* Mostrar cliente seleccionado actualmente */}
+          {client && (
+            <div className="mt-2 p-2 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="text-sm font-medium">Cliente seleccionado:</div>
+              <div className="text-sm">
+                <span className="font-semibold">{client.name}</span> 
+                <span className="text-slate-400 ml-2">(N° {client.number})</span>
+              </div>
+              <div className="text-xs text-slate-400 mt-1">
+                Deuda: {(() => {
+                  const detalleDeudas = calcularDetalleDeudas(state, client.id);
+                  const deudaNeta = calcularDeudaTotal(detalleDeudas, client);
+                  return deudaNeta > 0 ? (
+                    <span className="text-amber-400 font-semibold">{money(deudaNeta)}</span>
+                  ) : (
+                    <span className="text-emerald-400">✅ Al día</span>
+                  );
+                })()}
+                <span className="mx-2">·</span>
+                Saldo a favor: <span className="text-emerald-400 font-semibold">
+                  {money(client.saldo_favor || 0)}
+                </span>
+                {/* 👇👇👇 NUEVO: INDICADOR DE LISTA (PASO 13) */}
+                <span className="mx-2">·</span>
+                Lista: <span className="text-purple-400 font-semibold">
+                  {client.lista_precio === "1" ? "MITOBICEL LOCAL" :
+                   client.lista_precio === "2" ? "MITOBICEL PROVINCIAS" :
+                   client.lista_precio === "3" ? "MITOBICEL EXCLUSIVO" :
+                   client.lista_precio === "4" ? "ALE LOCAL" :
+                   client.lista_precio === "5" ? "ALE PROVINCIA" : "No asignada"}
+                </span>
+              </div>
+            </div>
+          )}
     </div>
     {/* 👆👆👆 FIN DEL NUEVO BUSCADOR */}
 
@@ -1999,32 +2043,34 @@ function ClientesTab({ state, setState, session }: any) {
   const [deudaInicial, setDeudaInicial] = useState("");
   const [saldoFavorInicial, setSaldoFavorInicial] = useState("");
   const [modoAdmin, setModoAdmin] = useState(false);
+    const [listaPrecio, setListaPrecio] = useState("1"); // 👈 AGREGAR ESTA LÍNEA
 
   async function addClient() {
     if (!name.trim()) return;
     
     const newClient = {
-      id: "c" + Math.random().toString(36).slice(2, 8),
-      number: parseInt(String(number), 10),
-      name: name.trim(),
-      debt: modoAdmin ? parseNum(deudaInicial) : 0,
-      saldo_favor: modoAdmin ? parseNum(saldoFavorInicial) : 0,
-      creado_por: session?.name || "admin",
-      fecha_creacion: todayISO(),
-      deuda_manual: modoAdmin && parseNum(deudaInicial) > 0
-    };
+    id: "c" + Math.random().toString(36).slice(2, 8),
+    number: parseInt(String(number), 10),
+    name: name.trim(),
+    debt: modoAdmin ? parseNum(deudaInicial) : 0,
+    saldo_favor: modoAdmin ? parseNum(saldoFavorInicial) : 0,
+    lista_precio: listaPrecio, // 👈 AGREGAR ESTO
+    creado_por: session?.name || "admin",
+    fecha_creacion: todayISO(),
+    deuda_manual: modoAdmin && parseNum(deudaInicial) > 0
+  };
 
     const st = clone(state);
     st.clients.push(newClient);
     setState(st);
     
-    // Limpiar formulario
+       // Limpiar formulario
     setName("");
     setNumber(ensureUniqueNumber(st.clients));
     setDeudaInicial("");
     setSaldoFavorInicial("");
+    setListaPrecio("1"); // 👈 AGREGAR ESTA LÍNEA
     setModoAdmin(false);
-
     if (hasSupabase) {
       await supabase.from("clients").insert(newClient);
     }
@@ -2194,24 +2240,33 @@ function ClientesTab({ state, setState, session }: any) {
             </div>
           )}
 
-          <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-2 md:gap-3`}>
-            <NumberInput 
-              label="N° cliente" 
-              value={number} 
-              onChange={setNumber} 
-            />
-            <Input 
-              label="Nombre" 
-              value={name} 
-              onChange={setName} 
-              placeholder="Ej: Kiosco 9 de Julio" 
-            />
-            <div className={`${isMobile ? 'text-center' : 'pt-6'}`}>
-              <Button onClick={addClient} className={isMobile ? 'w-full' : ''}>
-                Agregar
-              </Button>
-            </div>
-          </div>
+            <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-2 md:gap-3`}>
+      <NumberInput 
+        label="N° cliente" 
+        value={number} 
+        onChange={setNumber} 
+      />
+      <Input 
+        label="Nombre" 
+        value={name} 
+        onChange={setName} 
+        placeholder="Ej: Kiosco 9 de Julio" 
+      />
+      
+      {/* 👇👇👇 NUEVO CAMPO: LISTA DE PRECIOS */}
+      <Select
+        label="Lista de precios predeterminada"
+        value={listaPrecio}
+        onChange={setListaPrecio}
+        options={LISTAS_PRECIOS}
+      />
+      
+      <div className={`${isMobile ? 'text-center' : 'pt-6'}`}>
+        <Button onClick={addClient} className={isMobile ? 'w-full' : ''}>
+          Agregar
+        </Button>
+      </div>
+    </div>
 
           {/* Campos solo para admin en modo avanzado */}
           {session?.role === "admin" && modoAdmin && (
@@ -2240,10 +2295,11 @@ function ClientesTab({ state, setState, session }: any) {
       <Card title="Listado de Clientes">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="text-left text-slate-400">
+                        <thead className="text-left text-slate-400">
               <tr>
                 <th className="py-2 pr-4">N°</th>
                 <th className="py-2 pr-4">Nombre</th>
+                <th className="py-2 pr-4">Lista</th> {/* 👈 NUEVA COLUMNA */}
                 <th className="py-2 pr-4">Deuda</th>
                 <th className="py-2 pr-4">Saldo a favor</th>
                 <th className="py-2 pr-4">Gasto mes</th>
@@ -2273,6 +2329,20 @@ function ClientesTab({ state, setState, session }: any) {
                       </div>
                     )}
                   </td>
+                  <td className="py-2 pr-4">
+                                      </td>
+                  
+                              {/* 👇👇👇 NUEVA CELDA: LISTA DE PRECIOS */}
+                  <td className="py-2 pr-4">
+                    <Chip tone="slate">
+                      {c.lista_precio === "1" ? "MITOBICEL LOCAL" :
+                       c.lista_precio === "2" ? "MITOBICEL PROVINCIAS" :
+                       c.lista_precio === "3" ? "MITOBICEL EXCLUSIVO" :
+                       c.lista_precio === "4" ? "ALE LOCAL" :
+                       c.lista_precio === "5" ? "ALE PROVINCIA" : "Sin lista"}
+                    </Chip>
+                  </td>
+                  
                   <td className="py-2 pr-4">
                     <div className={`font-medium ${
                       (() => {
@@ -2324,6 +2394,14 @@ function ClientesTab({ state, setState, session }: any) {
                               ✕ Deuda
                             </button>
                           )}
+                          {/* 👇👇👇 NUEVO BOTÓN: CAMBIAR LISTA (PUNTO 11.2) */}
+                          <button
+                            onClick={() => cambiarListaCliente(c.id)}
+                            className="text-purple-400 hover:text-purple-300 text-sm px-2 py-1 border border-purple-700 rounded"
+                            title="Cambiar lista de precios"
+                          >
+                            📋 Lista
+                          </button>
                         </>
                       )}
                     </div>
@@ -2455,6 +2533,9 @@ function ProductosTab({ state, setState, role }: any) {
   const [section, setSection] = useState("");
   const [price1, setPrice1] = useState("");
   const [price2, setPrice2] = useState("");
+  const [price3, setPrice3] = useState(""); // 👈 NUEVO
+  const [price4, setPrice4] = useState(""); // 👈 NUEVO
+  const [price5, setPrice5] = useState(""); // 👈 NUEVO
   const [stock, setStock] = useState("");
   const [stockMinimo, setStockMinimo] = useState("");
   const [cost, setCost] = useState("");
@@ -2576,17 +2657,20 @@ function ProductosTab({ state, setState, role }: any) {
   async function addProduct() {
     if (!name.trim()) return;
 
-    const product = {
-      id: editando || "p" + Math.random().toString(36).slice(2, 8),
-      name: name.trim(),
-      section: section.trim() || "General",
-      price1: parseNum(price1),
-      price2: parseNum(price2),
-      stock: parseNum(stock),
-      stock_min: parseNum(stockMinimo),
-      cost: parseNum(cost),
-      list_label: "General"
-    };
+     const product = {
+    id: editando || "p" + Math.random().toString(36).slice(2, 8),
+    name: name.trim(),
+    section: section.trim() || "General",
+    price1: parseNum(price1),
+    price2: parseNum(price2),
+    price3: parseNum(price3 || 0), // 👈 NUEVO
+    price4: parseNum(price4 || 0), // 👈 NUEVO
+    price5: parseNum(price5 || 0), // 👈 NUEVO
+    stock: parseNum(stock),
+    stock_min: parseNum(stockMinimo),
+    cost: parseNum(cost),
+    list_label: "General"
+  };
 
     const st = clone(state);
     
@@ -2603,10 +2687,13 @@ function ProductosTab({ state, setState, role }: any) {
     
     setState(st);
     
-    // Limpiar formulario
+       // Limpiar formulario
     setName("");
     setPrice1("");
     setPrice2("");
+    setPrice3("");
+    setPrice4("");
+    setPrice5("");
     setStock("");
     setStockMinimo("");
     setCost("");
@@ -2648,6 +2735,9 @@ function ProductosTab({ state, setState, role }: any) {
     setSection(producto.section);
     setPrice1(String(producto.price1));
     setPrice2(String(producto.price2));
+    setPrice3(String(producto.price3 || ""));
+    setPrice4(String(producto.price4 || ""));
+    setPrice5(String(producto.price5 || ""));
     setStock(String(producto.stock));
     setStockMinimo(String(producto.stock_min || ""));
     setCost(String(producto.cost || ""));
@@ -2845,12 +2935,15 @@ function ProductosTab({ state, setState, role }: any) {
         </div>
       </Card>
 
-      <Card title={editando ? "✏️ Editar producto" : "➕ Crear producto"}>
+         <Card title={editando ? "✏️ Editar producto" : "➕ Crear producto"}>
         <div className="grid md:grid-cols-6 gap-3">
           <Input label="Nombre" value={name} onChange={setName} />
           <Input label="Sección" value={section} onChange={setSection} placeholder="General" />
-          <NumberInput label="Precio 1" value={price1} onChange={setPrice1} />
-          <NumberInput label="Precio 2" value={price2} onChange={setPrice2} />
+          <NumberInput label="Precio 1 (MITOBICEL LOCAL)" value={price1} onChange={setPrice1} />
+          <NumberInput label="Precio 2 (MITOBICEL PROVINCIAS)" value={price2} onChange={setPrice2} />
+          <NumberInput label="Precio 3 (MITOBICEL EXCLUSIVO)" value={price3} onChange={setPrice3} placeholder="0" />
+          <NumberInput label="Precio 4 (ALE LOCAL)" value={price4} onChange={setPrice4} placeholder="0" />
+          <NumberInput label="Precio 5 (ALE PROVINCIA)" value={price5} onChange={setPrice5} placeholder="0" />
           <NumberInput label="Stock inicial" value={stock} onChange={setStock} />
           <NumberInput label="Stock mínimo" value={stockMinimo} onChange={setStockMinimo} placeholder="0" />
           <NumberInput label="Costo" value={cost} onChange={setCost} placeholder="0" />
@@ -2864,6 +2957,9 @@ function ProductosTab({ state, setState, role }: any) {
                 setName("");
                 setPrice1("");
                 setPrice2("");
+                setPrice3("");
+                setPrice4("");
+                setPrice5("");
                 setStock("");
                 setStockMinimo("");
                 setCost("");
@@ -2879,12 +2975,15 @@ function ProductosTab({ state, setState, role }: any) {
       <Card title="📋 Listado de productos">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="text-left text-slate-400">
+                       <thead className="text-left text-slate-400">
               <tr>
                 <th className="py-2 pr-4">Nombre</th>
                 <th className="py-2 pr-4">Sección</th>
-                <th className="py-2 pr-4">Precio 1</th>
-                <th className="py-2 pr-4">Precio 2</th>
+                             <th className="py-2 pr-4" title="MITOBICEL LOCAL">P1</th>
+                <th className="py-2 pr-4" title="MITOBICEL PROVINCIAS">P2</th>
+                <th className="py-2 pr-4" title="MITOBICEL EXCLUSIVO">P3</th>
+                <th className="py-2 pr-4" title="ALE LOCAL">P4</th>
+                <th className="py-2 pr-4" title="ALE PROVINCIA">P5</th>
                 <th className="py-2 pr-4">Stock</th>
                 <th className="py-2 pr-4">Mínimo</th>
                 <th className="py-2 pr-4">Costo</th>
@@ -2901,8 +3000,11 @@ function ProductosTab({ state, setState, role }: any) {
                   <tr key={p.id} className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "bg-red-900/20" : ""}>
                     <td className="py-2 pr-4">{p.name}</td>
                     <td className="py-2 pr-4">{p.section}</td>
-                    <td className="py-2 pr-4">{money(p.price1)}</td>
+                                        <td className="py-2 pr-4">{money(p.price1)}</td>
                     <td className="py-2 pr-4">{money(p.price2)}</td>
+                    <td className="py-2 pr-4">{money(p.price3 || 0)}</td>
+                    <td className="py-2 pr-4">{money(p.price4 || 0)}</td>
+                    <td className="py-2 pr-4">{money(p.price5 || 0)}</td>
                     <td className="py-2 pr-4">
                       <span className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "text-red-400 font-bold" : ""}>
                         {p.stock}
@@ -5577,7 +5679,14 @@ function ReportesTab({ state, setState, session }: any) {
 function PresupuestosTab({ state, setState, session }: any) {
   const [clientId, setClientId] = useState(state.clients[0]?.id || "");
   const [vendorId, setVendorId] = useState(session.role === "admin" ? state.vendors[0]?.id : session.id);
-  const [priceList, setPriceList] = useState("1");
+  const [priceList, setPriceList] = useState(() => {
+    // Si hay cliente seleccionado, usar su lista predeterminada
+    if (clientId) {
+      const cliente = state.clients.find((c: any) => c.id === clientId);
+      return cliente?.lista_precio || "1";
+    }
+    return "1";
+  });
   const [sectionFilter, setSectionFilter] = useState("Todas"); // 👈 NUEVO
   const [listFilter, setListFilter] = useState("Todas"); // 👈 NUEVO
   const [items, setItems] = useState<any[]>([]);
@@ -5602,9 +5711,26 @@ function PresupuestosTab({ state, setState, session }: any) {
 
   function addItem(p: any) {
     const existing = items.find((it: any) => it.productId === p.id);
-    const unit = priceList === "1" ? p.price1 : p.price2;
-    if (existing) setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it)));
-    else setItems([...items, { productId: p.id, name: p.name, section: p.section, qty: 1, unitPrice: unit, cost: p.cost }]);
+    
+    // Determinar precio según lista seleccionada
+    let unit = p.price1; // MITOBICEL LOCAL por defecto
+    if (priceList === "2") unit = p.price2; // MITOBICEL PROVINCIAS
+    else if (priceList === "3") unit = p.price3 || 0; // MITOBICEL EXCLUSIVO
+    else if (priceList === "4") unit = p.price4 || 0; // ALE LOCAL
+    else if (priceList === "5") unit = p.price5 || 0; // ALE PROVINCIA
+    
+    if (existing) {
+      setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it)));
+    } else {
+      setItems([...items, { 
+        productId: p.id, 
+        name: p.name, 
+        section: p.section, 
+        qty: 1, 
+        unitPrice: unit, 
+        cost: p.cost 
+      }]);
+    }
   }
   
   // ... el resto de tus funciones permanecen EXACTAMENTE igual ...
@@ -5613,6 +5739,15 @@ function PresupuestosTab({ state, setState, session }: any) {
     const st = clone(state);
     const number = st.meta.budgetCounter++;
     const id = "pr_" + number;
+      // 👇👇👇 ACTUALIZAR LISTA CUANDO CAMBIA EL CLIENTE
+  useEffect(() => {
+    if (clientId) {
+      const cliente = state.clients.find((c: any) => c.id === clientId);
+      if (cliente?.lista_precio) {
+        setPriceList(cliente.lista_precio);
+      }
+    }
+  }, [clientId, state.clients]);
     const total = calcInvoiceTotal(items);
     const b = {
       id,
@@ -5714,8 +5849,12 @@ async function convertirAFactura(b: any) {
         <div className="grid md:grid-cols-4 gap-3">
           <Select label="Cliente" value={clientId} onChange={setClientId} options={state.clients.map((c: any) => ({ value: c.id, label: `${c.number} — ${c.name}` }))} />
           <Select label="Vendedor" value={vendorId} onChange={setVendorId} options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))} />
-          <Select label="Lista de precios" value={priceList} onChange={setPriceList} options={[{ value: "1", label: "Mitobicel" }, { value: "2", label: "ElshoppingDlc" }]} />
-          <Input label="Buscar producto" value={query} onChange={setQuery} placeholder="Nombre..." />
+          <Select 
+            label="Lista de precios" 
+            value={priceList} 
+            onChange={setPriceList} 
+            options={LISTAS_PRECIOS} 
+          />          <Input label="Buscar producto" value={query} onChange={setQuery} placeholder="Nombre..." />
         </div>
         
         {/* 👇👇👇 AGREGAR ESTOS NUEVOS FILTROS */}
@@ -6626,15 +6765,12 @@ function addItem(p: any) {
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       <Card title={`Hacer Pedido Online - Cliente: ${session.name} (N° ${session.number})`}>
         <div className="grid md:grid-cols-4 gap-3 mb-4">
-          <Select
-            label="Lista de precios"
-            value={priceList}
-            onChange={setPriceList}
-            options={[
-              { value: "1", label: "Mitobicel" },
-              { value: "2", label: "ElshoppingDlc" },
-            ]}
-          />
+            <Select
+      label="Lista de precios"
+      value={priceList}
+      onChange={setPriceList}
+      options={LISTAS_PRECIOS}
+    />
           <Select 
             label="Sección" 
             value={sectionFilter} 
