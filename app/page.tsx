@@ -9748,11 +9748,34 @@ function PedidosPendientesTab({ state, setState, session }: any) {
       cliente.debt = parseNum(cliente.debt) + deudaAdicional;
     }
     
-    // 4. Actualizar estado del pedido
+      // 4. Actualizar estado del pedido
     const pedidoIndex = (st.pedidos_pendientes || []).findIndex((p: any) => p.id === pedido.id);
     if (pedidoIndex !== -1) {
       st.pedidos_pendientes[pedidoIndex].status = "completado";
     }
+    
+    // ====== CREAR PEDIDO A PREPARAR (SIEMPRE) ======
+    const pedidoPreparar = {
+      id: "prep_" + Math.random().toString(36).slice(2, 8),
+      pedido_pendiente_id: pedido.id,
+      factura_id: invoiceId,
+      tipo: "pendiente",
+      client_id: pedido.client_id,
+      client_name: pedido.client_name,
+      client_number: cliente?.number,
+      items: pedido.items.map((item: any) => ({
+        name: item.name,
+        section: item.section || "General",
+        qty: item.qty,
+      })),
+      observaciones: pedido.observaciones || "",
+      fecha_creacion: todayISO(),
+      status: "pendiente"
+    };
+    
+    // Agregar al estado local
+    st.pedidos_preparar = st.pedidos_preparar || [];
+    st.pedidos_preparar.push(pedidoPreparar);
     
     setState(st);
     
@@ -9763,7 +9786,7 @@ function PedidosPendientesTab({ state, setState, session }: any) {
         await supabase.from("invoices").insert(invoice);
         
         // Actualizar cliente
-        if (cliente) {
+        if (cliente && totalPagos < pedido.total) {
           await supabase.from("clients")
             .update({ debt: cliente.debt })
             .eq("id", pedido.client_id);
@@ -9773,11 +9796,13 @@ function PedidosPendientesTab({ state, setState, session }: any) {
         await supabase.from("pedidos_pendientes")
           .update({ status: "completado" })
           .eq("id", pedido.id);
+        
         // GUARDAR PEDIDO A PREPARAR
-await supabase.from("pedidos_preparar").insert(pedidoPreparar);
+        await supabase.from("pedidos_preparar").insert(pedidoPreparar);
         
         // Actualizar contador
         await saveCountersSupabase(st.meta);
+    
         
       } catch (error) {
         console.error("Error al completar pedido:", error);
