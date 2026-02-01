@@ -9578,7 +9578,6 @@ function CalculoSueldosTab({ state, setState }: any) {
     </div>
   );
 }
-} // Esto cierra CalculoSueldosTab
 
 // 👇👇👇 PEGA ESTE COMPONENTE COMPLETO JUSTO AQUÍ
 /* ===== PEDIDOS PENDIENTES ===== */
