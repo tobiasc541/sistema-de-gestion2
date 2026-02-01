@@ -1469,10 +1469,8 @@ async function enviarAMili() {
 
 // 👆👆👆 HASTA AQUÍ LA NUEVA FUNCIÓN
 
-// 👇👇👇 AQUÍ SIGUE TU FUNCIÓN saveAndPrint EXISTENTE
-async function saveAndPrint() {
-  // ... tu código existente de saveAndPrint ...
-}
+
+
 async function saveAndPrint() {
   if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
   if (items.length === 0) return alert("Agregá productos al carrito.");
