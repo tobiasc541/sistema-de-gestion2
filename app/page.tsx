@@ -193,7 +193,8 @@ function seedState() {
     vales_empleados: [] as ValeEmpleado[],
     proveedores: [] as any[], // Asegurar inicialización
     compras_proveedores: [] as any[], 
-    pedidos_pendientes: [] as PedidoPendiente[],// Asegurar inicialización
+    pedidos_pendientes: [] as PedidoPendiente[],
+      pedidos_preparar: [] as any[], // 👈 AGREGAR ESTA LÍNEA// Asegurar inicialización
   };
 }
 
@@ -376,6 +377,23 @@ try {
 } catch (error) {
   console.error("Error cargando pedidos_pendientes:", error);
   out.pedidos_pendientes = [];
+}
+    // PEDIDOS A PREPARAR
+try {
+  const { data: pedidosPreparar, error: prepErr } = await supabase
+    .from("pedidos_preparar")
+    .select("*")
+    .order("fecha_creacion", { ascending: false });
+  
+  if (prepErr) {
+    console.error("SELECT pedidos_preparar:", prepErr);
+    out.pedidos_preparar = [];
+  } else {
+    out.pedidos_preparar = pedidosPreparar || [];
+  }
+} catch (error) {
+  console.error("Error cargando pedidos_preparar:", error);
+  out.pedidos_preparar = [];
 }
     // EMPLEADOS
     const { data: empleados, error: empErr } = await supabase
@@ -1141,7 +1159,8 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     "Cola",
      "Proveedores",
     "Pedidos Online",
-     "Pedidos Pendientes",// 👈 NUEVA PESTAÑA
+     "Pedidos Pendientes",
+     "Preparar Pedidos",// 👈 NUEVA PESTAÑA
     // 👇👇👇 AGREGAR ESTAS NUEVAS PESTAÑAS SOLO PARA ADMIN
   ...(role === "admin" ? [
     "Empleados",
@@ -1155,7 +1174,7 @@ function Navbar({ current, setCurrent, role, onLogout }: any) {
     role === "admin"
       ? TABS
       : role === "vendedor"
-      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online","Pedidos Pendientes"] // 👈 AGREGAR
+      ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online","Pedidos Pendientes","Preparar Pedidos"] // 👈 AGREGAR
       : role === "pedido-online"
       ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
       : ["Panel"];
@@ -1417,6 +1436,29 @@ async function enviarAMili() {
       product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
     }
   });
+  // AGREGAR PEDIDO A PREPARAR PARA FACTURAS NORMALES
+const pedidoPreparar = {
+  id: "prep_" + Math.random().toString(36).slice(2, 8),
+  factura_id: id,
+  tipo: "facturacion",
+  client_id: client.id,
+  client_name: client.name,
+  client_number: client.number,
+  items: items.map((item: any) => ({
+    name: item.name,
+    section: item.section || "General",
+    qty: item.qty,
+  })),
+  fecha_creacion: todayISO(),
+  status: "pendiente"
+};
+
+st.pedidos_preparar = st.pedidos_preparar || [];
+st.pedidos_preparar.push(pedidoPreparar);
+
+if (hasSupabase) {
+  await supabase.from("pedidos_preparar").insert(pedidoPreparar);
+}
   
   setState(st);
   
@@ -7341,6 +7383,7 @@ if (inv?.type === "Reporte") {
         ) : (
           <div className="text-sm text-slate-500 p-2">No hay deudores activos</div>
         )}
+        
 
         {/* 👇👇👇 SECCIÓN: PAGOS DE DEUDORES CON DETALLE */}
         <div style={{ borderTop: "1px solid #000", margin: "12px 0 6px" }} />
@@ -8339,6 +8382,67 @@ const clientDebtTotal = (() => {
   }
   return parseNum(inv?.client_debt_total ?? 0);
 })();
+  // ==== BOLETA DE PREPARACIÓN ====
+if (inv?.type === "BoletaPreparacion") {
+  return (
+    <div className="only-print print-area p-14">
+      <div className="max-w-[520px] mx-auto text-black">
+        <div className="text-center">
+          <div style={{ fontWeight: 800, fontSize: 24 }}>BOLETA DE PREPARACIÓN</div>
+          <div style={{ fontSize: 14 }}>MITOBICEL</div>
+          <div style={{ fontSize: 12, color: "#666" }}>
+            {inv.fecha} · Preparado por: {inv.preparado_por}
+          </div>
+        </div>
+
+        <div style={{ borderTop: "2px solid #000", margin: "10px 0 8px" }} />
+
+        <div className="text-sm">
+          <div className="flex justify-between"><strong>Cliente:</strong> {inv.pedido.client_name}</div>
+          {inv.pedido.client_number && <div className="flex justify-between"><strong>N° Cliente:</strong> {inv.pedido.client_number}</div>}
+          <div className="flex justify-between"><strong>Tipo:</strong> {inv.pedido.tipo === 'pendiente' ? 'Pedido Facturación' : 'Facturación Normal'}</div>
+        </div>
+
+        <div style={{ borderTop: "1px solid #000", margin: "10px 0 8px" }} />
+        
+        <div className="text-sm">
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Productos a preparar:</div>
+          <table style={{ width: "100%", fontSize: 11 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>Producto</th>
+                <th style={{ textAlign: "center" }}>Sección</th>
+                <th style={{ textAlign: "right" }}>Cantidad</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inv.pedido.items.map((item: any, i: number) => (
+                <tr key={i}>
+                  <td>{item.name}</td>
+                  <td style={{ textAlign: "center" }}>{item.section}</td>
+                  <td style={{ textAlign: "right", fontWeight: "bold" }}>× {item.qty}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {inv.pedido.observaciones && (
+          <div style={{ borderTop: "1px dashed #000", margin: "10px 0", paddingTop: 8, fontSize: 11 }}>
+            <strong>Observaciones:</strong> {inv.pedido.observaciones}
+          </div>
+        )}
+
+        <div style={{ borderTop: "2px solid #000", margin: "20px 0 10px", paddingTop: 10 }}>
+          <div className="text-center text-sm">
+            <div style={{ marginBottom: "30px" }}>_________________________</div>
+            <div>Firma del Preparador</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 return (
   <div className="only-print print-area p-14">
@@ -9669,6 +9773,8 @@ function PedidosPendientesTab({ state, setState, session }: any) {
         await supabase.from("pedidos_pendientes")
           .update({ status: "completado" })
           .eq("id", pedido.id);
+        // GUARDAR PEDIDO A PREPARAR
+await supabase.from("pedidos_preparar").insert(pedidoPreparar);
         
         // Actualizar contador
         await saveCountersSupabase(st.meta);
@@ -9684,7 +9790,7 @@ function PedidosPendientesTab({ state, setState, session }: any) {
     await nextPaint();
     window.print();
     
-    alert(`✅ Pedido completado\nFactura Nº ${invoiceNumber}\nTotal: ${money(pedido.total)}`);
+    alert(`✅ Pedido completado\nFactura Nº ${invoiceNumber}\nTotal: ${money(pedido.total)}\n📦 Se agregó a "Preparar Pedidos"`);
   }
   
   async function cancelarPedido(pedidoId: string) {
@@ -9726,6 +9832,148 @@ function PedidosPendientesTab({ state, setState, session }: any) {
       alert("✅ Pedido cancelado y stock revertido");
     }
   }
+  /* ===== PREPARAR PEDIDOS ===== */
+function PrepararPedidosTab({ state, setState, session }: any) {
+  const [filtro, setFiltro] = useState<"pendiente" | "preparando" | "completado" | "todos">("pendiente");
+  
+  const pedidos = (state.pedidos_preparar || [])
+    .filter((p: any) => filtro === "todos" || p.status === filtro)
+    .sort((a: any, b: any) => new Date(b.fecha_creacion).getTime() - new Date(a.fecha_creacion).getTime());
+  
+  async function cambiarEstado(pedidoId: string, nuevoEstado: string) {
+    const st = clone(state);
+    const pedido = st.pedidos_preparar.find((p: any) => p.id === pedidoId);
+    
+    if (pedido) {
+      pedido.status = nuevoEstado;
+      if (nuevoEstado === "preparando") {
+        pedido.preparado_por = session.name;
+        pedido.preparado_at = todayISO();
+      }
+      setState(st);
+      
+      if (hasSupabase) {
+        await supabase
+          .from("pedidos_preparar")
+          .update({ 
+            status: nuevoEstado,
+            preparado_por: pedido.preparado_por,
+            preparado_at: pedido.preparado_at
+          })
+          .eq("id", pedidoId);
+      }
+    }
+  }
+  
+  function imprimirBoleta(pedido: any) {
+    const data = {
+      type: "BoletaPreparacion",
+      pedido: pedido,
+      fecha: new Date().toLocaleString("es-AR"),
+      preparado_por: session.name
+    };
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
+    setTimeout(() => window.print(), 100);
+  }
+  
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card 
+        title="👨‍🍳 Preparar Pedidos"
+        actions={
+          <div className="flex gap-2">
+            <Select
+              value={filtro}
+              onChange={setFiltro}
+              options={[
+                { value: "pendiente", label: "⏳ Pendientes" },
+                { value: "preparando", label: "👨‍🍳 En preparación" },
+                { value: "completado", label: "✅ Completados" },
+                { value: "todos", label: "📋 Todos" },
+              ]}
+            />
+            <Button tone="slate" onClick={async () => {
+              const refreshedState = await loadFromSupabase(seedState());
+              setState(refreshedState);
+            }}>🔄 Actualizar</Button>
+          </div>
+        }
+      >
+        <div className="text-sm text-slate-400 mb-4">
+          Lista de pedidos pagados que necesitan preparación. Solo se muestran productos, sin montos.
+        </div>
+        
+        <div className="space-y-4">
+          {pedidos.length === 0 ? (
+            <div className="text-center text-slate-400 py-8">
+              No hay pedidos para preparar
+            </div>
+          ) : (
+            pedidos.map((pedido: any) => (
+              <div key={pedido.id} className="border border-slate-700 rounded-xl p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <div className="font-semibold">{pedido.client_name}</div>
+                    <div className="text-sm text-slate-400">
+                      {new Date(pedido.fecha_creacion).toLocaleString("es-AR")}
+                      {pedido.tipo === 'pendiente' ? ' · Pedido Pendiente' : ' · Facturación'}
+                    </div>
+                    {pedido.observaciones && (
+                      <div className="text-sm text-slate-300 mt-1">
+                        <strong>Observaciones:</strong> {pedido.observaciones}
+                      </div>
+                    )}
+                  </div>
+                  <Chip tone={
+                    pedido.status === "pendiente" ? "amber" :
+                    pedido.status === "preparando" ? "blue" : "emerald"
+                  }>
+                    {pedido.status === "pendiente" && "⏳ Pendiente"}
+                    {pedido.status === "preparando" && "👨‍🍳 Preparando"}
+                    {pedido.status === "completado" && "✅ Completado"}
+                  </Chip>
+                </div>
+                
+                <div className="mb-4">
+                  <div className="text-sm font-semibold mb-2">Productos:</div>
+                  <div className="grid gap-2">
+                    {pedido.items.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <div>
+                          <span>{item.name}</span>
+                          <span className="text-slate-400 ml-2">({item.section})</span>
+                        </div>
+                        <span className="font-semibold">× {item.qty}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="flex gap-2">
+                  <Button onClick={() => imprimirBoleta(pedido)} tone="slate">
+                    🖨️ Imprimir Boleta
+                  </Button>
+                  
+                  {pedido.status === "pendiente" && (
+                    <Button onClick={() => cambiarEstado(pedido.id, "preparando")} tone="blue">
+                      👨‍🍳 Comenzar Preparación
+                    </Button>
+                  )}
+                  
+                  {pedido.status === "preparando" && (
+                    <Button onClick={() => cambiarEstado(pedido.id, "completado")} tone="emerald">
+                      ✅ Marcar como Listo
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
@@ -10062,6 +10310,9 @@ export default function Page() {
 )}
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Pedidos Pendientes" && (
   <PedidosPendientesTab state={state} setState={setState} session={session} />
+)}
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Preparar Pedidos" && (
+  <PrepararPedidosTab state={state} setState={setState} session={session} />
 )}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
