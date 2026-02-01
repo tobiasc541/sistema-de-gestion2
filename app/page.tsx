@@ -7424,8 +7424,24 @@ const vendedorOnline = obtenerVendedorOnline(st);
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <div className="font-semibold">
-                      Pedido #{pedido.id.slice(-6)} - {pedido.client_name} (N° {pedido.client_number})
-                    </div>
+  Pedido #{pedido.id.slice(-6)} - {pedido.client_name} (N° {pedido.client_number})
+</div>
+<div className="text-xs text-slate-400">
+  {(() => {
+    const cliente = state.clients.find((c: any) => c.id === pedido.client_id);
+    if (cliente?.lista_precio) {
+      const lista = cliente.lista_precio;
+      const nombreLista = 
+        lista === "1" ? "MITOBICEL LOCAL" :
+        lista === "2" ? "MITOBICEL PROVINCIAS" :
+        lista === "3" ? "MITOBICEL EXCLUSIVO" :
+        lista === "4" ? "ALE LOCAL" :
+        lista === "5" ? "ALE PROVINCIA" : "Sin lista";
+      return `📋 Lista: ${nombreLista}`;
+    }
+    return "";
+  })()}
+</div>
                     <div className="text-sm text-slate-400">
                       {new Date(pedido.date_iso).toLocaleString("es-AR")}
                     </div>
