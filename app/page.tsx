@@ -9857,7 +9857,117 @@ function PedidosPendientesTab({ state, setState, session }: any) {
       alert("✅ Pedido cancelado y stock revertido");
     }
   }
-  /* ===== PREPARAR PEDIDOS ===== */
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card 
+        title="📋 Pedidos Pendientes de Pago"
+        actions={
+          <div className="flex gap-2">
+            <Select
+              value={filtro}
+              onChange={setFiltro}
+              options={[
+                { value: "pendiente", label: "Pendientes" },
+                { value: "completado", label: "Completados" },
+                { value: "cancelado", label: "Cancelados" },
+                { value: "todos", label: "Todos" },
+              ]}
+            />
+            <Button tone="slate" onClick={async () => {
+              const refreshedState = await loadFromSupabase(seedState());
+              setState(refreshedState);
+            }}>
+              Actualizar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {pedidosFiltrados.length === 0 ? (
+            <div className="text-center text-slate-400 py-8">
+              No hay pedidos {filtro !== "todos" ? `con estado "${filtro}"` : ""}.
+            </div>
+          ) : (
+            pedidosFiltrados.map((pedido: any) => (
+              <div key={pedido.id} className="border border-slate-700 rounded-xl p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <div className="font-semibold">
+                      Pedido #{pedido.number} - {pedido.client_name}
+                    </div>
+                    <div className="text-sm text-slate-400">
+                      Vendedor: {pedido.vendor_name} · 
+                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
+                    </div>
+                    {pedido.observaciones && (
+                      <div className="text-sm text-slate-300 mt-1">
+                        <strong>Observaciones:</strong> {pedido.observaciones}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold">{money(pedido.total)}</div>
+                    <Chip tone={
+                      pedido.status === "pendiente" ? "amber" :
+                      pedido.status === "completado" ? "emerald" : "red"
+                    }>
+                      {pedido.status === "pendiente" && "⏳ Pendiente"}
+                      {pedido.status === "completado" && "✅ Completado"}
+                      {pedido.status === "cancelado" && "❌ Cancelado"}
+                    </Chip>
+                  </div>
+                </div>
+
+                {/* Items del pedido */}
+                <div className="mb-4">
+                  <div className="text-sm font-semibold mb-2">Productos:</div>
+                  <div className="grid gap-2">
+                    {pedido.items.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span>{item.name} × {item.qty}</span>
+                        <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Acciones según estado */}
+                <div className="flex gap-2">
+                 {pedido.status === "pendiente" && (session?.role === "admin" || session?.role === "vendedor") && (
+  <>
+    <Button onClick={() => completarPedido(pedido)} tone="emerald">
+      💰 Completar Pago
+    </Button>
+    <Button tone="red" onClick={() => cancelarPedido(pedido.id)}>
+      ❌ Cancelar Pedido
+    </Button>
+  </>
+)}
+                  <Button tone="slate" onClick={() => {
+                    // Ver detalles
+                    const detalle = {
+                      ...pedido,
+                      type: "PedidoPendiente",
+                      mensaje: "DETALLE DE PEDIDO PENDIENTE"
+                    };
+                    window.dispatchEvent(new CustomEvent("print-invoice", { detail: detalle } as any));
+                    setTimeout(() => window.print(), 0);
+                  }}>
+                    📄 Imprimir Detalle
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+// 👆👆👆 HAST
+
+/* ===== PREPARAR PEDIDOS ===== */
 function PrepararPedidosTab({ state, setState, session }: any) {
   const [filtro, setFiltro] = useState<"pendiente" | "preparando" | "completado" | "todos">("pendiente");
   
@@ -9998,116 +10108,7 @@ function PrepararPedidosTab({ state, setState, session }: any) {
       </Card>
     </div>
   );
-}
-
-  return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card 
-        title="📋 Pedidos Pendientes de Pago"
-        actions={
-          <div className="flex gap-2">
-            <Select
-              value={filtro}
-              onChange={setFiltro}
-              options={[
-                { value: "pendiente", label: "Pendientes" },
-                { value: "completado", label: "Completados" },
-                { value: "cancelado", label: "Cancelados" },
-                { value: "todos", label: "Todos" },
-              ]}
-            />
-            <Button tone="slate" onClick={async () => {
-              const refreshedState = await loadFromSupabase(seedState());
-              setState(refreshedState);
-            }}>
-              Actualizar
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          {pedidosFiltrados.length === 0 ? (
-            <div className="text-center text-slate-400 py-8">
-              No hay pedidos {filtro !== "todos" ? `con estado "${filtro}"` : ""}.
-            </div>
-          ) : (
-            pedidosFiltrados.map((pedido: any) => (
-              <div key={pedido.id} className="border border-slate-700 rounded-xl p-4">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <div className="font-semibold">
-                      Pedido #{pedido.number} - {pedido.client_name}
-                    </div>
-                    <div className="text-sm text-slate-400">
-                      Vendedor: {pedido.vendor_name} · 
-                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
-                    </div>
-                    {pedido.observaciones && (
-                      <div className="text-sm text-slate-300 mt-1">
-                        <strong>Observaciones:</strong> {pedido.observaciones}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold">{money(pedido.total)}</div>
-                    <Chip tone={
-                      pedido.status === "pendiente" ? "amber" :
-                      pedido.status === "completado" ? "emerald" : "red"
-                    }>
-                      {pedido.status === "pendiente" && "⏳ Pendiente"}
-                      {pedido.status === "completado" && "✅ Completado"}
-                      {pedido.status === "cancelado" && "❌ Cancelado"}
-                    </Chip>
-                  </div>
-                </div>
-
-                {/* Items del pedido */}
-                <div className="mb-4">
-                  <div className="text-sm font-semibold mb-2">Productos:</div>
-                  <div className="grid gap-2">
-                    {pedido.items.map((item: any, idx: number) => (
-                      <div key={idx} className="flex justify-between text-sm">
-                        <span>{item.name} × {item.qty}</span>
-                        <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Acciones según estado */}
-                <div className="flex gap-2">
-                 {pedido.status === "pendiente" && (session?.role === "admin" || session?.role === "vendedor") && (
-  <>
-    <Button onClick={() => completarPedido(pedido)} tone="emerald">
-      💰 Completar Pago
-    </Button>
-    <Button tone="red" onClick={() => cancelarPedido(pedido.id)}>
-      ❌ Cancelar Pedido
-    </Button>
-  </>
-)}
-                  <Button tone="slate" onClick={() => {
-                    // Ver detalles
-                    const detalle = {
-                      ...pedido,
-                      type: "PedidoPendiente",
-                      mensaje: "DETALLE DE PEDIDO PENDIENTE"
-                    };
-                    window.dispatchEvent(new CustomEvent("print-invoice", { detail: detalle } as any));
-                    setTimeout(() => window.print(), 0);
-                  }}>
-                    📄 Imprimir Detalle
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </Card>
-    </div>
-  );
-}
-// 👆👆👆 HASTA AQUÍ EL NUEVO COMPONENTE
+}A AQUÍ EL NUEVO COMPONENTE
 
 // AQUÍ SIGUE EL RESTO DE TU CÓDIGO (PrintArea, Login, etc.)
 /* ===== Página principal ===== */
