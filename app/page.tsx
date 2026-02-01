@@ -10108,7 +10108,7 @@ function PrepararPedidosTab({ state, setState, session }: any) {
       </Card>
     </div>
   );
-}A AQUÍ EL NUEVO COMPONENTE
+}
 
 // AQUÍ SIGUE EL RESTO DE TU CÓDIGO (PrintArea, Login, etc.)
 /* ===== Página principal ===== */
