@@ -2216,6 +2216,68 @@ function ClientesTab({ state, setState, session }: any) {
       alert(`Deuda cancelada: ${money(deudaCancelada)} → $0`);
     }
   }
+  // Función para cambiar lista de precios del cliente
+async function cambiarListaCliente(clienteId: string) {
+  const cliente = state.clients.find((c: any) => c.id === clienteId);
+  if (!cliente) return;
+  
+  const nuevaLista = prompt(
+    `Selecciona nueva lista de precios para ${cliente.name}:\n\n` +
+    `1: MITOBICEL LOCAL\n` +
+    `2: MITOBICEL PROVINCIAS\n` +
+    `3: MITOBICEL EXCLUSIVO\n` +
+    `4: ALE LOCAL\n` +
+    `5: ALE PROVINCIA\n\n` +
+    `Lista actual: ${cliente.lista_precio || "1"} - ${obtenerNombreLista(cliente.lista_precio || "1")}`,
+    cliente.lista_precio || "1"
+  );
+  
+  if (nuevaLista === null) return;
+  
+  if (!["1", "2", "3", "4", "5"].includes(nuevaLista)) {
+    return alert("Lista inválida. Debe ser 1, 2, 3, 4 o 5");
+  }
+  
+  const st = clone(state);
+  const clienteActualizado = st.clients.find((c: any) => c.id === clienteId);
+  
+  if (clienteActualizado) {
+    const listaAnterior = clienteActualizado.lista_precio || "1";
+    clienteActualizado.lista_precio = nuevaLista;
+    
+    setState(st);
+    
+    if (hasSupabase) {
+      try {
+        const { error } = await supabase
+          .from("clients")
+          .update({ lista_precio: nuevaLista })
+          .eq("id", clienteId);
+        
+        if (error) throw error;
+        
+        alert(`✅ Lista cambiada: ${obtenerNombreLista(listaAnterior)} → ${obtenerNombreLista(nuevaLista)}`);
+      } catch (error) {
+        console.error("Error al cambiar lista:", error);
+        alert("Error al guardar el cambio de lista.");
+      }
+    } else {
+      alert(`✅ Lista cambiada: ${obtenerNombreLista(listaAnterior)} → ${obtenerNombreLista(nuevaLista)}`);
+    }
+  }
+}
+
+// Función auxiliar para obtener nombre de lista
+function obtenerNombreLista(codigo: string): string {
+  switch(codigo) {
+    case "1": return "MITOBICEL LOCAL";
+    case "2": return "MITOBICEL PROVINCIAS";
+    case "3": return "MITOBICEL EXCLUSIVO";
+    case "4": return "ALE LOCAL";
+    case "5": return "ALE PROVINCIA";
+    default: return "Sin lista";
+  }
+}
 
   const clients = Array.isArray(state.clients)
     ? [...state.clients].sort((a: any, b: any) => (a.number || 0) - (b.number || 0))
