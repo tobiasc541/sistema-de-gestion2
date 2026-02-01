@@ -2278,20 +2278,6 @@ function obtenerNombreLista(codigo: string): string {
     default: return "Sin lista";
   }
 }
-  // Función para calcular margen de ganancia
-function calcularMargen(costo: number, precioVenta: number): { porcentaje: number; ganancia: number } {
-  if (costo <= 0 || precioVenta <= 0) {
-    return { porcentaje: 0, ganancia: 0 };
-  }
-  
-  const ganancia = precioVenta - costo;
-  const porcentaje = (ganancia / costo) * 100;
-  
-  return {
-    porcentaje: Math.round(porcentaje * 100) / 100, // 2 decimales
-    ganancia: Math.round(ganancia * 100) / 100
-  };
-}
 
   const clients = Array.isArray(state.clients)
     ? [...state.clients].sort((a: any, b: any) => (a.number || 0) - (b.number || 0))
@@ -2620,197 +2606,93 @@ function ProductosTab({ state, setState, role }: any) {
   // 👇👇👇 ESTADOS PARA IMPRESIÓN
   const [filtroImpresion, setFiltroImpresion] = useState("todos");
   const [seccionImpresion, setSeccionImpresion] = useState("Todas");
-  // 👇👇👇 AGREGAR ESTOS ESTADOS NUEVOS (PASO 3)
-const [seccionMargenes, setSeccionMargenes] = useState("Todas");
-const [ordenMargenes, setOrdenMargenes] = useState("nombre");
 
-// 👇👇👇 FUNCIÓN PARA IMPRIMIR STOCK
-function imprimirStockCompleto() {
-  let productosFiltrados = state.products;
-  
-  // Aplicar filtros
-  if (filtroImpresion === "faltante") {
-    productosFiltrados = state.products.filter((p: any) => 
-      parseNum(p.stock) < parseNum(p.stock_minimo || 0)
-    );
-  }
-  
-  if (seccionImpresion !== "Todas") {
-    productosFiltrados = productosFiltrados.filter((p: any) => 
-      p.section === seccionImpresion
-    );
-  }
-  
-  // Ordenar por sección y nombre
-  productosFiltrados = productosFiltrados.sort((a: any, b: any) => {
-    if (a.section !== b.section) {
-      return a.section.localeCompare(b.section);
+  // 👇👇👇 FUNCIÓN PARA IMPRIMIR STOCK
+  function imprimirStockCompleto() {
+    let productosFiltrados = state.products;
+    
+    // Aplicar filtros
+    if (filtroImpresion === "faltante") {
+      productosFiltrados = state.products.filter((p: any) => 
+        parseNum(p.stock) < parseNum(p.stock_minimo || 0)
+      );
     }
-    return a.name.localeCompare(b.name);
-  });
-
-  const dataImpresion = {
-    type: "StockProductos",
-    titulo: filtroImpresion === "faltante" ? "STOCK FALTANTE" : "STOCK COMPLETO",
-    filtroSeccion: seccionImpresion,
-    productos: productosFiltrados,
-    totalProductos: productosFiltrados.length,
-    stockTotal: productosFiltrados.reduce((sum: number, p: any) => sum + parseNum(p.stock), 0),
-    costoTotal: productosFiltrados.reduce((sum: number, p: any) => 
-      sum + (parseNum(p.stock) * parseNum(p.cost || 0)), 0),
-    fecha: new Date().toLocaleString("es-AR")
-  };
-
-  window.dispatchEvent(new CustomEvent("print-invoice", { detail: dataImpresion } as any));
-  setTimeout(() => window.print(), 100);
-}
-
-// 👇👇👇 FUNCIÓN PARA IMPRIMIR MÁRGENES (PASO 4)
-function imprimirMargenes() {
-  let productosFiltrados = state.products;
-  
-  // Filtrar por sección
-  if (seccionMargenes !== "Todas") {
-    productosFiltrados = productosFiltrados.filter((p: any) => 
-      p.section === seccionMargenes
-    );
-  }
-  
-  // Calcular márgenes para cada producto
-  const productosConMargen = productosFiltrados.map((producto: any) => {
-    const costo = parseNum(producto.cost || 0);
-    const precio1 = parseNum(producto.price1 || 0);
-    const precio2 = parseNum(producto.price2 || 0);
-    const precio3 = parseNum(producto.price3 || 0);
-    const precio4 = parseNum(producto.price4 || 0);
-    const precio5 = parseNum(producto.price5 || 0);
     
-    const margen1 = calcularMargen(costo, precio1);
-    const margen2 = calcularMargen(costo, precio2);
-    const margen3 = calcularMargen(costo, precio3);
-    const margen4 = calcularMargen(costo, precio4);
-    const margen5 = calcularMargen(costo, precio5);
-    
-    return {
-      ...producto,
-      costo,
-      precio1,
-      precio2,
-      precio3,
-      precio4,
-      precio5,
-      margen1,
-      margen2,
-      margen3,
-      margen4,
-      margen5,
-      margenPromedio: Math.round(
-        (margen1.porcentaje + margen2.porcentaje + margen3.porcentaje + margen4.porcentaje + margen5.porcentaje) / 5
-      )
-    };
-  });
-  
-  // Ordenar según selección
-  productosConMargen.sort((a: any, b: any) => {
-    switch (ordenMargenes) {
-      case "nombre":
-        return a.name.localeCompare(b.name);
-      case "margen1":
-        return b.margen1.porcentaje - a.margen1.porcentaje;
-      case "margen2":
-        return b.margen2.porcentaje - a.margen2.porcentaje;
-      case "margen3":
-        return b.margen3.porcentaje - a.margen3.porcentaje;
-      case "margen4":
-        return b.margen4.porcentaje - a.margen4.porcentaje;
-      case "margen5":
-        return b.margen5.porcentaje - a.margen5.porcentaje;
-      case "costo":
-        return b.costo - a.costo;
-      default:
-        return a.name.localeCompare(b.name);
+    if (seccionImpresion !== "Todas") {
+      productosFiltrados = productosFiltrados.filter((p: any) => 
+        p.section === seccionImpresion
+      );
     }
-  });
-  
-  // Estadísticas
-  const productosConCosto = productosConMargen.filter((p: any) => p.costo > 0);
-  const productosSinCosto = productosConMargen.filter((p: any) => p.costo <= 0);
-  
-  const dataImpresion = {
-    type: "MargenesGanancia",
-    titulo: "MÁRGENES DE GANANCIA POR PRODUCTO",
-    filtroSeccion: seccionMargenes,
-    orden: ordenMargenes,
-    productos: productosConMargen,
-    productosConCosto: productosConCosto.length,
-    productosSinCosto: productosSinCosto.length,
-    estadisticas: {
-      margenPromedio1: productosConCosto.length > 0 ? 
-        Math.round(productosConCosto.reduce((sum: number, p: any) => sum + p.margen1.porcentaje, 0) / productosConCosto.length) : 0,
-      margenPromedio2: productosConCosto.length > 0 ? 
-        Math.round(productosConCosto.reduce((sum: number, p: any) => sum + p.margen2.porcentaje, 0) / productosConCosto.length) : 0,
-      margenPromedio3: productosConCosto.length > 0 ? 
-        Math.round(productosConCosto.reduce((sum: number, p: any) => sum + p.margen3.porcentaje, 0) / productosConCosto.length) : 0,
-      margenPromedio4: productosConCosto.length > 0 ? 
-        Math.round(productosConCosto.reduce((sum: number, p: any) => sum + p.margen4.porcentaje, 0) / productosConCosto.length) : 0,
-      margenPromedio5: productosConCosto.length > 0 ? 
-        Math.round(productosConCosto.reduce((sum: number, p: any) => sum + p.margen5.porcentaje, 0) / productosConCosto.length) : 0,
-    },
-    fecha: new Date().toLocaleString("es-AR")
-  };
-
-  window.dispatchEvent(new CustomEvent("print-invoice", { detail: dataImpresion } as any));
-  setTimeout(() => window.print(), 100);
-}
-
-// 👇👇👇 ESTADO PARA INGRESO DE STOCK
-const [ingresoStock, setIngresoStock] = useState({ 
-  productoId: "", 
-  cantidad: "", 
-  costo: "" 
-});
-
-// 👇👇👇 CALCULAR MÉTRICAS DEL INVENTARIO
-const capitalInventario = calcularCapitalInventario(state.products);
-const productosSinCosto = contarProductosSinCosto(state.products);
-const productosBajoStock = contarProductosBajoStockMinimo(state.products);
-const totalProductos = state.products.length;
-
-// 👇👇👇 FUNCIÓN COMPLETA DE INGRESO DE STOCK CON COMPARACIONES
-async function agregarStock() {
-  const producto = state.products.find((p: any) => p.id === ingresoStock.productoId);
-  if (!producto) return alert("Selecciona un producto");
-  
-  const cantidad = parseNum(ingresoStock.cantidad);
-  const nuevoCosto = parseNum(ingresoStock.costo);
-  
-  if (cantidad <= 0) return alert("La cantidad debe ser mayor a 0");
-  if (nuevoCosto < 0) return alert("El costo no puede ser negativo");
-
-  const st = clone(state);
-  const prod = st.products.find((p: any) => p.id === ingresoStock.productoId);
-  
-  if (prod) {
-    const stockAnterior = parseNum(prod.stock);
-    const costoAnterior = parseNum(prod.cost || 0);
     
-    // Actualizar stock
-    prod.stock = stockAnterior + cantidad;
-    
-    // Manejar costo - solo actualizar si se ingresó un valor > 0
-    let mensajeCosto = "";
-    if (nuevoCosto > 0) {
-      if (costoAnterior > 0 && nuevoCosto !== costoAnterior) {
-        mensajeCosto = `\n⚠️ ATENCIÓN: Costo cambiado\nAnterior: ${money(costoAnterior)}\nNuevo: ${money(nuevoCosto)}`;
-        prod.cost = nuevoCosto;
-      } else if (costoAnterior === 0) {
-        mensajeCosto = `\n✅ Costo asignado: ${money(nuevoCosto)}`;
-        prod.cost = nuevoCosto;
+    // Ordenar por sección y nombre
+    productosFiltrados = productosFiltrados.sort((a: any, b: any) => {
+      if (a.section !== b.section) {
+        return a.section.localeCompare(b.section);
       }
-    }
-    
-    // ... continúa el resto de tu función agregarStock ...
+      return a.name.localeCompare(b.name);
+    });
 
+    const dataImpresion = {
+      type: "StockProductos",
+      titulo: filtroImpresion === "faltante" ? "STOCK FALTANTE" : "STOCK COMPLETO",
+      filtroSeccion: seccionImpresion,
+      productos: productosFiltrados,
+      totalProductos: productosFiltrados.length,
+      stockTotal: productosFiltrados.reduce((sum: number, p: any) => sum + parseNum(p.stock), 0),
+      costoTotal: productosFiltrados.reduce((sum: number, p: any) => 
+        sum + (parseNum(p.stock) * parseNum(p.cost || 0)), 0),
+      fecha: new Date().toLocaleString("es-AR")
+    };
+
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: dataImpresion } as any));
+    setTimeout(() => window.print(), 100);
+  }
+
+  // 👇👇👇 ESTADO PARA INGRESO DE STOCK
+  const [ingresoStock, setIngresoStock] = useState({ 
+    productoId: "", 
+    cantidad: "", 
+    costo: "" 
+  });
+
+  // 👇👇👇 CALCULAR MÉTRICAS DEL INVENTARIO
+  const capitalInventario = calcularCapitalInventario(state.products);
+  const productosSinCosto = contarProductosSinCosto(state.products);
+  const productosBajoStock = contarProductosBajoStockMinimo(state.products);
+  const totalProductos = state.products.length;
+
+  // 👇👇👇 FUNCIÓN COMPLETA DE INGRESO DE STOCK CON COMPARACIONES
+  async function agregarStock() {
+    const producto = state.products.find((p: any) => p.id === ingresoStock.productoId);
+    if (!producto) return alert("Selecciona un producto");
+    
+    const cantidad = parseNum(ingresoStock.cantidad);
+    const nuevoCosto = parseNum(ingresoStock.costo);
+    
+    if (cantidad <= 0) return alert("La cantidad debe ser mayor a 0");
+    if (nuevoCosto < 0) return alert("El costo no puede ser negativo");
+
+    const st = clone(state);
+    const prod = st.products.find((p: any) => p.id === ingresoStock.productoId);
+    
+    if (prod) {
+      const stockAnterior = parseNum(prod.stock);
+      const costoAnterior = parseNum(prod.cost || 0);
+      
+      // Actualizar stock
+      prod.stock = stockAnterior + cantidad;
+      
+      // Manejar costo - solo actualizar si se ingresó un valor > 0
+      let mensajeCosto = "";
+      if (nuevoCosto > 0) {
+        if (costoAnterior > 0 && nuevoCosto !== costoAnterior) {
+          mensajeCosto = `\n⚠️ ATENCIÓN: Costo cambiado\nAnterior: ${money(costoAnterior)}\nNuevo: ${money(nuevoCosto)}`;
+          prod.cost = nuevoCosto;
+        } else if (costoAnterior === 0) {
+          mensajeCosto = `\n✅ Costo asignado: ${money(nuevoCosto)}`;
+          prod.cost = nuevoCosto;
+        }
+      }
       
       setState(st);
 
@@ -3227,79 +3109,42 @@ async function agregarStock() {
         </div>
       </Card>
 
-{/* 🖨️ SISTEMA DE IMPRESIÓN DE STOCK */}
-<Card title="🖨️ Impresión de Stock">
-  <div className="grid md:grid-cols-4 gap-3">
-    <Select
-      label="Tipo de Listado"
-      value={filtroImpresion}
-      onChange={setFiltroImpresion}
-      options={[
-        { value: "todos", label: "Stock Completo" },
-        { value: "faltante", label: "Solo Faltante" },
-      ]}
-    />
-    
-    <Select
-      label="Filtrar por Sección"
-      value={seccionImpresion}
-      onChange={setSeccionImpresion}
-      options={[
-        { value: "Todas", label: "Todas las Secciones" },
-        ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))
-          .map((s: string) => ({ value: s, label: s }))
-      ]}
-    />
-    
-    <div className="pt-6">
-      <Button onClick={imprimirStockCompleto} tone="emerald">
-        📄 Imprimir Listado
-      </Button>
+      {/* 🖨️ SISTEMA DE IMPRESIÓN DE STOCK */}
+      <Card title="🖨️ Impresión de Stock">
+        <div className="grid md:grid-cols-4 gap-3">
+          <Select
+            label="Tipo de Listado"
+            value={filtroImpresion}
+            onChange={setFiltroImpresion}
+            options={[
+              { value: "todos", label: "Stock Completo" },
+              { value: "faltante", label: "Solo Faltante" },
+            ]}
+          />
+          
+          <Select
+            label="Filtrar por Sección"
+            value={seccionImpresion}
+            onChange={setSeccionImpresion}
+            options={[
+              { value: "Todas", label: "Todas las Secciones" },
+              ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))
+                .map((s: string) => ({ value: s, label: s }))
+            ]}
+          />
+          
+          <div className="pt-6">
+            <Button onClick={imprimirStockCompleto} tone="emerald">
+              📄 Imprimir Listado
+            </Button>
+          </div>
+          
+          <div className="pt-6 text-sm text-slate-400">
+            {filtroImpresion === "faltante" ? "Imprimir productos con stock bajo" : "Imprimir todo el stock"}
+          </div>
+        </div>
+      </Card>
     </div>
-    
-    <div className="pt-6 text-sm text-slate-400">
-      {filtroImpresion === "faltante" ? "Imprimir productos con stock bajo" : "Imprimir todo el stock"}
-    </div>
-  </div>
-</Card>
-
-{/* 🎯 IMPRESIÓN DE MÁRGENES DE GANANCIA */}
-<Card title="📊 Impresión de Márgenes de Ganancia">
-  <div className="grid md:grid-cols-3 gap-3">
-    <Select
-      label="Filtrar por Sección"
-      value={seccionMargenes}
-      onChange={setSeccionMargenes}
-      options={[
-        { value: "Todas", label: "Todas las Secciones" },
-        ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))
-          .map((s: string) => ({ value: s, label: s }))
-      ]}
-    />
-    
-    <Select
-      label="Ordenar por"
-      value={ordenMargenes}
-      onChange={setOrdenMargenes}
-      options={[
-        { value: "nombre", label: "Nombre" },
-        { value: "margen1", label: "Margen Lista 1 (MITOBICEL LOCAL)" },
-        { value: "margen2", label: "Margen Lista 2 (MITOBICEL PROVINCIAS)" },
-        { value: "margen3", label: "Margen Lista 3 (MITOBICEL EXCLUSIVO)" },
-        { value: "margen4", label: "Margen Lista 4 (ALE LOCAL)" },
-        { value: "margen5", label: "Margen Lista 5 (ALE PROVINCIA)" },
-        { value: "costo", label: "Costo" },
-      ]}
-    />
-    
-    <div className="pt-6">
-      <Button onClick={imprimirMargenes} tone="blue">
-        📈 Imprimir Márgenes
-      </Button>
-    </div>
-  </div>
-</Card>
-</div>
   );
 }
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS ===== */
@@ -8225,7 +8070,6 @@ if (inv?.type === "StockProductos") {
     </div>
   );
 }
-
 
 
 // ==== PLANTILLA: DETALLE DE DEUDAS ====
