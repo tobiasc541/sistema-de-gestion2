@@ -1392,6 +1392,7 @@ function FacturacionTab({ state, setState, session }: any) {
     else setItems([...items, { productId: p.id, name: p.name, section: p.section, qty: 1, unitPrice: unit, cost: p.cost }]);
   }
 // 👇👇👇 PEGA ESTA FUNCIÓN COMPLETA JUSTO ANTES de saveAndPrint
+// 👇👇👇 REEMPLAZAR LA FUNCIÓN enviarAMili con esta versión
 async function enviarAMili() {
   if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
   if (items.length === 0) return alert("Agregá productos al carrito.");
@@ -1429,37 +1430,8 @@ async function enviarAMili() {
   st.pedidos_pendientes = st.pedidos_pendientes || [];
   st.pedidos_pendientes.push(pedidoPendiente);
   
-  // Descontar stock inmediatamente
-  items.forEach(item => {
-    const product = st.products.find((p: any) => p.id === item.productId);
-    if (product) {
-      product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
-    }
-  });
-  // AGREGAR PEDIDO A PREPARAR PARA FACTURAS NORMALES
-const pedidoPreparar = {
-  id: "prep_" + Math.random().toString(36).slice(2, 8),
-  factura_id: id,
-  tipo: "facturacion",
-  client_id: client.id,
-  client_name: client.name,
-  client_number: client.number,
-  items: items.map((item: any) => ({
-    name: item.name,
-    section: item.section || "General",
-    qty: item.qty,
-  })),
-  fecha_creacion: todayISO(),
-  status: "pendiente"
-};
-
-st.pedidos_preparar = st.pedidos_preparar || [];
-st.pedidos_preparar.push(pedidoPreparar);
-
-if (hasSupabase) {
-  await supabase.from("pedidos_preparar").insert(pedidoPreparar);
-}
-  
+  // ✅ CORRECCIÓN: NO descontar stock aquí, solo al completar el pago
+  // El stock se descontará cuando se complete el pago en Pedidos Pendientes
   setState(st);
   
   // Guardar en Supabase
@@ -1468,18 +1440,8 @@ if (hasSupabase) {
       // Guardar pedido pendiente
       await supabase.from("pedidos_pendientes").insert(pedidoPendiente);
       
-      // Actualizar stock en Supabase
-      for (const item of items) {
-        const product = st.products.find((p: any) => p.id === item.productId);
-        if (product) {
-          await supabase.from("products")
-            .update({ stock: product.stock })
-            .eq("id", item.productId);
-        }
-      }
-      
-      // Actualizar contador
-      await saveCountersSupabase(st.meta);
+      // ✅ CORRECCIÓN: NO actualizar stock aquí
+      // await saveCountersSupabase(st.meta);
       
     } catch (error: any) {
       console.error("Error al guardar pedido pendiente:", error);
@@ -9740,169 +9702,172 @@ function PedidosPendientesTab({ state, setState, session }: any) {
     return pedido.status === filtro;
   });
 
-  async function completarPedido(pedido: any) {
-    // Preguntar datos de pago
-    const efectivoStr = prompt("¿Cuánto pagó en EFECTIVO?", "0") ?? "0";
-    const transferenciaStr = prompt("¿Cuánto pagó por TRANSFERENCIA?", "0") ?? "0";
-    const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
-    
-    const efectivo = parseNum(efectivoStr);
-    const transferencia = parseNum(transferenciaStr);
-    const alias = aliasStr.trim();
-    const totalPagos = efectivo + transferencia;
-    
-    if (totalPagos < pedido.total) {
-      if (!confirm(`El cliente pagó ${money(totalPagos)} pero el total es ${money(pedido.total)}. ¿Marcar como completado igual?`)) {
-        return;
-      }
+ // 👇👇👇 REEMPLAZAR LA FUNCIÓN completarPedido con esta versión
+async function completarPedido(pedido: any) {
+  // Preguntar datos de pago
+  const efectivoStr = prompt("¿Cuánto pagó en EFECTIVO?", "0") ?? "0";
+  const transferenciaStr = prompt("¿Cuánto pagó por TRANSFERENCIA?", "0") ?? "0";
+  const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
+  
+  const efectivo = parseNum(efectivoStr);
+  const transferencia = parseNum(transferenciaStr);
+  const alias = aliasStr.trim();
+  const totalPagos = efectivo + transferencia;
+  
+  if (totalPagos < pedido.total) {
+    if (!confirm(`El cliente pagó ${money(totalPagos)} pero el total es ${money(pedido.total)}. ¿Marcar como completado igual?`)) {
+      return;
     }
-    
-    const st = clone(state);
-    
-    // 1. Crear factura normal
-    const invoiceNumber = st.meta.invoiceCounter++;
-    const invoiceId = "inv_" + invoiceNumber;
-    
-    const invoice = {
-      id: invoiceId,
-      number: invoiceNumber,
-      date_iso: todayISO(),
-      client_id: pedido.client_id,
-      client_name: pedido.client_name,
-      vendor_id: pedido.vendor_id,
-      vendor_name: pedido.vendor_name,
-      items: clone(pedido.items),
-      total: pedido.total,
-      cost: calcInvoiceCost(pedido.items),
-      payments: { 
-        cash: efectivo, 
-        transfer: transferencia, 
-        change: Math.max(0, totalPagos - pedido.total),
-        alias: alias,
-        saldo_aplicado: 0
-      },
-      status: totalPagos >= pedido.total ? "Pagada" : "No Pagada",
-      type: "Factura",
-    };
-    
-    // 2. Agregar a facturas
-    st.invoices.push(invoice);
-    
-    // 3. Actualizar cliente (deuda si no pagó completo)
-    const cliente = st.clients.find((c: any) => c.id === pedido.client_id);
-    if (cliente && totalPagos < pedido.total) {
-      const deudaAdicional = pedido.total - totalPagos;
-      cliente.debt = parseNum(cliente.debt) + deudaAdicional;
-    }
-    
-      // 4. Actualizar estado del pedido
-    const pedidoIndex = (st.pedidos_pendientes || []).findIndex((p: any) => p.id === pedido.id);
-    if (pedidoIndex !== -1) {
-      st.pedidos_pendientes[pedidoIndex].status = "completado";
-    }
-    
-    // ====== CREAR PEDIDO A PREPARAR (SIEMPRE) ======
-    const pedidoPreparar = {
-      id: "prep_" + Math.random().toString(36).slice(2, 8),
-      pedido_pendiente_id: pedido.id,
-      factura_id: invoiceId,
-      tipo: "pendiente",
-      client_id: pedido.client_id,
-      client_name: pedido.client_name,
-      client_number: cliente?.number,
-      items: pedido.items.map((item: any) => ({
-        name: item.name,
-        section: item.section || "General",
-        qty: item.qty,
-      })),
-      observaciones: pedido.observaciones || "",
-      fecha_creacion: todayISO(),
-      status: "pendiente"
-    };
-    
-    // Agregar al estado local
-    st.pedidos_preparar = st.pedidos_preparar || [];
-    st.pedidos_preparar.push(pedidoPreparar);
-    
-    setState(st);
-    
-    // Guardar en Supabase
-    if (hasSupabase) {
-      try {
-        // Guardar factura
-        await supabase.from("invoices").insert(invoice);
-        
-        // Actualizar cliente
-        if (cliente && totalPagos < pedido.total) {
-          await supabase.from("clients")
-            .update({ debt: cliente.debt })
-            .eq("id", pedido.client_id);
-        }
-        
-        // Actualizar pedido pendiente
-        await supabase.from("pedidos_pendientes")
-          .update({ status: "completado" })
-          .eq("id", pedido.id);
-        
-        // GUARDAR PEDIDO A PREPARAR
-        await supabase.from("pedidos_preparar").insert(pedidoPreparar);
-        
-        // Actualizar contador
-        await saveCountersSupabase(st.meta);
-    
-        
-      } catch (error) {
-        console.error("Error al completar pedido:", error);
-        alert("Error al guardar. Los datos pueden estar inconsistentes.");
-      }
-    }
-    
-    // Imprimir factura
-    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
-    await nextPaint();
-    window.print();
-    
-    alert(`✅ Pedido completado\nFactura Nº ${invoiceNumber}\nTotal: ${money(pedido.total)}\n📦 Se agregó a "Preparar Pedidos"`);
   }
   
-  async function cancelarPedido(pedidoId: string) {
-    if (!confirm("¿Cancelar este pedido? Se revertirá el stock.")) return;
-    
-    const st = clone(state);
-    const pedido = (st.pedidos_pendientes || []).find((p: any) => p.id === pedidoId);
-    
-    if (pedido) {
-      // Revertir stock
-      pedido.items.forEach((item: any) => {
+  const st = clone(state);
+  
+  // ✅ DESCONTAR STOCK cuando se completa el pago
+  pedido.items.forEach((item: any) => {
+    const product = st.products.find((p: any) => p.id === item.productId);
+    if (product) {
+      product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
+    }
+  });
+  
+  // 1. Crear factura normal
+  const invoiceNumber = st.meta.invoiceCounter++;
+  const invoiceId = "inv_" + invoiceNumber;
+  
+  const invoice = {
+    id: invoiceId,
+    number: invoiceNumber,
+    date_iso: todayISO(),
+    client_id: pedido.client_id,
+    client_name: pedido.client_name,
+    vendor_id: pedido.vendor_id,
+    vendor_name: pedido.vendor_name,
+    items: clone(pedido.items),
+    total: pedido.total,
+    cost: calcInvoiceCost(pedido.items),
+    payments: { 
+      cash: efectivo, 
+      transfer: transferencia, 
+      change: Math.max(0, totalPagos - pedido.total),
+      alias: alias,
+      saldo_aplicado: 0
+    },
+    status: totalPagos >= pedido.total ? "Pagada" : "No Pagada",
+    type: "Factura",
+  };
+  
+  // 2. Agregar a facturas
+  st.invoices.push(invoice);
+  
+  // 3. Actualizar cliente (deuda si no pagó completo)
+  const cliente = st.clients.find((c: any) => c.id === pedido.client_id);
+  if (cliente && totalPagos < pedido.total) {
+    const deudaAdicional = pedido.total - totalPagos;
+    cliente.debt = parseNum(cliente.debt) + deudaAdicional;
+  }
+  
+  // 4. Actualizar estado del pedido
+  const pedidoIndex = (st.pedidos_pendientes || []).findIndex((p: any) => p.id === pedido.id);
+  if (pedidoIndex !== -1) {
+    st.pedidos_pendientes[pedidoIndex].status = "completado";
+  }
+  
+  // ====== CREAR PEDIDO A PREPARAR (SOLO CUANDO SE COMPLETA EL PAGO) ======
+  const pedidoPreparar = {
+    id: "prep_" + Math.random().toString(36).slice(2, 8),
+    pedido_pendiente_id: pedido.id,
+    factura_id: invoiceId,
+    tipo: "pendiente",
+    client_id: pedido.client_id,
+    client_name: pedido.client_name,
+    client_number: cliente?.number,
+    items: pedido.items.map((item: any) => ({
+      name: item.name,
+      section: item.section || "General",
+      qty: item.qty,
+    })),
+    observaciones: pedido.observaciones || "",
+    fecha_creacion: todayISO(),
+    status: "pendiente"
+  };
+  
+  // Agregar al estado local
+  st.pedidos_preparar = st.pedidos_preparar || [];
+  st.pedidos_preparar.push(pedidoPreparar);
+  
+  setState(st);
+  
+  // Guardar en Supabase
+  if (hasSupabase) {
+    try {
+      // Guardar factura
+      await supabase.from("invoices").insert(invoice);
+      
+      // Actualizar cliente
+      if (cliente && totalPagos < pedido.total) {
+        await supabase.from("clients")
+          .update({ debt: cliente.debt })
+          .eq("id", pedido.client_id);
+      }
+      
+      // Actualizar pedido pendiente
+      await supabase.from("pedidos_pendientes")
+        .update({ status: "completado" })
+        .eq("id", pedido.id);
+      
+      // ✅ ACTUALIZAR STOCK en Supabase (solo cuando se completa el pago)
+      for (const item of pedido.items) {
         const product = st.products.find((p: any) => p.id === item.productId);
         if (product) {
-          product.stock = parseNum(product.stock) + parseNum(item.qty);
-        }
-      });
-      
-      // Marcar como cancelado
-      pedido.status = "cancelado";
-      setState(st);
-      
-      // Actualizar en Supabase
-      if (hasSupabase) {
-        await supabase.from("pedidos_pendientes")
-          .update({ status: "cancelado" })
-          .eq("id", pedidoId);
-        
-        // Actualizar stock
-        for (const item of pedido.items) {
-          const product = st.products.find((p: any) => p.id === item.productId);
-          if (product) {
-            await supabase.from("products")
-              .update({ stock: product.stock })
-              .eq("id", item.productId);
-          }
+          await supabase.from("products")
+            .update({ stock: product.stock })
+            .eq("id", item.productId);
         }
       }
       
-      alert("✅ Pedido cancelado y stock revertido");
+      // GUARDAR PEDIDO A PREPARAR
+      await supabase.from("pedidos_preparar").insert(pedidoPreparar);
+      
+      // Actualizar contador
+      await saveCountersSupabase(st.meta);
+      
+    } catch (error) {
+      console.error("Error al completar pedido:", error);
+      alert("Error al guardar. Los datos pueden estar inconsistentes.");
     }
+  }
+  
+  // Imprimir factura
+  window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+  await nextPaint();
+  window.print();
+  
+  alert(`✅ Pedido completado\nFactura Nº ${invoiceNumber}\nTotal: ${money(pedido.total)}\n📦 Se agregó a "Preparar Pedidos"`);
+}
+  
+ // 👇👇👇 AÑADIR ESTO a la función cancelarPedido
+async function cancelarPedido(pedidoId: string) {
+  if (!confirm("¿Cancelar este pedido?")) return;
+  // NOTA: No se necesita revertir stock porque nunca se descontó
+  
+  const st = clone(state);
+  const pedido = (st.pedidos_pendientes || []).find((p: any) => p.id === pedidoId);
+  
+  if (pedido) {
+    // ✅ CORRECCIÓN: No es necesario revertir stock porque nunca se descontó
+    // Solo marcar como cancelado
+    pedido.status = "cancelado";
+    setState(st);
+    
+    // Actualizar en Supabase
+    if (hasSupabase) {
+      await supabase.from("pedidos_pendientes")
+        .update({ status: "cancelado" })
+        .eq("id", pedidoId);
+    }
+    
+    alert("✅ Pedido cancelado");
+  }
   }
 
   return (
