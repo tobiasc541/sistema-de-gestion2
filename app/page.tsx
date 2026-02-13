@@ -218,6 +218,20 @@ const parseNum = (v: any) => {
 };
 const todayISO = () => new Date().toISOString();
 const clone = (obj: any) => JSON.parse(JSON.stringify(obj));
+// Función para obtener fecha LOCAL de Argentina (YYYY-MM-DD)
+function fechaLocalArgentina() {
+  const ahora = new Date();
+  // Argentina está en UTC-3
+  const argentinaTime = new Date(ahora.getTime() - (3 * 60 * 60 * 1000));
+  return argentinaTime.toISOString().split('T')[0];
+}
+
+// Función para obtener fecha-hora LOCAL de Argentina
+function fechaHoraLocalArgentina() {
+  const ahora = new Date();
+  const argentinaTime = new Date(ahora.getTime() - (3 * 60 * 60 * 1000));
+  return argentinaTime.toISOString();
+}
 
 /* ===== seed inicial (solo UI mientras carga Supabase) ===== */
 function seedState() {
@@ -10806,8 +10820,7 @@ function ProduccionTab({ state, setState, session }: any) {
   const [operario, setOperario] = useState("");
   const [horaInicio, setHoraInicio] = useState("");
   const [horaFin, setHoraFin] = useState("");
-  const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0]);
-  const [vistaMetricas, setVistaMetricas] = useState<"registro" | "metricas">("registro");
+const [fechaFiltro, setFechaFiltro] = useState(fechaLocalArgentina());  const [vistaMetricas, setVistaMetricas] = useState<"registro" | "metricas">("registro");
 
   const productos = state.products || [];
 
@@ -10840,18 +10853,28 @@ function ProduccionTab({ state, setState, session }: any) {
     return Math.round((minutos / 60) * 100) / 100; // Horas con 2 decimales
   }, [horaInicio, horaFin]);
 
-  // Filtrar producción por fecha
-  const produccionFiltrada = useMemo(() => {
-    return (state.produccion || [])
-      .filter((p: any) => {
-        if (!fechaFiltro) return true;
-        const fechaReg = p.fecha_registro ? p.fecha_registro.split('T')[0] : '';
-        return fechaReg === fechaFiltro;
-      })
-      .sort((a: any, b: any) => 
-        new Date(b.fecha_registro || 0).getTime() - new Date(a.fecha_registro || 0).getTime()
-      );
-  }, [state.produccion, fechaFiltro]);
+ // Filtrar producción por fecha (usando fecha LOCAL)
+const produccionFiltrada = useMemo(() => {
+  const fechaLocal = fechaFiltro || fechaLocalArgentina();
+  
+  return (state.produccion || [])
+    .filter((p: any) => {
+      if (!p.fecha_registro) return false;
+      
+      // Extraer SOLO la fecha YYYY-MM-DD
+      let fechaRegistro = '';
+      if (p.fecha_registro.includes('T')) {
+        fechaRegistro = p.fecha_registro.split('T')[0];
+      } else {
+        fechaRegistro = p.fecha_registro.substring(0, 10);
+      }
+      
+      return fechaRegistro === fechaLocal;
+    })
+    .sort((a: any, b: any) => 
+      new Date(b.fecha_registro || 0).getTime() - new Date(a.fecha_registro || 0).getTime()
+    );
+}, [state.produccion, fechaFiltro]);
 
   async function registrarProduccion() {
     if (!productoSeleccionado) return alert("Selecciona un producto");
@@ -10877,7 +10900,7 @@ function ProduccionTab({ state, setState, session }: any) {
       hora_inicio: horaInicio || null,
       hora_fin: horaFin || null,
       horas_produccion: horasProduccion || null,
-fecha_registro: new Date().toISOString(),    };
+fecha_registro: fechaHoraLocalArgentina(),    };
 
     const st = clone(state);
     st.produccion = st.produccion || [];
@@ -10938,20 +10961,29 @@ const metricas = useMemo(() => {
   // Día con más producción
   const produccionPorDia: Record<string, DiaProduccion> = {};
   
-  todasProducciones.forEach((prod: any) => {
-    const dia = prod.fecha_registro ? prod.fecha_registro.split('T')[0] : 'sin-fecha';
-    if (!produccionPorDia[dia]) {
-      produccionPorDia[dia] = {
-        fecha: dia,
-        total_producido: 0,
-        total_bultos: 0,
-        total_bobinas: 0,
-        total_scrap: 0,
-        operarios: new Set(),
-        productos: new Set(),
-        registros: []
-      };
+todasProducciones.forEach((prod: any) => {
+  // Extraer fecha LOCAL de forma segura
+  let dia = 'sin-fecha';
+  if (prod.fecha_registro) {
+    if (prod.fecha_registro.includes('T')) {
+      dia = prod.fecha_registro.split('T')[0];
+    } else {
+      dia = prod.fecha_registro.substring(0, 10);
     }
+  }
+  
+  if (!produccionPorDia[dia]) {
+    produccionPorDia[dia] = {
+      fecha: dia,
+      total_producido: 0,
+      total_bultos: 0,
+      total_bobinas: 0,
+      total_scrap: 0,
+      operarios: new Set(),
+      productos: new Set(),
+      registros: []
+    };
+  }
     produccionPorDia[dia].total_producido += prod.cantidad_producida || 0;
     produccionPorDia[dia].total_bultos += prod.bultos_calculados || 0;
     produccionPorDia[dia].total_bobinas += prod.bobinas_hechas || 0;
