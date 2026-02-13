@@ -10911,70 +10911,91 @@ function ProduccionTab({ state, setState, session }: any) {
     setHoraFin("");
   }
 
-  // 📊 MÉTRICAS AVANZADAS
-  const metricas = useMemo(() => {
-    const todasProducciones = state.produccion || [];
-    
-    // Día con más producción
-    const produccionPorDia = todasProducciones.reduce((acc: any, prod: any) => {
-      const dia = prod.fecha_registro ? prod.fecha_registro.split('T')[0] : 'sin-fecha';
-      if (!acc[dia]) {
-        acc[dia] = {
-          fecha: dia,
-          total_producido: 0,
-          total_bultos: 0,
-          total_bobinas: 0,
-          total_scrap: 0,
-          operarios: new Set(),
-          productos: new Set(),
-          registros: []
-        };
-      }
-      acc[dia].total_producido += prod.cantidad_producida || 0;
-      acc[dia].total_bultos += prod.bultos_calculados || 0;
-      acc[dia].total_bobinas += prod.bobinas_hechas || 0;
-      acc[dia].total_scrap += prod.scrap || 0;
-      if (prod.operario) acc[dia].operarios.add(prod.operario);
-      acc[dia].productos.add(prod.nombre_producto);
-      acc[dia].registros.push(prod);
-      return acc;
-    }, {});
+ // 📊 MÉTRICAS AVANZADAS CON TIPOS CORRECTOS
+const metricas = useMemo(() => {
+  const todasProducciones = state.produccion || [];
+  
+  // Definir tipos para los acumuladores
+  type DiaProduccion = {
+    fecha: string;
+    total_producido: number;
+    total_bultos: number;
+    total_bobinas: number;
+    total_scrap: number;
+    operarios: Set<string>;
+    productos: Set<string>;
+    registros: any[];
+  };
 
-    // Ordenar días por producción
-    const diasOrdenados = Object.values(produccionPorDia)
-      .sort((a: any, b: any) => b.total_producido - a.total_producido);
+  type OperarioStats = {
+    nombre: string;
+    total_producido: number;
+    total_bultos: number;
+    total_horas: number;
+    cantidad_registros: number;
+  };
 
-    // Mejor operario (más producción)
-    const produccionPorOperario = todasProducciones.reduce((acc: any, prod: any) => {
-      if (!prod.operario) return acc;
-      if (!acc[prod.operario]) {
-        acc[prod.operario] = {
-          nombre: prod.operario,
-          total_producido: 0,
-          total_bultos: 0,
-          total_horas: 0,
-          cantidad_registros: 0
-        };
-      }
-      acc[prod.operario].total_producido += prod.cantidad_producida || 0;
-      acc[prod.operario].total_bultos += prod.bultos_calculados || 0;
-      acc[prod.operario].total_horas += prod.horas_produccion || 0;
-      acc[prod.operario].cantidad_registros += 1;
-      return acc;
-    }, {});
+  // Día con más producción
+  const produccionPorDia: Record<string, DiaProduccion> = {};
+  
+  todasProducciones.forEach((prod: any) => {
+    const dia = prod.fecha_registro ? prod.fecha_registro.split('T')[0] : 'sin-fecha';
+    if (!produccionPorDia[dia]) {
+      produccionPorDia[dia] = {
+        fecha: dia,
+        total_producido: 0,
+        total_bultos: 0,
+        total_bobinas: 0,
+        total_scrap: 0,
+        operarios: new Set(),
+        productos: new Set(),
+        registros: []
+      };
+    }
+    produccionPorDia[dia].total_producido += prod.cantidad_producida || 0;
+    produccionPorDia[dia].total_bultos += prod.bultos_calculados || 0;
+    produccionPorDia[dia].total_bobinas += prod.bobinas_hechas || 0;
+    produccionPorDia[dia].total_scrap += prod.scrap || 0;
+    if (prod.operario) produccionPorDia[dia].operarios.add(prod.operario);
+    if (prod.nombre_producto) produccionPorDia[dia].productos.add(prod.nombre_producto);
+    produccionPorDia[dia].registros.push(prod);
+  });
 
-    const mejoresOperarios = Object.values(produccionPorOperario)
-      .sort((a: any, b: any) => b.total_producido - a.total_producido);
+  // Ordenar días por producción
+  const diasOrdenados = Object.values(produccionPorDia)
+    .sort((a: DiaProduccion, b: DiaProduccion) => b.total_producido - a.total_producido);
 
-    return {
-      diasOrdenados,
-      mejoresOperarios,
-      totalRegistros: todasProducciones.length,
-      totalProducidoGeneral: todasProducciones.reduce((sum: number, p: any) => sum + (p.cantidad_producida || 0), 0),
-      totalBultosGeneral: todasProducciones.reduce((sum: number, p: any) => sum + (p.bultos_calculados || 0), 0),
-    };
-  }, [state.produccion]);
+  // Mejor operario (más producción)
+  const produccionPorOperario: Record<string, OperarioStats> = {};
+  
+  todasProducciones.forEach((prod: any) => {
+    if (!prod.operario) return;
+    if (!produccionPorOperario[prod.operario]) {
+      produccionPorOperario[prod.operario] = {
+        nombre: prod.operario,
+        total_producido: 0,
+        total_bultos: 0,
+        total_horas: 0,
+        cantidad_registros: 0
+      };
+    }
+    produccionPorOperario[prod.operario].total_producido += prod.cantidad_producida || 0;
+    produccionPorOperario[prod.operario].total_bultos += prod.bultos_calculados || 0;
+    produccionPorOperario[prod.operario].total_horas += prod.horas_produccion || 0;
+    produccionPorOperario[prod.operario].cantidad_registros += 1;
+  });
 
+  const mejoresOperarios = Object.values(produccionPorOperario)
+    .sort((a: OperarioStats, b: OperarioStats) => b.total_producido - a.total_producido);
+
+  return {
+    diasOrdenados,
+    mejoresOperarios,
+    totalRegistros: todasProducciones.length,
+    totalProducidoGeneral: todasProducciones.reduce((sum: number, p: any) => sum + (p.cantidad_producida || 0), 0),
+    totalBultosGeneral: todasProducciones.reduce((sum: number, p: any) => sum + (p.bultos_calculados || 0), 0),
+  };
+}, [state.produccion]);
   // Totales del día filtrado
   const totalesDia = useMemo(() => {
     return produccionFiltrada.reduce((acc: any, prod: any) => {
