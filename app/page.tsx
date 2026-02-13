@@ -250,7 +250,7 @@ function seedState() {
     compras_proveedores: [] as any[], 
     pedidos_pendientes: [] as PedidoPendiente[],
       pedidos_preparar: [] as any[], 
-    produccion: [] as Produccion[], // 👈 AGREGAR ESTA LÍNEA// 👈 AGREGAR ESTA LÍNEA// Asegurar inicialización
+   produccion: [] as Produccion[],
   };
 }
 
@@ -454,24 +454,7 @@ try {
   console.error("Error cargando pedidos_preparar:", error);
   out.pedidos_preparar = [];
 }
-    // PRODUCCION
-try {
-  const { data: produccion, error: prodErr } = await supabase
-    .from("produccion")
-    .select("*")
-    .order("fecha_registro", { ascending: false });
-  
-  if (prodErr) {
-    console.error("SELECT produccion:", prodErr);
-    out.produccion = [];
-  } else {
-    out.produccion = produccion || [];
-    console.log(`✅ Cargados ${out.produccion.length} registros de producción`);
-  }
-} catch (error) {
-  console.error("Error cargando produccion:", error);
-  out.produccion = [];
-}
+   
     // EMPLEADOS
     const { data: empleados, error: empErr } = await supabase
       .from("empleados")
@@ -504,6 +487,24 @@ try {
     } else if (valesEmpleados) {
       out.vales_empleados = valesEmpleados;
     }
+     // PRODUCCION
+try {
+  const { data: produccion, error: prodErr } = await supabase
+    .from("produccion")
+    .select("*")
+    .order("fecha_registro", { ascending: false });
+  
+  if (prodErr) {
+    console.error("SELECT produccion:", prodErr);
+    out.produccion = [];
+  } else {
+    out.produccion = produccion || [];
+    console.log(`✅ Cargados ${out.produccion.length} registros de producción`);
+  }
+} catch (error) {
+  console.error("Error cargando produccion:", error);
+  out.produccion = [];
+}
 
     // Si está vacío, NO sembrar datos de ejemplo
     if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
@@ -10876,8 +10877,7 @@ function ProduccionTab({ state, setState, session }: any) {
       hora_inicio: horaInicio || null,
       hora_fin: horaFin || null,
       horas_produccion: horasProduccion || null,
-      fecha_registro: todayISO(),
-    };
+fecha_registro: new Date().toISOString(),    };
 
     const st = clone(state);
     st.produccion = st.produccion || [];
