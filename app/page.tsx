@@ -122,7 +122,7 @@ type Pedido = {
   comprobante_subido_at?: string;
   lista_usada?: string; // 👈 AGREGAR ESTA LÍNEA
 };
-// 👇👇👇 NUEVO TIPO PARA PRODUCCIÓN
+// 👇👇👇 TIPO PRODUCCIÓN MEJORADO
 type Produccion = {
   id: string;
   producto_id: string;
@@ -130,10 +130,13 @@ type Produccion = {
   unidad: string;
   cantidad_por_bulto: number;
   cantidad_producida: number;
-  bultos_calculados: number;
+  bultos_calculados: number; // Ahora puede tener decimales
   bobinas_hechas?: number;
   scrap?: number;
   operario?: string;
+  hora_inicio?: string;      // 👈 NUEVO
+  hora_fin?: string;         // 👈 NUEVO
+  horas_produccion?: number; // 👈 NUEVO (calculado)
   fecha_registro?: string;
   created_at?: string;
 };
@@ -10792,7 +10795,7 @@ function PrepararPedidosTab({ state, setState, session }: any) {
     </div>
   );
 }
-/* ===== PRODUCCIÓN ===== */
+/* ===== PRODUCCIÓN MEJORADA ===== */
 function ProduccionTab({ state, setState, session }: any) {
   const [productoSeleccionado, setProductoSeleccionado] = useState("");
   const [cantidadPorBulto, setCantidadPorBulto] = useState("");
@@ -10800,20 +10803,41 @@ function ProduccionTab({ state, setState, session }: any) {
   const [bobinasHechas, setBobinasHechas] = useState("");
   const [scrap, setScrap] = useState("");
   const [operario, setOperario] = useState("");
+  const [horaInicio, setHoraInicio] = useState("");
+  const [horaFin, setHoraFin] = useState("");
   const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0]);
+  const [vistaMetricas, setVistaMetricas] = useState<"registro" | "metricas">("registro");
 
   const productos = state.products || [];
 
-  // Calcular bultos automáticamente
+  // Calcular bultos EXACTOS (con decimales)
   const bultosCalculados = useMemo(() => {
     const porBulto = parseNum(cantidadPorBulto);
     const producido = parseNum(cantidadProducida);
     
     if (porBulto > 0 && producido > 0) {
-      return Math.ceil(producido / porBulto);
+      // ✅ AHORA ES EXACTO, NO REDONDEA
+      const bultos = producido / porBulto;
+      return Math.round(bultos * 100) / 100; // 2 decimales
     }
     return 0;
   }, [cantidadPorBulto, cantidadProducida]);
+
+  // Calcular horas de producción
+  const horasProduccion = useMemo(() => {
+    if (!horaInicio || !horaFin) return 0;
+    
+    const [hInicio, mInicio] = horaInicio.split(':').map(Number);
+    const [hFin, mFin] = horaFin.split(':').map(Number);
+    
+    const inicioMinutos = hInicio * 60 + mInicio;
+    const finMinutos = hFin * 60 + mFin;
+    
+    let minutos = finMinutos - inicioMinutos;
+    if (minutos < 0) minutos += 24 * 60; // Si pasa la medianoche
+    
+    return Math.round((minutos / 60) * 100) / 100; // Horas con 2 decimales
+  }, [horaInicio, horaFin]);
 
   // Filtrar producción por fecha
   const produccionFiltrada = useMemo(() => {
@@ -10849,6 +10873,9 @@ function ProduccionTab({ state, setState, session }: any) {
       bobinas_hechas: parseNum(bobinasHechas) || null,
       scrap: parseNum(scrap) || null,
       operario: operario.trim() || null,
+      hora_inicio: horaInicio || null,
+      hora_fin: horaFin || null,
+      horas_produccion: horasProduccion || null,
       fecha_registro: todayISO(),
     };
 
@@ -10863,9 +10890,10 @@ function ProduccionTab({ state, setState, session }: any) {
         alert(`✅ Producción registrada\n\n` +
           `Producto: ${producto.name}\n` +
           `Producido: ${cantidadProducida} ${producto.unidad || "unidades"}\n` +
-          `Bultos: ${bultosCalculados}\n` +
+          `Bultos exactos: ${bultosCalculados}\n` +
           `Bobinas: ${bobinasHechas || 0}\n` +
-          `Scrap: ${scrap || 0}`);
+          `Scrap: ${scrap || 0}\n` +
+          `Horas: ${horasProduccion}h`);
       } catch (error) {
         console.error("❌ Error:", error);
         alert("Error al guardar en la base de datos");
@@ -10879,155 +10907,374 @@ function ProduccionTab({ state, setState, session }: any) {
     setBobinasHechas("");
     setScrap("");
     setOperario("");
+    setHoraInicio("");
+    setHoraFin("");
   }
 
+  // 📊 MÉTRICAS AVANZADAS
+  const metricas = useMemo(() => {
+    const todasProducciones = state.produccion || [];
+    
+    // Día con más producción
+    const produccionPorDia = todasProducciones.reduce((acc: any, prod: any) => {
+      const dia = prod.fecha_registro ? prod.fecha_registro.split('T')[0] : 'sin-fecha';
+      if (!acc[dia]) {
+        acc[dia] = {
+          fecha: dia,
+          total_producido: 0,
+          total_bultos: 0,
+          total_bobinas: 0,
+          total_scrap: 0,
+          operarios: new Set(),
+          productos: new Set(),
+          registros: []
+        };
+      }
+      acc[dia].total_producido += prod.cantidad_producida || 0;
+      acc[dia].total_bultos += prod.bultos_calculados || 0;
+      acc[dia].total_bobinas += prod.bobinas_hechas || 0;
+      acc[dia].total_scrap += prod.scrap || 0;
+      if (prod.operario) acc[dia].operarios.add(prod.operario);
+      acc[dia].productos.add(prod.nombre_producto);
+      acc[dia].registros.push(prod);
+      return acc;
+    }, {});
+
+    // Ordenar días por producción
+    const diasOrdenados = Object.values(produccionPorDia)
+      .sort((a: any, b: any) => b.total_producido - a.total_producido);
+
+    // Mejor operario (más producción)
+    const produccionPorOperario = todasProducciones.reduce((acc: any, prod: any) => {
+      if (!prod.operario) return acc;
+      if (!acc[prod.operario]) {
+        acc[prod.operario] = {
+          nombre: prod.operario,
+          total_producido: 0,
+          total_bultos: 0,
+          total_horas: 0,
+          cantidad_registros: 0
+        };
+      }
+      acc[prod.operario].total_producido += prod.cantidad_producida || 0;
+      acc[prod.operario].total_bultos += prod.bultos_calculados || 0;
+      acc[prod.operario].total_horas += prod.horas_produccion || 0;
+      acc[prod.operario].cantidad_registros += 1;
+      return acc;
+    }, {});
+
+    const mejoresOperarios = Object.values(produccionPorOperario)
+      .sort((a: any, b: any) => b.total_producido - a.total_producido);
+
+    return {
+      diasOrdenados,
+      mejoresOperarios,
+      totalRegistros: todasProducciones.length,
+      totalProducidoGeneral: todasProducciones.reduce((sum: number, p: any) => sum + (p.cantidad_producida || 0), 0),
+      totalBultosGeneral: todasProducciones.reduce((sum: number, p: any) => sum + (p.bultos_calculados || 0), 0),
+    };
+  }, [state.produccion]);
+
+  // Totales del día filtrado
   const totalesDia = useMemo(() => {
     return produccionFiltrada.reduce((acc: any, prod: any) => {
-      acc.total_producido += prod.cantidad_producida;
-      acc.total_bultos += prod.bultos_calculados;
+      acc.total_producido += prod.cantidad_producida || 0;
+      acc.total_bultos += prod.bultos_calculados || 0;
       acc.total_bobinas += prod.bobinas_hechas || 0;
       acc.total_scrap += prod.scrap || 0;
+      acc.total_horas += prod.horas_produccion || 0;
       return acc;
-    }, { total_producido: 0, total_bultos: 0, total_bobinas: 0, total_scrap: 0 });
+    }, { total_producido: 0, total_bultos: 0, total_bobinas: 0, total_scrap: 0, total_horas: 0 });
   }, [produccionFiltrada]);
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card title="🏭 Registrar Producción">
-        <div className="grid md:grid-cols-2 gap-3">
-          <Select
-            label="Producto *"
-            value={productoSeleccionado}
-            onChange={setProductoSeleccionado}
-            options={[
-              { value: "", label: "— Seleccionar —" },
-              ...productos.map((p: any) => ({
-                value: p.id,
-                label: `${p.name} (${p.unidad || "unidad"})`
-              }))
-            ]}
-          />
-          
-          <NumberInput
-            label="Cantidad por bulto *"
-            value={cantidadPorBulto}
-            onChange={setCantidadPorBulto}
-            placeholder="Ej: 20"
-          />
-          
-          <NumberInput
-            label="Cantidad producida *"
-            value={cantidadProducida}
-            onChange={setCantidadProducida}
-            placeholder="Ej: 200"
-          />
-          
-          <div className="p-3 bg-slate-800/50 rounded-lg flex items-center justify-between">
-            <span className="text-sm">Bultos:</span>
-            <span className="text-2xl font-bold text-emerald-400">{bultosCalculados}</span>
-          </div>
-          
-          <NumberInput
-            label="Bobinas hechas"
-            value={bobinasHechas}
-            onChange={setBobinasHechas}
-            placeholder="Ej: 5"
-          />
-          
-          <NumberInput
-            label="Scrap"
-            value={scrap}
-            onChange={setScrap}
-            placeholder="Ej: 2"
-          />
-          
-          <Input
-            label="Operario"
-            value={operario}
-            onChange={setOperario}
-            placeholder="Ej: Juan Pérez"
-          />
-        </div>
-        
-        <div className="flex gap-2 mt-4">
-          <Button onClick={registrarProduccion} tone="emerald">
-            🏭 Registrar
-          </Button>
-        </div>
-      </Card>
+      {/* Selector de vista */}
+      <div className="flex gap-2 mb-4">
+        <Button 
+          onClick={() => setVistaMetricas("registro")}
+          tone={vistaMetricas === "registro" ? "emerald" : "slate"}
+        >
+          📝 Registrar Producción
+        </Button>
+        <Button 
+          onClick={() => setVistaMetricas("metricas")}
+          tone={vistaMetricas === "metricas" ? "emerald" : "slate"}
+        >
+          📊 Métricas y Estadísticas
+        </Button>
+      </div>
 
-      <Card title="📊 Historial">
-        <div className="mb-4">
-          <Input
-            label="Filtrar por fecha"
-            type="date"
-            value={fechaFiltro}
-            onChange={setFechaFiltro}
-          />
-        </div>
-
-        {produccionFiltrada.length > 0 && (
-          <div className="grid md:grid-cols-4 gap-3 mb-4">
-            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-emerald-400">{totalesDia.total_producido}</div>
-              <div className="text-xs text-slate-400">Producido</div>
-            </div>
-            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-blue-400">{totalesDia.total_bultos}</div>
-              <div className="text-xs text-slate-400">Bultos</div>
-            </div>
-            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-purple-400">{totalesDia.total_bobinas}</div>
-              <div className="text-xs text-slate-400">Bobinas</div>
-            </div>
-            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-amber-400">{totalesDia.total_scrap}</div>
-              <div className="text-xs text-slate-400">Scrap</div>
-            </div>
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-slate-400">
-              <tr>
-                <th className="py-2 pr-4">Fecha</th>
-                <th className="py-2 pr-4">Producto</th>
-                <th className="py-2 pr-4">Producido</th>
-                <th className="py-2 pr-4">Bultos</th>
-                <th className="py-2 pr-4">Bobinas</th>
-                <th className="py-2 pr-4">Scrap</th>
-                <th className="py-2 pr-4">Operario</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {produccionFiltrada.map((prod: any) => (
-                <tr key={prod.id}>
-                  <td className="py-2 pr-4">
-                    {new Date(prod.fecha_registro || prod.created_at).toLocaleString("es-AR")}
-                  </td>
-                  <td className="py-2 pr-4">{prod.nombre_producto}</td>
-                  <td className="py-2 pr-4 text-right">{prod.cantidad_producida} {prod.unidad}</td>
-                  <td className="py-2 pr-4 text-right font-bold text-emerald-400">
-                    {prod.bultos_calculados}
-                  </td>
-                  <td className="py-2 pr-4 text-right">{prod.bobinas_hechas || "—"}</td>
-                  <td className="py-2 pr-4 text-right">{prod.scrap || "—"}</td>
-                  <td className="py-2 pr-4">{prod.operario || "—"}</td>
-                </tr>
-              ))}
+      {vistaMetricas === "registro" ? (
+        // VISTA DE REGISTRO
+        <>
+          <Card title="🏭 Registrar Producción">
+            <div className="grid md:grid-cols-3 gap-3">
+              <Select
+                label="Producto *"
+                value={productoSeleccionado}
+                onChange={setProductoSeleccionado}
+                options={[
+                  { value: "", label: "— Seleccionar —" },
+                  ...productos.map((p: any) => ({
+                    value: p.id,
+                    label: `${p.name} (${p.unidad || "unidad"})`
+                  }))
+                ]}
+              />
               
-              {produccionFiltrada.length === 0 && (
-                <tr>
-                  <td className="py-4 text-slate-400 text-center" colSpan={7}>
-                    No hay registros
-                  </td>
-                </tr>
+              <NumberInput
+                label="Cantidad por bulto *"
+                value={cantidadPorBulto}
+                onChange={setCantidadPorBulto}
+                placeholder="Ej: 20"
+              />
+              
+              <NumberInput
+                label="Cantidad producida *"
+                value={cantidadProducida}
+                onChange={setCantidadProducida}
+                placeholder="Ej: 200"
+              />
+              
+              <div className="p-3 bg-slate-800/50 rounded-lg flex items-center justify-between">
+                <span className="text-sm">Bultos (exactos):</span>
+                <span className="text-2xl font-bold text-emerald-400">{bultosCalculados}</span>
+              </div>
+              
+              <NumberInput
+                label="Bobinas hechas"
+                value={bobinasHechas}
+                onChange={setBobinasHechas}
+                placeholder="Ej: 5"
+              />
+              
+              <NumberInput
+                label="Scrap"
+                value={scrap}
+                onChange={setScrap}
+                placeholder="Ej: 2"
+              />
+              
+              <Input
+                label="Operario"
+                value={operario}
+                onChange={setOperario}
+                placeholder="Ej: Juan Pérez"
+              />
+              
+              <Input
+                label="Hora inicio"
+                type="time"
+                value={horaInicio}
+                onChange={setHoraInicio}
+              />
+              
+              <Input
+                label="Hora fin"
+                type="time"
+                value={horaFin}
+                onChange={setHoraFin}
+              />
+              
+              {horaInicio && horaFin && (
+                <div className="p-3 bg-slate-800/50 rounded-lg flex items-center justify-between">
+                  <span className="text-sm">Horas producción:</span>
+                  <span className="text-xl font-bold text-blue-400">{horasProduccion}h</span>
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+            </div>
+            
+            <div className="flex gap-2 mt-4">
+              <Button onClick={registrarProduccion} tone="emerald">
+                🏭 Registrar
+              </Button>
+            </div>
+          </Card>
+
+          <Card title="📊 Historial del Día">
+            <div className="mb-4">
+              <Input
+                label="Filtrar por fecha"
+                type="date"
+                value={fechaFiltro}
+                onChange={setFechaFiltro}
+              />
+            </div>
+
+            {produccionFiltrada.length > 0 && (
+              <div className="grid md:grid-cols-5 gap-3 mb-4">
+                <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-emerald-400">{totalesDia.total_producido}</div>
+                  <div className="text-xs text-slate-400">Producido</div>
+                </div>
+                <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-blue-400">{totalesDia.total_bultos}</div>
+                  <div className="text-xs text-slate-400">Bultos</div>
+                </div>
+                <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-purple-400">{totalesDia.total_bobinas}</div>
+                  <div className="text-xs text-slate-400">Bobinas</div>
+                </div>
+                <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-amber-400">{totalesDia.total_scrap}</div>
+                  <div className="text-xs text-slate-400">Scrap</div>
+                </div>
+                <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-cyan-400">{totalesDia.total_horas}h</div>
+                  <div className="text-xs text-slate-400">Horas</div>
+                </div>
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="text-left text-slate-400">
+                  <tr>
+                    <th className="py-2 pr-4">Hora</th>
+                    <th className="py-2 pr-4">Producto</th>
+                    <th className="py-2 pr-4">Producido</th>
+                    <th className="py-2 pr-4">Bultos</th>
+                    <th className="py-2 pr-4">Bobinas</th>
+                    <th className="py-2 pr-4">Scrap</th>
+                    <th className="py-2 pr-4">Horas</th>
+                    <th className="py-2 pr-4">Operario</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {produccionFiltrada.map((prod: any) => (
+                    <tr key={prod.id}>
+                      <td className="py-2 pr-4">
+                        {prod.hora_inicio && prod.hora_fin 
+                          ? `${prod.hora_inicio} - ${prod.hora_fin}`
+                          : new Date(prod.fecha_registro || prod.created_at).toLocaleTimeString("es-AR")}
+                      </td>
+                      <td className="py-2 pr-4">{prod.nombre_producto}</td>
+                      <td className="py-2 pr-4 text-right">{prod.cantidad_producida} {prod.unidad}</td>
+                      <td className="py-2 pr-4 text-right font-bold text-emerald-400">
+                        {prod.bultos_calculados}
+                      </td>
+                      <td className="py-2 pr-4 text-right">{prod.bobinas_hechas || "—"}</td>
+                      <td className="py-2 pr-4 text-right">{prod.scrap || "—"}</td>
+                      <td className="py-2 pr-4 text-right">{prod.horas_produccion ? `${prod.horas_produccion}h` : "—"}</td>
+                      <td className="py-2 pr-4">{prod.operario || "—"}</td>
+                    </tr>
+                  ))}
+                  
+                  {produccionFiltrada.length === 0 && (
+                    <tr>
+                      <td className="py-4 text-slate-400 text-center" colSpan={8}>
+                        No hay registros para esta fecha
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      ) : (
+        // VISTA DE MÉTRICAS
+        <Card title="📈 Métricas de Producción">
+          <div className="space-y-6">
+            {/* Resumen General */}
+            <div className="grid md:grid-cols-4 gap-4">
+              <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-emerald-400">{metricas.totalRegistros}</div>
+                <div className="text-sm text-slate-400">Total registros</div>
+              </div>
+              <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-blue-400">{metricas.totalProducidoGeneral}</div>
+                <div className="text-sm text-slate-400">Total producido</div>
+              </div>
+              <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-purple-400">{metricas.totalBultosGeneral}</div>
+                <div className="text-sm text-slate-400">Total bultos</div>
+              </div>
+              <div className="bg-slate-800/50 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-amber-400">
+                  {metricas.mejoresOperarios[0]?.nombre || "—"}
+                </div>
+                <div className="text-sm text-slate-400">Mejor operario</div>
+              </div>
+            </div>
+
+            {/* Días con más producción */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">🏆 Días con mayor producción</h3>
+              <div className="space-y-2">
+                {metricas.diasOrdenados.slice(0, 5).map((dia: any, index: number) => (
+                  <div key={dia.fecha} className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl font-bold text-slate-500">#{index + 1}</span>
+                      <div>
+                        <div className="font-medium">{new Date(dia.fecha).toLocaleDateString("es-AR")}</div>
+                        <div className="text-xs text-slate-400">
+                          {dia.registros.length} registro(s) · {dia.operarios.size} operario(s) · {dia.productos.size} producto(s)
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xl font-bold text-emerald-400">{dia.total_producido}</div>
+                      <div className="text-xs text-slate-400">producido · {dia.total_bultos} bultos</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Mejores operarios */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">👥 Ranking de Operarios</h3>
+              <div className="space-y-2">
+                {metricas.mejoresOperarios.slice(0, 5).map((op: any, index: number) => (
+                  <div key={op.nombre} className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl font-bold text-slate-500">#{index + 1}</span>
+                      <div>
+                        <div className="font-medium">{op.nombre}</div>
+                        <div className="text-xs text-slate-400">
+                          {op.cantidad_registros} registro(s) · {op.total_horas}h trabajadas
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xl font-bold text-emerald-400">{op.total_producido}</div>
+                      <div className="text-xs text-slate-400">producido · {op.total_bultos} bultos</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Gráfico simple de producción por día */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">📅 Producción últimos 7 días</h3>
+              <div className="grid grid-cols-7 gap-2">
+                {metricas.diasOrdenados.slice(0, 7).map((dia: any) => {
+                  const maxProduccion = metricas.diasOrdenados[0]?.total_producido || 1;
+                  const altura = Math.max(20, (dia.total_producido / maxProduccion) * 100);
+                  
+                  return (
+                    <div key={dia.fecha} className="flex flex-col items-center">
+                      <div className="w-full bg-slate-700 rounded-t-lg relative h-24">
+                        <div 
+                          className="absolute bottom-0 w-full bg-emerald-600 rounded-t-lg transition-all"
+                          style={{ height: `${altura}%` }}
+                        />
+                      </div>
+                      <div className="text-xs mt-1 text-slate-400">
+                        {new Date(dia.fecha).toLocaleDateString("es-AR", { weekday: 'short' })}
+                      </div>
+                      <div className="text-xs font-bold">{dia.total_producido}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
