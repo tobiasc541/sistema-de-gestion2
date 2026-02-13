@@ -122,6 +122,21 @@ type Pedido = {
   comprobante_subido_at?: string;
   lista_usada?: string; // 👈 AGREGAR ESTA LÍNEA
 };
+// 👇👇👇 NUEVO TIPO PARA PRODUCCIÓN
+type Produccion = {
+  id: string;
+  producto_id: string;
+  nombre_producto: string;
+  unidad: string;
+  cantidad_por_bulto: number;
+  cantidad_producida: number;
+  bultos_calculados: number;
+  bobinas_hechas?: number;
+  scrap?: number;
+  operario?: string;
+  fecha_registro?: string;
+  created_at?: string;
+};
 // 👇👇👇 AGREGAR ESTE NUEVO TIPO PARA DETALLE DE DEUDAS
 type DetalleDeuda = {
   factura_id: string;
@@ -231,7 +246,8 @@ function seedState() {
     proveedores: [] as any[], // Asegurar inicialización
     compras_proveedores: [] as any[], 
     pedidos_pendientes: [] as PedidoPendiente[],
-      pedidos_preparar: [] as any[], // 👈 AGREGAR ESTA LÍNEA// Asegurar inicialización
+      pedidos_preparar: [] as any[], 
+    produccion: [] as Produccion[], // 👈 AGREGAR ESTA LÍNEA// 👈 AGREGAR ESTA LÍNEA// Asegurar inicialización
   };
 }
 
@@ -434,6 +450,24 @@ try {
 } catch (error) {
   console.error("Error cargando pedidos_preparar:", error);
   out.pedidos_preparar = [];
+}
+    // PRODUCCION
+try {
+  const { data: produccion, error: prodErr } = await supabase
+    .from("produccion")
+    .select("*")
+    .order("fecha_registro", { ascending: false });
+  
+  if (prodErr) {
+    console.error("SELECT produccion:", prodErr);
+    out.produccion = [];
+  } else {
+    out.produccion = produccion || [];
+    console.log(`✅ Cargados ${out.produccion.length} registros de producción`);
+  }
+} catch (error) {
+  console.error("Error cargando produccion:", error);
+  out.produccion = [];
 }
     // EMPLEADOS
     const { data: empleados, error: empErr } = await supabase
@@ -1207,7 +1241,8 @@ const TABS = [
     "Control Horario", 
     "Vales Empleados",
     "Cálculo Sueldos",
-    "Porcentajes Ganancia" // 👈 NUEVA PESTAÑA AGREGADA AQUÍ
+    "Porcentajes Ganancia"
+    "Producción"// 👈 NUEVA PESTAÑA AGREGADA AQUÍ
   ] : []),
   ];
 
@@ -10647,6 +10682,7 @@ function PrepararPedidosTab({ state, setState, session }: any) {
     }
   }
   
+  
   function imprimirBoleta(pedido: any) {
     const data = {
       type: "BoletaPreparacion",
@@ -10751,6 +10787,245 @@ function PrepararPedidosTab({ state, setState, session }: any) {
               </div>
             ))
           )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+/* ===== PRODUCCIÓN ===== */
+function ProduccionTab({ state, setState, session }: any) {
+  const [productoSeleccionado, setProductoSeleccionado] = useState("");
+  const [cantidadPorBulto, setCantidadPorBulto] = useState("");
+  const [cantidadProducida, setCantidadProducida] = useState("");
+  const [bobinasHechas, setBobinasHechas] = useState("");
+  const [scrap, setScrap] = useState("");
+  const [operario, setOperario] = useState("");
+  const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0]);
+
+  const productos = state.products || [];
+
+  // Calcular bultos automáticamente
+  const bultosCalculados = useMemo(() => {
+    const porBulto = parseNum(cantidadPorBulto);
+    const producido = parseNum(cantidadProducida);
+    
+    if (porBulto > 0 && producido > 0) {
+      return Math.ceil(producido / porBulto);
+    }
+    return 0;
+  }, [cantidadPorBulto, cantidadProducida]);
+
+  // Filtrar producción por fecha
+  const produccionFiltrada = useMemo(() => {
+    return (state.produccion || [])
+      .filter((p: any) => {
+        if (!fechaFiltro) return true;
+        const fechaReg = p.fecha_registro ? p.fecha_registro.split('T')[0] : '';
+        return fechaReg === fechaFiltro;
+      })
+      .sort((a: any, b: any) => 
+        new Date(b.fecha_registro || 0).getTime() - new Date(a.fecha_registro || 0).getTime()
+      );
+  }, [state.produccion, fechaFiltro]);
+
+  async function registrarProduccion() {
+    if (!productoSeleccionado) return alert("Selecciona un producto");
+    if (!cantidadPorBulto || parseNum(cantidadPorBulto) <= 0) 
+      return alert("Ingresa una cantidad válida por bulto");
+    if (!cantidadProducida || parseNum(cantidadProducida) <= 0) 
+      return alert("Ingresa la cantidad producida");
+
+    const producto = productos.find((p: any) => p.id === productoSeleccionado);
+    if (!producto) return alert("Producto no encontrado");
+
+    const registro = {
+      id: "prod_" + Math.random().toString(36).slice(2, 8),
+      producto_id: productoSeleccionado,
+      nombre_producto: producto.name,
+      unidad: producto.unidad || "unidad",
+      cantidad_por_bulto: parseNum(cantidadPorBulto),
+      cantidad_producida: parseNum(cantidadProducida),
+      bultos_calculados: bultosCalculados,
+      bobinas_hechas: parseNum(bobinasHechas) || null,
+      scrap: parseNum(scrap) || null,
+      operario: operario.trim() || null,
+      fecha_registro: todayISO(),
+    };
+
+    const st = clone(state);
+    st.produccion = st.produccion || [];
+    st.produccion.push(registro);
+    setState(st);
+
+    if (hasSupabase) {
+      try {
+        await supabase.from("produccion").insert(registro);
+        alert(`✅ Producción registrada\n\n` +
+          `Producto: ${producto.name}\n` +
+          `Producido: ${cantidadProducida} ${producto.unidad || "unidades"}\n` +
+          `Bultos: ${bultosCalculados}\n` +
+          `Bobinas: ${bobinasHechas || 0}\n` +
+          `Scrap: ${scrap || 0}`);
+      } catch (error) {
+        console.error("❌ Error:", error);
+        alert("Error al guardar en la base de datos");
+      }
+    }
+
+    // Limpiar
+    setProductoSeleccionado("");
+    setCantidadPorBulto("");
+    setCantidadProducida("");
+    setBobinasHechas("");
+    setScrap("");
+    setOperario("");
+  }
+
+  const totalesDia = useMemo(() => {
+    return produccionFiltrada.reduce((acc: any, prod: any) => {
+      acc.total_producido += prod.cantidad_producida;
+      acc.total_bultos += prod.bultos_calculados;
+      acc.total_bobinas += prod.bobinas_hechas || 0;
+      acc.total_scrap += prod.scrap || 0;
+      return acc;
+    }, { total_producido: 0, total_bultos: 0, total_bobinas: 0, total_scrap: 0 });
+  }, [produccionFiltrada]);
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card title="🏭 Registrar Producción">
+        <div className="grid md:grid-cols-2 gap-3">
+          <Select
+            label="Producto *"
+            value={productoSeleccionado}
+            onChange={setProductoSeleccionado}
+            options={[
+              { value: "", label: "— Seleccionar —" },
+              ...productos.map((p: any) => ({
+                value: p.id,
+                label: `${p.name} (${p.unidad || "unidad"})`
+              }))
+            ]}
+          />
+          
+          <NumberInput
+            label="Cantidad por bulto *"
+            value={cantidadPorBulto}
+            onChange={setCantidadPorBulto}
+            placeholder="Ej: 20"
+          />
+          
+          <NumberInput
+            label="Cantidad producida *"
+            value={cantidadProducida}
+            onChange={setCantidadProducida}
+            placeholder="Ej: 200"
+          />
+          
+          <div className="p-3 bg-slate-800/50 rounded-lg flex items-center justify-between">
+            <span className="text-sm">Bultos:</span>
+            <span className="text-2xl font-bold text-emerald-400">{bultosCalculados}</span>
+          </div>
+          
+          <NumberInput
+            label="Bobinas hechas"
+            value={bobinasHechas}
+            onChange={setBobinasHechas}
+            placeholder="Ej: 5"
+          />
+          
+          <NumberInput
+            label="Scrap"
+            value={scrap}
+            onChange={setScrap}
+            placeholder="Ej: 2"
+          />
+          
+          <Input
+            label="Operario"
+            value={operario}
+            onChange={setOperario}
+            placeholder="Ej: Juan Pérez"
+          />
+        </div>
+        
+        <div className="flex gap-2 mt-4">
+          <Button onClick={registrarProduccion} tone="emerald">
+            🏭 Registrar
+          </Button>
+        </div>
+      </Card>
+
+      <Card title="📊 Historial">
+        <div className="mb-4">
+          <Input
+            label="Filtrar por fecha"
+            type="date"
+            value={fechaFiltro}
+            onChange={setFechaFiltro}
+          />
+        </div>
+
+        {produccionFiltrada.length > 0 && (
+          <div className="grid md:grid-cols-4 gap-3 mb-4">
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-emerald-400">{totalesDia.total_producido}</div>
+              <div className="text-xs text-slate-400">Producido</div>
+            </div>
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-blue-400">{totalesDia.total_bultos}</div>
+              <div className="text-xs text-slate-400">Bultos</div>
+            </div>
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-purple-400">{totalesDia.total_bobinas}</div>
+              <div className="text-xs text-slate-400">Bobinas</div>
+            </div>
+            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-amber-400">{totalesDia.total_scrap}</div>
+              <div className="text-xs text-slate-400">Scrap</div>
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-4">Fecha</th>
+                <th className="py-2 pr-4">Producto</th>
+                <th className="py-2 pr-4">Producido</th>
+                <th className="py-2 pr-4">Bultos</th>
+                <th className="py-2 pr-4">Bobinas</th>
+                <th className="py-2 pr-4">Scrap</th>
+                <th className="py-2 pr-4">Operario</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {produccionFiltrada.map((prod: any) => (
+                <tr key={prod.id}>
+                  <td className="py-2 pr-4">
+                    {new Date(prod.fecha_registro || prod.created_at).toLocaleString("es-AR")}
+                  </td>
+                  <td className="py-2 pr-4">{prod.nombre_producto}</td>
+                  <td className="py-2 pr-4 text-right">{prod.cantidad_producida} {prod.unidad}</td>
+                  <td className="py-2 pr-4 text-right font-bold text-emerald-400">
+                    {prod.bultos_calculados}
+                  </td>
+                  <td className="py-2 pr-4 text-right">{prod.bobinas_hechas || "—"}</td>
+                  <td className="py-2 pr-4 text-right">{prod.scrap || "—"}</td>
+                  <td className="py-2 pr-4">{prod.operario || "—"}</td>
+                </tr>
+              ))}
+              
+              {produccionFiltrada.length === 0 && (
+                <tr>
+                  <td className="py-4 text-slate-400 text-center" colSpan={7}>
+                    No hay registros
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </Card>
     </div>
@@ -10989,6 +11264,9 @@ export default function Page() {
 )}
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Preparar Pedidos" && (
   <PrepararPedidosTab state={state} setState={setState} session={session} />
+)}
+            {session.role === "admin" && tab === "Producción" && (
+  <ProduccionTab state={state} setState={setState} session={session} />
 )}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
