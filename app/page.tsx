@@ -1241,8 +1241,8 @@ const TABS = [
     "Control Horario", 
     "Vales Empleados",
     "Cálculo Sueldos",
-    "Porcentajes Ganancia"
-    "Producción"// 👈 NUEVA PESTAÑA AGREGADA AQUÍ
+    "Porcentajes Ganancia",
+    "Producción",// 👈 NUEVA PESTAÑA AGREGADA AQUÍ
   ] : []),
   ];
 
