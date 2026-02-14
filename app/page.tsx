@@ -72,6 +72,33 @@ type PedidoPendiente = {
   status: "pendiente" | "completado" | "cancelado";
   observaciones?: string;
 };
+// 👇👇👇 TIPO PARA INVERSORES
+type Inversor = {
+  id: string;
+  nombre: string;
+  monto_mensual: number;
+  fecha_inicio: string;
+  tasa_retorno: number; // porcentaje
+  estado: "activo" | "inactivo";
+  notas?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+// 👇👇👇 TIPO PARA MÉTRICAS DE INVERSOR
+type MetricasInversor = {
+  inversor_id: string;
+  inversor_nombre: string;
+  monto_mensual: number;
+  ganancia_mes_actual: number;
+  ventas_mes_actual: number;
+  payback_dias: number;
+  ventas_diarias_necesarias: number;
+  progreso: number; // porcentaje
+  dias_restantes: number;
+  roi: number; // retorno de inversión
+  estado: "saludable" | "alerta" | "critico";
+};
 
 // 👇👇👇 ACTUALIZAR EL TIPO REGISTROHORARIO - REEMPLAZAR COMPLETAMENTE
 type RegistroHorario = {
@@ -298,6 +325,7 @@ function seedState() {
    produccion: [] as Produccion[],
     pedidos_fabricar: [] as PedidoFabricar[],
 avances_fabricacion: [] as AvanceFabricacion[],
+    inversores: [] as Inversor[],
   };
 }
 
@@ -589,7 +617,24 @@ try {
       console.error("Error cargando avances_fabricacion:", error);
       out.avances_fabricacion = [];
     }
-
+    // INVERSORES
+    try {
+      const { data: inversores, error: invErr } = await supabase
+        .from("inversores")
+        .select("*")
+        .order("nombre");
+      
+      if (invErr) {
+        console.error("SELECT inversores:", invErr);
+        out.inversores = [];
+      } else {
+        out.inversores = inversores || [];
+        console.log(`✅ Cargados ${out.inversores.length} inversores`);
+      }
+    } catch (error) {
+      console.error("Error cargando inversores:", error);
+      out.inversores = [];
+    }
 
     // Si está vacío, NO sembrar datos de ejemplo
     if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
@@ -12091,6 +12136,456 @@ function PedidosFabricarTab({ state, setState, session }: any) {
                 <div className="text-sm text-slate-400">Total adelantos</div>
               </div>
             </div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+/* ===== PANEL DE INVERSORES ===== */
+function InversoresTab({ state, setState, session }: any) {
+  const [nombre, setNombre] = useState("");
+  const [montoMensual, setMontoMensual] = useState("");
+  const [fechaInicio, setFechaInicio] = useState(new Date().toISOString().split('T')[0]);
+  const [tasaRetorno, setTasaRetorno] = useState("10");
+  const [notas, setNotas] = useState("");
+  const [editando, setEditando] = useState<string | null>(null);
+
+  // Calcular métricas de todos los inversores
+  const metricas = useMemo(() => {
+    const inversores = state.inversores || [];
+    const invoices = state.invoices || [];
+    const gastos = state.gastos || [];
+    
+    // Calcular ganancia del mes actual
+    const ahora = new Date();
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    const finMes = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0);
+    
+    // Ventas del mes
+    const ventasMes = invoices
+      .filter((inv: any) => {
+        const fecha = new Date(inv.date_iso);
+        return inv.type === "Factura" && fecha >= inicioMes && fecha <= finMes;
+      })
+      .reduce((sum: number, inv: any) => sum + parseNum(inv.total), 0);
+    
+    // Costos del mes
+    const costosMes = invoices
+      .filter((inv: any) => {
+        const fecha = new Date(inv.date_iso);
+        return inv.type === "Factura" && fecha >= inicioMes && fecha <= finMes;
+      })
+      .reduce((sum: number, inv: any) => sum + parseNum(inv.cost || 0), 0);
+    
+    // Gastos del mes
+    const gastosMes = gastos
+      .filter((g: any) => {
+        const fecha = new Date(g.date_iso);
+        return fecha >= inicioMes && fecha <= finMes;
+      })
+      .reduce((sum: number, g: any) => sum + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
+    
+    const gananciaNeta = ventasMes - costosMes - gastosMes;
+    
+    // Capital total invertido
+    const capitalTotal = inversores.reduce((sum: number, inv: any) => sum + parseNum(inv.monto_mensual), 0);
+    
+    // Días del mes
+    const diasEnMes = finMes.getDate();
+    const diasTranscurridos = Math.min(ahora.getDate(), diasEnMes);
+    const diasRestantes = diasEnMes - diasTranscurridos;
+    
+    // Métricas por inversor
+    const metricasInversores = inversores
+      .filter((inv: any) => inv.estado === "activo")
+      .map((inv: any) => {
+        const monto = parseNum(inv.monto_mensual);
+        const porcentajeDelCapital = capitalTotal > 0 ? monto / capitalTotal : 0;
+        
+        // Ganancia que le corresponde a este inversor
+        const gananciaAsignada = gananciaNeta * porcentajeDelCapital;
+        
+        // ROI (Retorno de Inversión) - Anualizado
+        const gananciaMensual = gananciaAsignada;
+        const roi = monto > 0 ? (gananciaMensual * 12 / monto) * 100 : 0;
+        
+        // Payback: en cuántos días se recupera la inversión
+        const gananciaDiaria = gananciaAsignada / diasTranscurridos || 0;
+        const paybackDias = gananciaDiaria > 0 ? Math.ceil(monto / gananciaDiaria) : 999;
+        
+        // Ventas diarias necesarias para cubrir este inversor
+        const margenPromedio = ventasMes > 0 ? (ventasMes - costosMes) / ventasMes : 0.3; // 30% default
+        const ventasDiariasNecesarias = margenPromedio > 0 ? (monto / diasEnMes) / margenPromedio : 0;
+        
+        // Progreso del mes
+        const progreso = monto > 0 ? Math.min(100, (gananciaAsignada / monto) * 100) : 0;
+        
+        // Estado de salud
+        let estado = "saludable";
+        if (progreso < 30 && diasTranscurridos > diasEnMes * 0.5) estado = "alerta";
+        if (progreso < 15 && diasTranscurridos > diasEnMes * 0.7) estado = "critico";
+        
+        return {
+          inversor_id: inv.id,
+          inversor_nombre: inv.nombre,
+          monto_mensual: monto,
+          ganancia_mes_actual: gananciaAsignada,
+          ventas_mes_actual: ventasMes,
+          payback_dias: paybackDias,
+          ventas_diarias_necesarias: ventasDiariasNecesarias,
+          progreso,
+          dias_restantes: diasRestantes,
+          roi,
+          estado,
+        };
+      });
+    
+    return {
+      metricas: metricasInversores,
+      totalInversores: inversores.length,
+      activos: inversores.filter((i: any) => i.estado === "activo").length,
+      capitalTotal,
+      gananciaNeta,
+      ventasMes,
+      diasTranscurridos,
+      diasRestantes,
+      saludables: metricasInversores.filter((m: any) => m.estado === "saludable").length,
+      alerta: metricasInversores.filter((m: any) => m.estado === "alerta").length,
+      critico: metricasInversores.filter((m: any) => m.estado === "critico").length,
+    };
+  }, [state.inversores, state.invoices, state.gastos]);
+
+  async function guardarInversor() {
+    if (!nombre.trim()) return alert("El nombre es obligatorio");
+    if (!montoMensual || parseNum(montoMensual) <= 0) return alert("Ingresá un monto válido");
+
+    const inversor = {
+      id: editando || "inv_" + Math.random().toString(36).slice(2, 8),
+      nombre: nombre.trim(),
+      monto_mensual: parseNum(montoMensual),
+      fecha_inicio: fechaInicio,
+      tasa_retorno: parseNum(tasaRetorno),
+      estado: "activo",
+      notas: notas.trim() || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const st = clone(state);
+    
+    if (editando) {
+      const index = st.inversores.findIndex((i: any) => i.id === editando);
+      if (index !== -1) {
+        inversor.created_at = st.inversores[index].created_at;
+        st.inversores[index] = inversor;
+      }
+    } else {
+      st.inversores.push(inversor);
+    }
+    
+    setState(st);
+
+    if (hasSupabase) {
+      try {
+        if (editando) {
+          await supabase.from("inversores").update(inversor).eq("id", editando);
+        } else {
+          await supabase.from("inversores").insert(inversor);
+        }
+        alert(`Inversor ${editando ? 'actualizado' : 'agregado'} correctamente`);
+      } catch (error) {
+        console.error("Error guardando inversor:", error);
+        alert("Error al guardar en Supabase");
+      }
+    }
+
+    // Limpiar formulario
+    setNombre("");
+    setMontoMensual("");
+    setFechaInicio(new Date().toISOString().split('T')[0]);
+    setTasaRetorno("10");
+    setNotas("");
+    setEditando(null);
+  }
+
+  function editarInversor(inv: any) {
+    setNombre(inv.nombre);
+    setMontoMensual(String(inv.monto_mensual));
+    setFechaInicio(inv.fecha_inicio.split('T')[0]);
+    setTasaRetorno(String(inv.tasa_retorno));
+    setNotas(inv.notas || "");
+    setEditando(inv.id);
+  }
+
+  async function toggleEstado(inversorId: string, estadoActual: string) {
+    const st = clone(state);
+    const inversor = st.inversores.find((i: any) => i.id === inversorId);
+    
+    if (inversor) {
+      inversor.estado = estadoActual === "activo" ? "inactivo" : "activo";
+      inversor.updated_at = new Date().toISOString();
+      setState(st);
+
+      if (hasSupabase) {
+        await supabase.from("inversores").update(inversor).eq("id", inversorId);
+      }
+    }
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      {/* KPIs Principales */}
+      <div className="grid md:grid-cols-5 gap-3">
+        <Card title="Inversores Activos">
+          <div className="text-3xl font-bold text-emerald-400">{metricas.activos}</div>
+          <div className="text-xs text-slate-400">de {metricas.totalInversores} totales</div>
+        </Card>
+        <Card title="Capital Comprometido">
+          <div className="text-2xl font-bold text-blue-400">{money(metricas.capitalTotal)}</div>
+          <div className="text-xs text-slate-400">por mes</div>
+        </Card>
+        <Card title="Ganancia Neta del Mes">
+          <div className={`text-2xl font-bold ${metricas.gananciaNeta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {money(metricas.gananciaNeta)}
+          </div>
+          <div className="text-xs text-slate-400">día {metricas.diasTranscurridos}/30</div>
+        </Card>
+        <Card title="Ventas del Mes">
+          <div className="text-2xl font-bold text-purple-400">{money(metricas.ventasMes)}</div>
+          <div className="text-xs text-slate-400">{money(metricas.ventasMes / 30)}/día promedio</div>
+        </Card>
+        <Card title="Salud Inversores">
+          <div className="flex justify-center gap-2 text-sm">
+            <span className="text-emerald-400">✅ {metricas.saludables}</span>
+            <span className="text-amber-400">⚠️ {metricas.alerta}</span>
+            <span className="text-red-400">🔴 {metricas.critico}</span>
+          </div>
+        </Card>
+      </div>
+
+      {/* Formulario de carga (solo admin) */}
+      {session?.role === "admin" && (
+        <Card title={editando ? "✏️ Editar Inversor" : "➕ Agregar Inversor"}>
+          <div className="grid md:grid-cols-3 gap-3">
+            <Input
+              label="Nombre *"
+              value={nombre}
+              onChange={setNombre}
+              placeholder="Ej: Juan Pérez"
+            />
+            <NumberInput
+              label="Monto Mensual *"
+              value={montoMensual}
+              onChange={setMontoMensual}
+              placeholder="Ej: 200000"
+            />
+            <Input
+              label="Fecha de Inicio"
+              type="date"
+              value={fechaInicio}
+              onChange={setFechaInicio}
+            />
+            <NumberInput
+              label="Tasa de Retorno Esperada (%)"
+              value={tasaRetorno}
+              onChange={setTasaRetorno}
+              placeholder="10"
+            />
+            <Input
+              label="Notas (opcional)"
+              value={notas}
+              onChange={setNotas}
+              placeholder="Observaciones..."
+              className="md:col-span-2"
+            />
+          </div>
+          <div className="flex gap-2 mt-4">
+            <Button onClick={guardarInversor} tone="emerald">
+              {editando ? "Actualizar" : "Guardar Inversor"}
+            </Button>
+            {editando && (
+              <Button tone="slate" onClick={() => {
+                setEditando(null);
+                setNombre("");
+                setMontoMensual("");
+                setFechaInicio(new Date().toISOString().split('T')[0]);
+                setTasaRetorno("10");
+                setNotas("");
+              }}>
+                Cancelar
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Métricas por Inversor */}
+      <Card title="📊 Análisis por Inversor">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-slate-400">
+              <tr>
+                <th className="py-2 pr-4">Inversor</th>
+                <th className="py-2 pr-4">Monto</th>
+                <th className="py-2 pr-4">Ganancia Mes</th>
+                <th className="py-2 pr-4">ROI (anual)</th>
+                <th className="py-2 pr-4">Payback</th>
+                <th className="py-2 pr-4">Ventas/día necesarias</th>
+                <th className="py-2 pr-4">Progreso</th>
+                <th className="py-2 pr-4">Estado</th>
+                {session?.role === "admin" && <th className="py-2 pr-4">Acciones</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {metricas.metricas.map((m: any) => (
+                <tr key={m.inversor_id}>
+                  <td className="py-2 pr-4 font-medium">{m.inversor_nombre}</td>
+                  <td className="py-2 pr-4">{money(m.monto_mensual)}</td>
+                  <td className={`py-2 pr-4 ${m.ganancia_mes_actual >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {money(m.ganancia_mes_actual)}
+                  </td>
+                  <td className={`py-2 pr-4 ${m.roi > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {m.roi.toFixed(1)}%
+                  </td>
+                  <td className="py-2 pr-4">
+                    {m.payback_dias > 30 ? (
+                      <span className="text-amber-400">{m.payback_dias} días ⚠️</span>
+                    ) : (
+                      <span className="text-emerald-400">{m.payback_dias} días</span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4">{money(m.ventas_diarias_necesarias)}</td>
+                  <td className="py-2 pr-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 bg-slate-700 rounded-full h-2">
+                        <div 
+                          className={`h-2 rounded-full ${
+                            m.progreso >= 100 ? 'bg-emerald-500' :
+                            m.progreso >= 70 ? 'bg-blue-500' :
+                            m.progreso >= 40 ? 'bg-amber-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${Math.min(100, m.progreso)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs">{Math.round(m.progreso)}%</span>
+                    </div>
+                  </td>
+                  <td className="py-2 pr-4">
+                    {m.estado === "saludable" && <Chip tone="emerald">✅ Saludable</Chip>}
+                    {m.estado === "alerta" && <Chip tone="amber">⚠️ Alerta</Chip>}
+                    {m.estado === "critico" && <Chip tone="red">🔴 Crítico</Chip>}
+                  </td>
+                  {session?.role === "admin" && (
+                    <td className="py-2 pr-4">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => editarInversor(state.inversores.find((i: any) => i.id === m.inversor_id))}
+                          className="text-blue-400 hover:text-blue-300"
+                          title="Editar"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => toggleEstado(m.inversor_id, "activo")}
+                          className="text-amber-400 hover:text-amber-300"
+                          title="Cambiar estado"
+                        >
+                          🔄
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+              {metricas.metricas.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="py-4 text-center text-slate-400">
+                    No hay inversores activos
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Recomendaciones y Alertas */}
+      <Card title="💡 Recomendaciones y Alertas">
+        <div className="space-y-4">
+          {/* Alerta General */}
+          {metricas.gananciaNeta < metricas.capitalTotal && (
+            <div className="p-4 bg-amber-900/20 border border-amber-700/50 rounded-lg">
+              <div className="flex items-center gap-2 text-amber-400 font-semibold mb-2">
+                ⚠️ Alerta de Rentabilidad
+              </div>
+              <p className="text-sm text-amber-200">
+                La ganancia neta del mes ({money(metricas.gananciaNeta)}) es menor al capital comprometido ({money(metricas.capitalTotal)}).
+                Necesitás aumentar las ventas o reducir costos.
+              </p>
+            </div>
+          )}
+
+          {/* Recomendación de Ventas */}
+          <div className="p-4 bg-blue-900/20 border border-blue-700/50 rounded-lg">
+            <div className="flex items-center gap-2 text-blue-400 font-semibold mb-2">
+              📈 Objetivo de Ventas
+            </div>
+            <p className="text-sm text-blue-200">
+              Para cubrir a todos los inversores, necesitás un promedio de ventas de <span className="font-bold text-white">{money(metricas.capitalTotal / 30)} por día</span>.
+              {metricas.ventasMes / 30 >= metricas.capitalTotal / 30 ? (
+                <span className="block mt-1 text-emerald-400">✅ Vas por buen camino!</span>
+              ) : (
+                <span className="block mt-1 text-amber-400">
+                  ⚠️ Estás un {Math.round((1 - (metricas.ventasMes / 30) / (metricas.capitalTotal / 30)) * 100)}% por debajo.
+                </span>
+              )}
+            </p>
+          </div>
+
+          {/* Payback Promedio */}
+          <div className="p-4 bg-emerald-900/20 border border-emerald-700/50 rounded-lg">
+            <div className="flex items-center gap-2 text-emerald-400 font-semibold mb-2">
+              ⏱️ Tiempo de Recuperación
+            </div>
+            <p className="text-sm text-emerald-200">
+              En promedio, los inversores recuperan su capital en{" "}
+              <span className="font-bold text-white">
+                {Math.round(metricas.metricas.reduce((sum, m) => sum + m.payback_dias, 0) / metricas.metricas.length)} días
+              </span>.
+              {metricas.diasRestantes < 15 ? (
+                <span className="block mt-1 text-emerald-400">✅ Quedan {metricas.diasRestantes} días para cerrar el mes.</span>
+              ) : (
+                <span className="block mt-1 text-blue-400">📅 Quedan {metricas.diasRestantes} días para mejorar métricas.</span>
+              )}
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Lista de Inversores (solo admin) */}
+      {session?.role === "admin" && (
+        <Card title="📋 Todos los Inversores">
+          <div className="space-y-2">
+            {(state.inversores || []).map((inv: any) => (
+              <div key={inv.id} className="flex justify-between items-center p-3 border border-slate-700 rounded-lg">
+                <div>
+                  <div className="font-medium">{inv.nombre}</div>
+                  <div className="text-sm text-slate-400">
+                    {money(inv.monto_mensual)}/mes · Inicio: {new Date(inv.fecha_inicio).toLocaleDateString("es-AR")}
+                    {inv.notas && <span className="ml-2">📝 {inv.notas}</span>}
+                  </div>
+                </div>
+                <Chip tone={inv.estado === "activo" ? "emerald" : "slate"}>
+                  {inv.estado === "activo" ? "Activo" : "Inactivo"}
+                </Chip>
+              </div>
+            ))}
+            {(state.inversores || []).length === 0 && (
+              <div className="text-center text-slate-400 py-4">
+                No hay inversores registrados
+              </div>
+            )}
           </div>
         </Card>
       )}
