@@ -3218,14 +3218,11 @@ function ProductosTab({ state, setState, role }: any) {
             <Button onClick={addProduct}>
               {editando ? "Actualizar" : "Agregar"}
             </Button>
-           {editando && (
+ {editando && (
   <Button tone="slate" onClick={() => {
     setEditando(null);
-    setNombre("");
-    setCapitalInvertido("");  // ← CAMBIADO
-    setPorcentaje("");        // ← CAMBIADO
-    setFechaInicio(new Date().toISOString().split('T')[0]);
-    setNotas("");
+    // Los estados no existen, así que simplemente cancelamos la edición
+    // sin intentar limpiar campos que no están definidos
   }}>
     Cancelar
   </Button>
