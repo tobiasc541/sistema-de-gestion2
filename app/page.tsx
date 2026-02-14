@@ -74,13 +74,14 @@ type PedidoPendiente = {
 };
 // 👇👇👇 TIPO PARA INVERSORES
 // 👇👇👇 TIPO PARA INVERSORES (con porcentaje)
+// 👇👇👇 TIPO PARA INVERSORES (VERSIÓN CORRECTA)
 type Inversor = {
   id: string;
   nombre: string;
-  monto_mensual: number;
-  porcentaje: number; // 👈 NUEVO: porcentaje de ganancia que le corresponde
+  capital_invertido: number; // Lo que puso (ej: 10.000.000)
+  porcentaje: number; // % mensual que recibe (ej: 10)
+  monto_recibir: number; // capital_invertido * (porcentaje/100)
   fecha_inicio: string;
-  tasa_retorno: number;
   estado: "activo" | "inactivo";
   notas?: string;
   created_at: string;
@@ -12147,15 +12148,15 @@ function PedidosFabricarTab({ state, setState, session }: any) {
 }
 /* ===== PANEL DE INVERSORES ===== */
 function InversoresTab({ state, setState, session }: any) {
-  const [nombre, setNombre] = useState("");
-  const [montoMensual, setMontoMensual] = useState("");
-  const [fechaInicio, setFechaInicio] = useState(new Date().toISOString().split('T')[0]);
-  const [tasaRetorno, setTasaRetorno] = useState("10");
-  const [porcentaje, setPorcentaje] = useState("");
-  const [notas, setNotas] = useState("");
-  const [editando, setEditando] = useState<string | null>(null);
+const [nombre, setNombre] = useState("");
+const [capitalInvertido, setCapitalInvertido] = useState(""); // Lo que puso
+const [porcentaje, setPorcentaje] = useState(""); // % mensual
+const [fechaInicio, setFechaInicio] = useState(new Date().toISOString().split('T')[0]);
+const [notas, setNotas] = useState("");
+const [editando, setEditando] = useState<string | null>(null);
 
  // Calcular métricas de todos los inversores (SOLO ACTIVOS, con PORCENTAJE MANUAL)
+// Calcular métricas de todos los inversores
 const metricas = useMemo(() => {
   const inversores = (state.inversores || []).filter((i: any) => i.estado === "activo");
   const invoices = state.invoices || [];
@@ -12192,68 +12193,47 @@ const metricas = useMemo(() => {
   
   const gananciaNeta = ventasMes - costosMes - gastosMes;
   
-  // Capital total invertido (solo para referencia)
-  const capitalTotal = inversores.reduce((sum: number, inv: any) => sum + parseNum(inv.monto_mensual), 0);
-  
   // Días del mes
   const diasEnMes = finMes.getDate();
   const diasTranscurridos = Math.min(ahora.getDate(), diasEnMes);
   const diasRestantes = diasEnMes - diasTranscurridos;
   
-  // Suma de porcentajes para verificar que no pase de 100
-  const sumaPorcentajes = inversores.reduce((sum: number, inv: any) => sum + parseNum(inv.porcentaje), 0);
-  if (sumaPorcentajes > 100) {
-    console.warn(`⚠️ La suma de porcentajes es ${sumaPorcentajes}%. Debería ser 100% o menos`);
-  }
+  // Total a pagar a inversores por mes
+  const totalPagarMes = inversores.reduce((sum: number, inv: any) => sum + parseNum(inv.monto_recibir), 0);
   
-  // Métricas por inversor (usando PORCENTAJE MANUAL)
+  // Métricas por inversor
   const metricasInversores = inversores
     .map((inv: any) => {
-      const monto = parseNum(inv.monto_mensual);
-      const porcentajeInv = parseNum(inv.porcentaje) / 100; // Convertir a decimal (ej: 10% -> 0.10)
+      const capital = parseNum(inv.capital_invertido);
+      const porcent = parseNum(inv.porcentaje);
+      const debePagar = parseNum(inv.monto_recibir); // Lo que hay que pagarle por mes
       
-      // Ganancia que le corresponde según el PORCENTAJE MANUAL
-      const gananciaAsignada = gananciaNeta * porcentajeInv;
+      // Ganancia diaria promedio
+      const gananciaDiaria = gananciaNeta / diasTranscurridos || 0;
       
-      // Lo que HAY que pagarle (el monto acordado)
-      const debePagar = monto;
-      
-      // Diferencia: lo que ganó vs lo que debe pagar
-      const diferencia = gananciaAsignada - debePagar;
-      
-      // ROI (Retorno de Inversión) - Anualizado
-      const roi = debePagar > 0 ? (gananciaAsignada * 12 / debePagar) * 100 : 0;
-      
-      // Payback: en cuántos días junta lo que debe pagar
-      const gananciaDiaria = gananciaAsignada / diasTranscurridos || 0;
+      // Payback: en cuántos días genero lo que le tengo que pagar
       const paybackDias = gananciaDiaria > 0 ? Math.ceil(debePagar / gananciaDiaria) : 999;
       
-      // Ventas diarias necesarias para juntar lo que debe pagar
-      const margenPromedio = ventasMes > 0 ? (ventasMes - costosMes) / ventasMes : 0.3;
-      const ventasDiariasNecesarias = margenPromedio > 0 ? (debePagar / diasEnMes) / margenPromedio : 0;
+      // Progreso: qué porcentaje de lo que debo pagar ya generé
+      const progreso = debePagar > 0 ? Math.min(100, (gananciaNeta * (debePagar / totalPagarMes) / debePagar) * 100) : 0;
       
-      // Progreso: qué porcentaje de lo que debe pagar ya juntó
-      const progreso = debePagar > 0 ? Math.min(100, (gananciaAsignada / debePagar) * 100) : 0;
+      // ROI anual (basado en lo que recibe vs su capital)
+      const roi = capital > 0 ? (debePagar * 12 / capital) * 100 : 0;
       
-      // Estado de salud
+      // Estado
       let estado = "saludable";
-      if (diferencia < 0) { // Si ganó menos de lo que debe pagar
-        if (Math.abs(diferencia) > debePagar * 0.3) estado = "critico";
-        else if (Math.abs(diferencia) > debePagar * 0.1) estado = "alerta";
-      }
+      if (paybackDias > 25) estado = "critico";
+      else if (paybackDias > 20) estado = "alerta";
       
       return {
         inversor_id: inv.id,
         inversor_nombre: inv.nombre,
-        monto_mensual: debePagar,
-        porcentaje: porcentajeInv * 100,
-        ganancia_mes_actual: gananciaAsignada,
-        diferencia: diferencia,
-        ventas_mes_actual: ventasMes,
+        capital_invertido: capital,
+        porcentaje: porcent,
+        monto_recibir: debePagar,
+        ganancia_neta_mes: gananciaNeta,
         payback_dias: paybackDias,
-        ventas_diarias_necesarias: ventasDiariasNecesarias,
         progreso,
-        dias_restantes: diasRestantes,
         roi,
         estado,
       };
@@ -12261,11 +12241,7 @@ const metricas = useMemo(() => {
   
   return {
     metricas: metricasInversores,
-    totalInversores: (state.inversores || []).length,
-    activos: inversores.length,
-    inactivos: (state.inversores || []).filter((i: any) => i.estado !== "activo").length,
-    capitalTotal,
-    sumaPorcentajes: inversores.reduce((sum: any, inv: any) => sum + inv.porcentaje, 0),
+    totalPagarMes,
     gananciaNeta,
     ventasMes,
     diasTranscurridos,
@@ -12275,72 +12251,73 @@ const metricas = useMemo(() => {
     critico: metricasInversores.filter((m: any) => m.estado === "critico").length,
   };
 }, [state.inversores, state.invoices, state.gastos]);
-  async function guardarInversor() {
-    if (!nombre.trim()) return alert("El nombre es obligatorio");
-    if (!montoMensual || parseNum(montoMensual) <= 0) return alert("Ingresá un monto válido");
+ async function guardarInversor() {
+  if (!nombre.trim()) return alert("El nombre es obligatorio");
+  if (!capitalInvertido || parseNum(capitalInvertido) <= 0) return alert("Ingresá el capital invertido");
+  if (!porcentaje || parseNum(porcentaje) <= 0) return alert("Ingresá el porcentaje");
+
+  const capital = parseNum(capitalInvertido);
+  const porcent = parseNum(porcentaje);
+  const montoRecibir = capital * (porcent / 100); // Calculamos automático
 
   const inversor = {
-  id: editando || "inv_" + Math.random().toString(36).slice(2, 8),
-  nombre: nombre.trim(),
-  monto_mensual: parseNum(montoMensual),
-  porcentaje: parseNum(porcentaje), // 👈 AGREGAR ESTA LÍNEA
-  fecha_inicio: fechaInicio,
-  tasa_retorno: parseNum(tasaRetorno),
-  estado: "activo",
-  notas: notas.trim() || null,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
+    id: editando || "inv_" + Math.random().toString(36).slice(2, 8),
+    nombre: nombre.trim(),
+    capital_invertido: capital,
+    porcentaje: porcent,
+    monto_recibir: montoRecibir,
+    fecha_inicio: fechaInicio,
+    estado: "activo",
+    notas: notas.trim() || null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
 
-    const st = clone(state);
-    
-    if (editando) {
-      const index = st.inversores.findIndex((i: any) => i.id === editando);
-      if (index !== -1) {
-        inversor.created_at = st.inversores[index].created_at;
-        st.inversores[index] = inversor;
-      }
-    } else {
-      st.inversores.push(inversor);
+  const st = clone(state);
+  
+  if (editando) {
+    const index = st.inversores.findIndex((i: any) => i.id === editando);
+    if (index !== -1) {
+      inversor.created_at = st.inversores[index].created_at;
+      st.inversores[index] = inversor;
     }
-    
-    setState(st);
+  } else {
+    st.inversores.push(inversor);
+  }
+  
+  setState(st);
 
-    if (hasSupabase) {
-      try {
-        if (editando) {
-          await supabase.from("inversores").update(inversor).eq("id", editando);
-        } else {
-          await supabase.from("inversores").insert(inversor);
-        }
-        alert(`Inversor ${editando ? 'actualizado' : 'agregado'} correctamente`);
-      } catch (error) {
-        console.error("Error guardando inversor:", error);
-        alert("Error al guardar en Supabase");
+  if (hasSupabase) {
+    try {
+      if (editando) {
+        await supabase.from("inversores").update(inversor).eq("id", editando);
+      } else {
+        await supabase.from("inversores").insert(inversor);
       }
+      alert(`Inversor ${editando ? 'actualizado' : 'agregado'} correctamente`);
+    } catch (error) {
+      console.error("Error guardando inversor:", error);
+      alert("Error al guardar en Supabase");
     }
-
-    // Limpiar formulario
-    // Limpiar formulario
-setNombre("");
-setMontoMensual("");
-setPorcentaje(""); // 👈 AGREGAR
-setFechaInicio(new Date().toISOString().split('T')[0]);
-setTasaRetorno("10");
-setNotas("");
-setEditando(null);
   }
 
- function editarInversor(inv: any) {
+  // Limpiar
+  setNombre("");
+  setCapitalInvertido("");
+  setPorcentaje("");
+  setFechaInicio(new Date().toISOString().split('T')[0]);
+  setNotas("");
+  setEditando(null);
+}
+
+function editarInversor(inv: any) {
   setNombre(inv.nombre);
-  setMontoMensual(String(inv.monto_mensual));
-  setPorcentaje(String(inv.porcentaje || "")); // 👈 AGREGAR
+  setCapitalInvertido(String(inv.capital_invertido));
+  setPorcentaje(String(inv.porcentaje));
   setFechaInicio(inv.fecha_inicio.split('T')[0]);
-  setTasaRetorno(String(inv.tasa_retorno));
   setNotas(inv.notas || "");
   setEditando(inv.id);
 }
-
   async function toggleEstado(inversorId: string, estadoActual: string) {
     const st = clone(state);
     const inversor = st.inversores.find((i: any) => i.id === inversorId);
@@ -12390,12 +12367,22 @@ setEditando(null);
       {/* Formulario de carga (solo admin) */}
       {session?.role === "admin" && (
         <Card title={editando ? "✏️ Editar Inversor" : "➕ Agregar Inversor"}>
-        <div className="grid md:grid-cols-4 gap-3">
+       <div className="grid md:grid-cols-3 gap-3">
   <Input label="Nombre *" value={nombre} onChange={setNombre} placeholder="Ej: Juan Pérez" />
-  <NumberInput label="Monto Mensual *" value={montoMensual} onChange={setMontoMensual} placeholder="Ej: 200000" />
-  <NumberInput label="Porcentaje (%) *" value={porcentaje} onChange={setPorcentaje} placeholder="Ej: 10" />
+  <NumberInput label="Capital Invertido *" value={capitalInvertido} onChange={setCapitalInvertido} placeholder="Ej: 10000000" />
+  <NumberInput label="Porcentaje Mensual (%) *" value={porcentaje} onChange={setPorcentaje} placeholder="Ej: 10" />
+  
+  {/* Mostramos el cálculo automático */}
+  {capitalInvertido && porcentaje && (
+    <div className="bg-slate-800/50 rounded-lg p-3 flex items-center justify-between col-span-3">
+      <span className="text-sm">💰 Recibe por mes:</span>
+      <span className="text-xl font-bold text-emerald-400">
+        {money(parseNum(capitalInvertido) * parseNum(porcentaje) / 100)}
+      </span>
+    </div>
+  )}
+  
   <Input label="Fecha de Inicio" type="date" value={fechaInicio} onChange={setFechaInicio} />
-  <NumberInput label="Tasa Retorno %" value={tasaRetorno} onChange={setTasaRetorno} placeholder="10" />
   <Input label="Notas" value={notas} onChange={setNotas} placeholder="Observaciones..." className="md:col-span-2" />
 </div>
           <div className="flex gap-2 mt-4">
@@ -12420,148 +12407,146 @@ setEditando(null);
 
       {/* Métricas por Inversor */}
       <Card title="📊 Análisis por Inversor">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-slate-400">
-              <tr>
-                <th className="py-2 pr-4">Inversor</th>
-                <th className="py-2 pr-4">Monto</th>
-                <th className="py-2 pr-4">%</th>
-                <th className="py-2 pr-4">Ganancia Mes</th>
-                <th className="py-2 pr-4">ROI (anual)</th>
-                <th className="py-2 pr-4">Payback</th>
-                <th className="py-2 pr-4">Ventas/día necesarias</th>
-                <th className="py-2 pr-4">Progreso</th>
-                <th className="py-2 pr-4">Estado</th>
-                {session?.role === "admin" && <th className="py-2 pr-4">Acciones</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {metricas.metricas.map((m: any) => (
-                <tr key={m.inversor_id}>
-                  <td className="py-2 pr-4 font-medium">{m.inversor_nombre}</td>
-                  <td className="py-2 pr-4">{money(m.monto_mensual)}</td>
-                  <td className="py-2 pr-4 text-center font-medium text-blue-400">{m.porcentaje}%</td>
-                  <td className={`py-2 pr-4 ${m.ganancia_mes_actual >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {money(m.ganancia_mes_actual)}
-                  </td>
-                  <td className={`py-2 pr-4 ${m.roi > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {m.roi.toFixed(1)}%
-                  </td>
-                  <td className="py-2 pr-4">
-                    {m.payback_dias > 30 ? (
-                      <span className="text-amber-400">{m.payback_dias} días ⚠️</span>
-                    ) : (
-                      <span className="text-emerald-400">{m.payback_dias} días</span>
-                    )}
-                  </td>
-                  <td className="py-2 pr-4">{money(m.ventas_diarias_necesarias)}</td>
-                  <td className="py-2 pr-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-16 bg-slate-700 rounded-full h-2">
-                        <div 
-                          className={`h-2 rounded-full ${
-                            m.progreso >= 100 ? 'bg-emerald-500' :
-                            m.progreso >= 70 ? 'bg-blue-500' :
-                            m.progreso >= 40 ? 'bg-amber-500' : 'bg-red-500'
-                          }`}
-                          style={{ width: `${Math.min(100, m.progreso)}%` }}
-                        />
-                      </div>
-                      <span className="text-xs">{Math.round(m.progreso)}%</span>
-                    </div>
-                  </td>
-                  <td className="py-2 pr-4">
-                    {m.estado === "saludable" && <Chip tone="emerald">✅ Saludable</Chip>}
-                    {m.estado === "alerta" && <Chip tone="amber">⚠️ Alerta</Chip>}
-                    {m.estado === "critico" && <Chip tone="red">🔴 Crítico</Chip>}
-                  </td>
-                  {session?.role === "admin" && (
-                    <td className="py-2 pr-4">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => editarInversor(state.inversores.find((i: any) => i.id === m.inversor_id))}
-                          className="text-blue-400 hover:text-blue-300"
-                          title="Editar"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          onClick={() => toggleEstado(m.inversor_id, "activo")}
-                          className="text-amber-400 hover:text-amber-300"
-                          title="Cambiar estado"
-                        >
-                          🔄
-                        </button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-              {metricas.metricas.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="py-4 text-center text-slate-400">
-                    No hay inversores activos
-                  </td>
-                </tr>
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="text-left text-slate-400">
+        <tr>
+          <th className="py-2 pr-4">Inversor</th>
+          <th className="py-2 pr-4">Capital</th>
+          <th className="py-2 pr-4">%</th>
+          <th className="py-2 pr-4">Recibe/Mes</th>
+          <th className="py-2 pr-4">ROI anual</th>
+          <th className="py-2 pr-4">Payback</th>
+          <th className="py-2 pr-4">Progreso</th>
+          <th className="py-2 pr-4">Estado</th>
+          {session?.role === "admin" && <th className="py-2 pr-4">Acciones</th>}
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-800">
+        {metricas.metricas.map((m: any) => (
+          <tr key={m.inversor_id}>
+            <td className="py-2 pr-4 font-medium">{m.inversor_nombre}</td>
+            <td className="py-2 pr-4">{money(m.capital_invertido)}</td>
+            <td className="py-2 pr-4 text-center font-medium text-blue-400">{m.porcentaje}%</td>
+            <td className="py-2 pr-4 font-semibold text-emerald-400">{money(m.monto_recibir)}</td>
+            <td className={`py-2 pr-4 ${m.roi > 50 ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {m.roi.toFixed(1)}%
+            </td>
+            <td className="py-2 pr-4">
+              {m.payback_dias > 25 ? (
+                <span className="text-red-400">{m.payback_dias} días 🔴</span>
+              ) : m.payback_dias > 20 ? (
+                <span className="text-amber-400">{m.payback_dias} días ⚠️</span>
+              ) : (
+                <span className="text-emerald-400">{m.payback_dias} días ✅</span>
               )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+            </td>
+            <td className="py-2 pr-4">
+              <div className="flex items-center gap-2">
+                <div className="w-16 bg-slate-700 rounded-full h-2">
+                  <div 
+                    className={`h-2 rounded-full ${
+                      m.progreso >= 100 ? 'bg-emerald-500' :
+                      m.progreso >= 70 ? 'bg-blue-500' :
+                      m.progreso >= 40 ? 'bg-amber-500' : 'bg-red-500'
+                    }`}
+                    style={{ width: `${Math.min(100, m.progreso)}%` }}
+                  />
+                </div>
+                <span className="text-xs">{Math.round(m.progreso)}%</span>
+              </div>
+            </td>
+            <td className="py-2 pr-4">
+              {m.estado === "saludable" && <Chip tone="emerald">✅ Saludable</Chip>}
+              {m.estado === "alerta" && <Chip tone="amber">⚠️ Alerta</Chip>}
+              {m.estado === "critico" && <Chip tone="red">🔴 Crítico</Chip>}
+            </td>
+            {session?.role === "admin" && (
+              <td className="py-2 pr-4">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => editarInversor(state.inversores.find((i: any) => i.id === m.inversor_id))}
+                    className="text-blue-400 hover:text-blue-300"
+                    title="Editar"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    onClick={() => toggleEstado(m.inversor_id, "activo")}
+                    className="text-amber-400 hover:text-amber-300"
+                    title="Cambiar estado"
+                  >
+                    🔄
+                  </button>
+                </div>
+              </td>
+            )}
+          </tr>
+        ))}
+        {metricas.metricas.length === 0 && (
+          <tr>
+            <td colSpan={9} className="py-4 text-center text-slate-400">
+              No hay inversores activos
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</Card>
 
       {/* Recomendaciones y Alertas */}
-      <Card title="💡 Recomendaciones y Alertas">
-        <div className="space-y-4">
-          {/* Alerta General */}
-          {metricas.gananciaNeta < metricas.capitalTotal && (
-            <div className="p-4 bg-amber-900/20 border border-amber-700/50 rounded-lg">
-              <div className="flex items-center gap-2 text-amber-400 font-semibold mb-2">
-                ⚠️ Alerta de Rentabilidad
-              </div>
-              <p className="text-sm text-amber-200">
-                La ganancia neta del mes ({money(metricas.gananciaNeta)}) es menor al capital comprometido ({money(metricas.capitalTotal)}).
-                Necesitás aumentar las ventas o reducir costos.
-              </p>
-            </div>
-          )}
-
-          {/* Recomendación de Ventas */}
-          <div className="p-4 bg-blue-900/20 border border-blue-700/50 rounded-lg">
-            <div className="flex items-center gap-2 text-blue-400 font-semibold mb-2">
-              📈 Objetivo de Ventas
-            </div>
-            <p className="text-sm text-blue-200">
-              Para cubrir a todos los inversores, necesitás un promedio de ventas de <span className="font-bold text-white">{money(metricas.capitalTotal / 30)} por día</span>.
-              {metricas.ventasMes / 30 >= metricas.capitalTotal / 30 ? (
-                <span className="block mt-1 text-emerald-400">✅ Vas por buen camino!</span>
-              ) : (
-                <span className="block mt-1 text-amber-400">
-                  ⚠️ Estás un {Math.round((1 - (metricas.ventasMes / 30) / (metricas.capitalTotal / 30)) * 100)}% por debajo.
-                </span>
-              )}
-            </p>
-          </div>
-
-          {/* Payback Promedio */}
-          <div className="p-4 bg-emerald-900/20 border border-emerald-700/50 rounded-lg">
-            <div className="flex items-center gap-2 text-emerald-400 font-semibold mb-2">
-              ⏱️ Tiempo de Recuperación
-            </div>
-            <p className="text-sm text-emerald-200">
-              En promedio, los inversores recuperan su capital en{" "}
-              <span className="font-bold text-white">
-                {Math.round(metricas.metricas.reduce((sum, m) => sum + m.payback_dias, 0) / metricas.metricas.length)} días
-              </span>.
-              {metricas.diasRestantes < 15 ? (
-                <span className="block mt-1 text-emerald-400">✅ Quedan {metricas.diasRestantes} días para cerrar el mes.</span>
-              ) : (
-                <span className="block mt-1 text-blue-400">📅 Quedan {metricas.diasRestantes} días para mejorar métricas.</span>
-              )}
-            </p>
-          </div>
+     <Card title="💡 Recomendaciones y Alertas">
+  <div className="space-y-4">
+    {/* Alerta si no alcanza */}
+    {metricas.gananciaNeta < metricas.totalPagarMes && (
+      <div className="p-4 bg-amber-900/20 border border-amber-700/50 rounded-lg">
+        <div className="flex items-center gap-2 text-amber-400 font-semibold mb-2">
+          ⚠️ Alerta de Rentabilidad
         </div>
-      </Card>
+        <p className="text-sm text-amber-200">
+          La ganancia neta del mes ({money(metricas.gananciaNeta)}) es menor a lo que debés pagar a inversores ({money(metricas.totalPagarMes)}).
+          Necesitás generar ${money(metricas.totalPagarMes - metricas.gananciaNeta)} más este mes.
+        </p>
+      </div>
+    )}
+
+    {/* Payback promedio */}
+    <div className="p-4 bg-blue-900/20 border border-blue-700/50 rounded-lg">
+      <div className="flex items-center gap-2 text-blue-400 font-semibold mb-2">
+        ⏱️ Tiempo de Recuperación
+      </div>
+      <p className="text-sm text-blue-200">
+        En promedio, necesitás{" "}
+        <span className="font-bold text-white">
+          {Math.round(metricas.metricas.reduce((sum, m) => sum + m.payback_dias, 0) / metricas.metricas.length)} días
+        </span>{" "}
+        para generar lo que debés pagar a cada inversor.
+        {metricas.diasRestantes < 15 ? (
+          <span className="block mt-1 text-emerald-400">✅ Quedan {metricas.diasRestantes} días para cerrar el mes.</span>
+        ) : (
+          <span className="block mt-1 text-blue-400">📅 Quedan {metricas.diasRestantes} días para mejorar las métricas.</span>
+        )}
+      </p>
+    </div>
+
+    {/* Resumen rápido */}
+    <div className="grid grid-cols-3 gap-3">
+      <div className="bg-slate-800/30 rounded-lg p-3 text-center">
+        <div className="text-2xl font-bold text-emerald-400">{metricas.saludables}</div>
+        <div className="text-xs text-slate-400">Saludables</div>
+      </div>
+      <div className="bg-slate-800/30 rounded-lg p-3 text-center">
+        <div className="text-2xl font-bold text-amber-400">{metricas.alerta}</div>
+        <div className="text-xs text-slate-400">En Alerta</div>
+      </div>
+      <div className="bg-slate-800/30 rounded-lg p-3 text-center">
+        <div className="text-2xl font-bold text-red-400">{metricas.critico}</div>
+        <div className="text-xs text-slate-400">Críticos</div>
+      </div>
+    </div>
+  </div>
+</Card>
 
       {/* Lista de Inversores (solo admin) */}
       {session?.role === "admin" && (
