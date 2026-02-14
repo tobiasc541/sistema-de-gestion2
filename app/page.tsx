@@ -3218,23 +3218,19 @@ function ProductosTab({ state, setState, role }: any) {
             <Button onClick={addProduct}>
               {editando ? "Actualizar" : "Agregar"}
             </Button>
-            {editando && (
-              <Button tone="slate" onClick={() => {
-                setEditando(null);
-                setName("");
-                setPrice1("");
-                setPrice2("");
-                setPrice3("");
-                setPrice4("");
-                setPrice5("");
-                setStock("");
-                setStockMinimo("");
-                setCost("");
-                setSection("");
-              }}>
-                Cancelar
-              </Button>
-            )}
+           {editando && (
+  <Button tone="slate" onClick={() => {
+    setEditando(null);
+    setNombre("");
+    setCapitalInvertido("");  // ← CAMBIADO
+    setPorcentaje("");        // ← CAMBIADO
+    setFechaInicio(new Date().toISOString().split('T')[0]);
+    setNotas("");
+  }}>
+    Cancelar
+  </Button>
+)}
+          
           </div>
         </div>
       </Card>
