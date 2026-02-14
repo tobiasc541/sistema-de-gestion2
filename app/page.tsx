@@ -552,31 +552,7 @@ try {
   console.error("Error cargando produccion:", error);
   out.produccion = [];
 }
-
-    // Si está vacío, NO sembrar datos de ejemplo
-    if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
-      await supabase.from("meta").upsert({
-        key: "counters",
-        value: {
-          invoiceCounter: 1,
-          budgetCounter: 1,
-          cashFloat: out.meta?.cashFloat ?? 0,
-          cashFloatByDate: out.meta?.cashFloatByDate ?? {},
-          commissionsByDate: out.meta?.commissionsByDate ?? {},
-        },
-      });
-    }
-
-  } catch (error) {
-    console.error("💥 ERROR GENERAL cargando desde Supabase:", error);
-    // Asegurar arrays vacíos en caso de error
-    out.proveedores = out.proveedores || [];
-    out.compras_proveedores = out.compras_proveedores || [];
-  }
-
-  return out;
-}
-    // PEDIDOS A FABRICAR
+      // PEDIDOS A FABRICAR
     try {
       const { data: pedidosFabricar, error: pfErr } = await supabase
         .from("pedidos_fabricar")
@@ -614,6 +590,31 @@ try {
       out.avances_fabricacion = [];
     }
 
+
+    // Si está vacío, NO sembrar datos de ejemplo
+    if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
+      await supabase.from("meta").upsert({
+        key: "counters",
+        value: {
+          invoiceCounter: 1,
+          budgetCounter: 1,
+          cashFloat: out.meta?.cashFloat ?? 0,
+          cashFloatByDate: out.meta?.cashFloatByDate ?? {},
+          commissionsByDate: out.meta?.commissionsByDate ?? {},
+        },
+      });
+    }
+
+  } catch (error) {
+    console.error("💥 ERROR GENERAL cargando desde Supabase:", error);
+    // Asegurar arrays vacíos en caso de error
+    out.proveedores = out.proveedores || [];
+    out.compras_proveedores = out.compras_proveedores || [];
+  }
+
+  return out;
+}
+  
 async function saveCountersSupabase(meta: any) {
   if (!hasSupabase) return;
   await supabase.from("meta").upsert({
