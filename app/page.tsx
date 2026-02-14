@@ -1377,7 +1377,8 @@ const TABS = [
     "Cálculo Sueldos",
     "Porcentajes Ganancia",
     "Producción",
-      "Pedidos a Fabricar",// 👈 NUEVA PESTAÑA AGREGADA AQUÍ
+      "Pedidos a Fabricar",
+     "Inversores", // 👈 NUEVA PESTAÑA AGREGADA AQUÍ
   ] : []),
   ];
 
@@ -12831,6 +12832,9 @@ export default function Page() {
 )}
             {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Pedidos a Fabricar" && (
   <PedidosFabricarTab state={state} setState={setState} session={session} />
+)}
+            {session.role === "admin" && tab === "Inversores" && (
+  <InversoresTab state={state} setState={setState} session={session} />
 )}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
