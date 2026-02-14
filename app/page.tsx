@@ -140,6 +140,36 @@ type Produccion = {
   fecha_registro?: string;
   created_at?: string;
 };
+// 👇👇👇 TIPO PARA PEDIDOS A FABRICAR
+type PedidoFabricar = {
+  id: string;
+  cliente_id: string;
+  cliente_nombre: string;
+  producto_id: string;
+  producto_nombre: string;
+  bultos_solicitados: number;
+  bultos_fabricados: number;
+  adelanto_monto: number;
+  adelanto_metodo?: string; // efectivo, transferencia
+  fecha_pedido: string;
+  fecha_inicio?: string;
+  fecha_completado?: string;
+  estado: "pendiente" | "en_curso" | "completado";
+  creado_por: string;
+  observaciones?: string;
+  created_at: string;
+};
+
+// 👇👇👇 TIPO PARA AVANCES DE FABRICACIÓN
+type AvanceFabricacion = {
+  id: string;
+  pedido_id: string;
+  bultos_agregados: number;
+  fecha_avance: string;
+  registrado_por: string;
+  observaciones?: string;
+  created_at: string;
+};
 // 👇👇👇 AGREGAR ESTE NUEVO TIPO PARA DETALLE DE DEUDAS
 type DetalleDeuda = {
   factura_id: string;
@@ -244,6 +274,7 @@ function seedState() {
       cashFloatByDate: {} as Record<string, number>,
       commissionsByDate: {} as Record<string, number>,
       gabiFundsByDate: {} as Record<string, number>,
+      
     },
     auth: { adminKey: "46892389" },
     vendors: [] as any[],
@@ -265,6 +296,8 @@ function seedState() {
     pedidos_pendientes: [] as PedidoPendiente[],
       pedidos_preparar: [] as any[], 
    produccion: [] as Produccion[],
+    pedidos_fabricar: [] as PedidoFabricar[],
+avances_fabricacion: [] as AvanceFabricacion[],
   };
 }
 
@@ -543,6 +576,43 @@ try {
 
   return out;
 }
+    // PEDIDOS A FABRICAR
+    try {
+      const { data: pedidosFabricar, error: pfErr } = await supabase
+        .from("pedidos_fabricar")
+        .select("*")
+        .order("fecha_pedido", { ascending: false });
+      
+      if (pfErr) {
+        console.error("SELECT pedidos_fabricar:", pfErr);
+        out.pedidos_fabricar = [];
+      } else {
+        out.pedidos_fabricar = pedidosFabricar || [];
+        console.log(`✅ Cargados ${out.pedidos_fabricar.length} pedidos a fabricar`);
+      }
+    } catch (error) {
+      console.error("Error cargando pedidos_fabricar:", error);
+      out.pedidos_fabricar = [];
+    }
+
+    // AVANCES DE FABRICACIÓN
+    try {
+      const { data: avances, error: avErr } = await supabase
+        .from("avances_fabricacion")
+        .select("*")
+        .order("fecha_avance", { ascending: false });
+      
+      if (avErr) {
+        console.error("SELECT avances_fabricacion:", avErr);
+        out.avances_fabricacion = [];
+      } else {
+        out.avances_fabricacion = avances || [];
+        console.log(`✅ Cargados ${out.avances_fabricacion.length} avances`);
+      }
+    } catch (error) {
+      console.error("Error cargando avances_fabricacion:", error);
+      out.avances_fabricacion = [];
+    }
 
 async function saveCountersSupabase(meta: any) {
   if (!hasSupabase) return;
@@ -1260,7 +1330,8 @@ const TABS = [
     "Vales Empleados",
     "Cálculo Sueldos",
     "Porcentajes Ganancia",
-    "Producción",// 👈 NUEVA PESTAÑA AGREGADA AQUÍ
+    "Producción",
+      "Pedidos a Fabricar",// 👈 NUEVA PESTAÑA AGREGADA AQUÍ
   ] : []),
   ];
 
@@ -1268,7 +1339,7 @@ const TABS = [
     role === "admin"
       ? TABS
       : role === "vendedor"
-      ? ["Facturación", "Clientes", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online","Pedidos Pendientes","Preparar Pedidos"] // 👈 QUITAR "Productos"
+      ? ["Facturación", "Clientes", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online","Pedidos Pendientes","Preparar Pedidos", "Pedidos a Fabricar"] // 👈 QUITAR "Productos"
       : role === "pedido-online"
       ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
       : ["Panel"];
@@ -11332,6 +11403,537 @@ todasProducciones.forEach((prod: any) => {
     </div>
   );
 }
+/* ===== PEDIDOS A FABRICAR ===== */
+function PedidosFabricarTab({ state, setState, session }: any) {
+  const [vista, setVista] = useState<"pedidos" | "metricas">("pedidos");
+  const [clienteId, setClienteId] = useState("");
+  const [productoId, setProductoId] = useState("");
+  const [bultosSolicitados, setBultosSolicitados] = useState("");
+  const [adelantoMonto, setAdelantoMonto] = useState("");
+  const [adelantoMetodo, setAdelantoMetodo] = useState("efectivo");
+  const [observaciones, setObservaciones] = useState("");
+  const [adelantoChecked, setAdelantoChecked] = useState(false);
+  
+  // Para avances
+  const [pedidoSeleccionado, setPedidoSeleccionado] = useState("");
+  const [avanceBultos, setAvanceBultos] = useState("");
+  const [avanceObs, setAvanceObs] = useState("");
+  const [mostrarModalAvance, setMostrarModalAvance] = useState(false);
+  
+  const productos = state.products || [];
+  const clientes = state.clients || [];
+
+  // Calcular métricas de tiempo
+  const metricasTiempo = useMemo(() => {
+    const pedidosCompletados = (state.pedidos_fabricar || []).filter((p: any) => 
+      p.estado === "completado" && p.fecha_pedido && p.fecha_completado
+    );
+
+    const rangos = {
+      "-10": { min: 0, max: 10, pedidos: [] as any[], totalDias: 0 },
+      "10-30": { min: 10, max: 30, pedidos: [] as any[], totalDias: 0 },
+      "30-50": { min: 30, max: 50, pedidos: [] as any[], totalDias: 0 },
+      "50-100": { min: 50, max: 100, pedidos: [] as any[], totalDias: 0 },
+      "+100": { min: 100, max: Infinity, pedidos: [] as any[], totalDias: 0 }
+    };
+
+    pedidosCompletados.forEach((pedido: any) => {
+      const bultos = pedido.bultos_solicitados;
+      const fechaPedido = new Date(pedido.fecha_pedido);
+      const fechaCompletado = new Date(pedido.fecha_completado);
+      const dias = Math.ceil((fechaCompletado.getTime() - fechaPedido.getTime()) / (1000 * 60 * 60 * 24));
+      
+      let rangoKey = "";
+      if (bultos <= 10) rangoKey = "-10";
+      else if (bultos <= 30) rangoKey = "10-30";
+      else if (bultos <= 50) rangoKey = "30-50";
+      else if (bultos <= 100) rangoKey = "50-100";
+      else rangoKey = "+100";
+      
+      if (rangos[rangoKey]) {
+        rangos[rangoKey].pedidos.push({ ...pedido, dias });
+        rangos[rangoKey].totalDias += dias;
+      }
+    });
+
+    // Calcular promedios
+    const promedios = Object.entries(rangos).map(([key, data]: [string, any]) => ({
+      rango: key,
+      cantidad: data.pedidos.length,
+      promedio: data.pedidos.length > 0 ? Math.round((data.totalDias / data.pedidos.length) * 10) / 10 : 0,
+      pedidos: data.pedidos
+    }));
+
+    // Pedidos demorados (más del promedio de su rango)
+    const demorados: any[] = [];
+    pedidosCompletados.forEach((pedido: any) => {
+      const bultos = pedido.bultos_solicitados;
+      const fechaPedido = new Date(pedido.fecha_pedido);
+      const fechaCompletado = new Date(pedido.fecha_completado);
+      const dias = Math.ceil((fechaCompletado.getTime() - fechaPedido.getTime()) / (1000 * 60 * 60 * 24));
+      
+      let rangoPromedio = 0;
+      if (bultos <= 10) rangoPromedio = promedios.find(p => p.rango === "-10")?.promedio || 0;
+      else if (bultos <= 30) rangoPromedio = promedios.find(p => p.rango === "10-30")?.promedio || 0;
+      else if (bultos <= 50) rangoPromedio = promedios.find(p => p.rango === "30-50")?.promedio || 0;
+      else if (bultos <= 100) rangoPromedio = promedios.find(p => p.rango === "50-100")?.promedio || 0;
+      else rangoPromedio = promedios.find(p => p.rango === "+100")?.promedio || 0;
+      
+      if (dias > rangoPromedio * 1.3) { // 30% más que el promedio
+        demorados.push(pedido);
+      }
+    });
+
+    return { promedios, demorados };
+  }, [state.pedidos_fabricar]);
+
+  // Crear nuevo pedido
+  async function crearPedido() {
+    if (!clienteId) return alert("Seleccioná un cliente");
+    if (!productoId) return alert("Seleccioná un producto");
+    if (!bultosSolicitados || parseNum(bultosSolicitados) <= 0) return alert("Ingresá bultos solicitados");
+
+    const cliente = clientes.find((c: any) => c.id === clienteId);
+    const producto = productos.find((p: any) => p.id === productoId);
+    
+    const pedido = {
+      id: "pf_" + Math.random().toString(36).slice(2, 8),
+      cliente_id: clienteId,
+      cliente_nombre: cliente?.name || "Cliente",
+      producto_id: productoId,
+      producto_nombre: producto?.name || "Producto",
+      bultos_solicitados: parseNum(bultosSolicitados),
+      bultos_fabricados: 0,
+      adelanto_monto: adelantoChecked ? parseNum(adelantoMonto) : 0,
+      adelanto_metodo: adelantoChecked ? adelantoMetodo : null,
+      fecha_pedido: new Date().toISOString(),
+      estado: "pendiente",
+      creado_por: session?.name || "admin",
+      observaciones: observaciones.trim() || null,
+      created_at: new Date().toISOString(),
+    };
+
+    const st = clone(state);
+    st.pedidos_fabricar = st.pedidos_fabricar || [];
+    st.pedidos_fabricar.push(pedido);
+    setState(st);
+
+    if (hasSupabase) {
+      try {
+        await supabase.from("pedidos_fabricar").insert(pedido);
+        alert("✅ Pedido creado correctamente");
+      } catch (error) {
+        console.error("Error guardando pedido:", error);
+        alert("Error al guardar en Supabase");
+      }
+    }
+
+    // Limpiar formulario
+    setClienteId("");
+    setProductoId("");
+    setBultosSolicitados("");
+    setAdelantoMonto("");
+    setAdelantoChecked(false);
+    setObservaciones("");
+  }
+
+  // Registrar avance
+  async function registrarAvance() {
+    if (!pedidoSeleccionado) return;
+    if (!avanceBultos || parseNum(avanceBultos) <= 0) return alert("Ingresá bultos fabricados");
+
+    const st = clone(state);
+    const pedido = st.pedidos_fabricar.find((p: any) => p.id === pedidoSeleccionado);
+    
+    if (!pedido) return alert("Pedido no encontrado");
+
+    const bultosAgregados = parseNum(avanceBultos);
+    const nuevoTotal = pedido.bultos_fabricados + bultosAgregados;
+
+    // Crear avance
+    const avance = {
+      id: "av_" + Math.random().toString(36).slice(2, 8),
+      pedido_id: pedidoSeleccionado,
+      bultos_agregados: bultosAgregados,
+      fecha_avance: new Date().toISOString(),
+      registrado_por: session?.name || "admin",
+      observaciones: avanceObs.trim() || null,
+      created_at: new Date().toISOString(),
+    };
+
+    // Actualizar pedido
+    pedido.bultos_fabricados = nuevoTotal;
+    
+    // Si es el primer avance, marcar fecha de inicio
+    if (!pedido.fecha_inicio && pedido.estado === "pendiente") {
+      pedido.fecha_inicio = new Date().toISOString();
+      pedido.estado = "en_curso";
+    }
+    
+    // Si llegó al total, marcar completado
+    if (nuevoTotal >= pedido.bultos_solicitados) {
+      pedido.estado = "completado";
+      pedido.fecha_completado = new Date().toISOString();
+      pedido.bultos_fabricados = pedido.bultos_solicitados; // Ajustar por si se pasa
+    }
+
+    // Guardar
+    st.avances_fabricacion = st.avances_fabricacion || [];
+    st.avances_fabricacion.push(avance);
+    setState(st);
+
+    if (hasSupabase) {
+      try {
+        await supabase.from("avances_fabricacion").insert(avance);
+        await supabase.from("pedidos_fabricar").update(pedido).eq("id", pedido.id);
+      } catch (error) {
+        console.error("Error guardando avance:", error);
+      }
+    }
+
+    // Cerrar modal
+    setMostrarModalAvance(false);
+    setPedidoSeleccionado("");
+    setAvanceBultos("");
+    setAvanceObs("");
+  }
+
+  // Obtener avances de un pedido
+  const getAvancesPedido = (pedidoId: string) => {
+    return (state.avances_fabricacion || []).filter((a: any) => a.pedido_id === pedidoId);
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      {/* Selector de vista */}
+      <div className="flex gap-2 mb-4">
+        <Button 
+          onClick={() => setVista("pedidos")}
+          tone={vista === "pedidos" ? "emerald" : "slate"}
+        >
+          📋 Pedidos a Fabricar
+        </Button>
+        <Button 
+          onClick={() => setVista("metricas")}
+          tone={vista === "metricas" ? "emerald" : "slate"}
+        >
+          📊 Métricas de Tiempo
+        </Button>
+      </div>
+
+      {vista === "pedidos" ? (
+        <>
+          {/* Formulario nuevo pedido (solo admin) */}
+          {session?.role === "admin" && (
+            <Card title="➕ Nuevo Pedido a Fabricar">
+              <div className="grid md:grid-cols-3 gap-3">
+                <Select
+                  label="Cliente *"
+                  value={clienteId}
+                  onChange={setClienteId}
+                  options={[
+                    { value: "", label: "— Seleccionar —" },
+                    ...clientes.map((c: any) => ({ value: c.id, label: `${c.number} - ${c.name}` }))
+                  ]}
+                />
+                
+                <Select
+                  label="Producto *"
+                  value={productoId}
+                  onChange={setProductoId}
+                  options={[
+                    { value: "", label: "— Seleccionar —" },
+                    ...productos.map((p: any) => ({ value: p.id, label: p.name }))
+                  ]}
+                />
+                
+                <NumberInput
+                  label="Bultos solicitados *"
+                  value={bultosSolicitados}
+                  onChange={setBultosSolicitados}
+                  placeholder="Ej: 50"
+                />
+              </div>
+
+              <div className="mt-3 p-3 bg-slate-800/30 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <input
+                    type="checkbox"
+                    id="adelanto"
+                    checked={adelantoChecked}
+                    onChange={(e) => setAdelantoChecked(e.target.checked)}
+                    className="rounded"
+                  />
+                  <label htmlFor="adelanto" className="text-sm font-medium">
+                    ¿Adelantó dinero?
+                  </label>
+                </div>
+
+                {adelantoChecked && (
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <NumberInput
+                      label="Monto adelantado"
+                      value={adelantoMonto}
+                      onChange={setAdelantoMonto}
+                      placeholder="0"
+                    />
+                    <Select
+                      label="Método"
+                      value={adelantoMetodo}
+                      onChange={setAdelantoMetodo}
+                      options={[
+                        { value: "efectivo", label: "Efectivo" },
+                        { value: "transferencia", label: "Transferencia" }
+                      ]}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3">
+                <Input
+                  label="Observaciones (opcional)"
+                  value={observaciones}
+                  onChange={setObservaciones}
+                  placeholder="Notas sobre el pedido..."
+                />
+              </div>
+
+              <div className="flex gap-2 mt-4">
+                <Button onClick={crearPedido} tone="emerald">
+                  Crear Pedido
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* Lista de pedidos */}
+          <Card title="🏭 Pedidos en Fabricación">
+            <div className="space-y-4">
+              {(state.pedidos_fabricar || [])
+                .sort((a: any, b: any) => new Date(b.fecha_pedido).getTime() - new Date(a.fecha_pedido).getTime())
+                .map((pedido: any) => {
+                  const progreso = pedido.bultos_solicitados > 0 
+                    ? Math.min(100, (pedido.bultos_fabricados / pedido.bultos_solicitados) * 100)
+                    : 0;
+                  const avances = getAvancesPedido(pedido.id);
+                  const ultimoAvance = avances.sort((a: any, b: any) => 
+                    new Date(b.fecha_avance).getTime() - new Date(a.fecha_avance).getTime()
+                  )[0];
+
+                  return (
+                    <div key={pedido.id} className="border border-slate-700 rounded-xl p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <div className="font-semibold text-lg">
+                            {pedido.cliente_nombre} - {pedido.producto_nombre}
+                          </div>
+                          <div className="text-sm text-slate-400">
+                            Pedido: {new Date(pedido.fecha_pedido).toLocaleDateString("es-AR")}
+                            {pedido.adelanto_monto > 0 && (
+                              <span className="ml-3 text-amber-400">
+                                💰 Adelanto: {money(pedido.adelanto_monto)} ({pedido.adelanto_metodo})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <Chip tone={
+                          pedido.estado === "completado" ? "emerald" :
+                          pedido.estado === "en_curso" ? "blue" : "amber"
+                        }>
+                          {pedido.estado === "completado" && "✅ Completado"}
+                          {pedido.estado === "en_curso" && "⚙️ En curso"}
+                          {pedido.estado === "pendiente" && "⏳ Pendiente"}
+                        </Chip>
+                      </div>
+
+                      <div className="mb-3">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span>Progreso: {pedido.bultos_fabricados} / {pedido.bultos_solicitados} bultos</span>
+                          <span className="font-semibold">{Math.round(progreso)}%</span>
+                        </div>
+                        <div className="w-full bg-slate-700 rounded-full h-2.5">
+                          <div 
+                            className="bg-emerald-600 h-2.5 rounded-full transition-all"
+                            style={{ width: `${progreso}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {ultimoAvance && (
+                        <div className="text-xs text-slate-400 mb-3">
+                          Último avance: {new Date(ultimoAvance.fecha_avance).toLocaleString("es-AR")} 
+                          ({ultimoAvance.bultos_agregados} bultos) - {ultimoAvance.registrado_por}
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        <Button 
+                          onClick={() => {
+                            setPedidoSeleccionado(pedido.id);
+                            setMostrarModalAvance(true);
+                          }}
+                          tone="slate"
+                          disabled={pedido.estado === "completado"}
+                        >
+                          📦 Registrar Avance
+                        </Button>
+                        
+                        <Button 
+                          tone="slate"
+                          onClick={() => {
+                            const avancesLista = getAvancesPedido(pedido.id);
+                            let mensaje = `📋 Historial de avances:\n\n`;
+                            avancesLista.forEach((a: any, i: number) => {
+                              mensaje += `${i+1}. ${new Date(a.fecha_avance).toLocaleString("es-AR")}: ${a.bultos_agregados} bultos (${a.registrado_por})\n`;
+                              if (a.observaciones) mensaje += `   Obs: ${a.observaciones}\n`;
+                            });
+                            if (avancesLista.length === 0) mensaje = "No hay avances registrados";
+                            alert(mensaje);
+                          }}
+                        >
+                          📜 Ver Historial
+                        </Button>
+                      </div>
+
+                      {pedido.observaciones && (
+                        <div className="mt-3 text-xs text-slate-400 border-t border-slate-700 pt-2">
+                          📝 {pedido.observaciones}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+              {(state.pedidos_fabricar || []).length === 0 && (
+                <div className="text-center text-slate-400 py-8">
+                  No hay pedidos registrados
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Modal de avance */}
+          {mostrarModalAvance && (
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 rounded-2xl border border-slate-700 max-w-md w-full p-6">
+                <h3 className="text-xl font-bold mb-4">Registrar Avance</h3>
+                
+                <NumberInput
+                  label="Bultos fabricados hoy *"
+                  value={avanceBultos}
+                  onChange={setAvanceBultos}
+                  placeholder="Ej: 10"
+                  className="mb-4"
+                />
+                
+                <Input
+                  label="Observaciones (opcional)"
+                  value={avanceObs}
+                  onChange={setAvanceObs}
+                  placeholder="Ej: Se trabajó turno completo"
+                  className="mb-4"
+                />
+
+                <div className="flex gap-2 justify-end">
+                  <Button tone="slate" onClick={() => setMostrarModalAvance(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={registrarAvance} tone="emerald">
+                    Guardar Avance
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        // VISTA DE MÉTRICAS
+        <Card title="⏱️ Métricas de Tiempo de Fabricación">
+          <div className="space-y-6">
+            {/* Promedios por rango */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">📊 Tiempo promedio por rango de bultos</h3>
+              <div className="grid md:grid-cols-5 gap-3">
+                {metricasTiempo.promedios.map((r: any) => (
+                  <div key={r.rango} className="bg-slate-800/50 rounded-lg p-4 text-center">
+                    <div className="text-sm text-slate-400 mb-1">
+                      {r.rango === "-10" && "Menos de 10"}
+                      {r.rango === "10-30" && "10 a 30 bultos"}
+                      {r.rango === "30-50" && "30 a 50 bultos"}
+                      {r.rango === "50-100" && "50 a 100 bultos"}
+                      {r.rango === "+100" && "Más de 100 bultos"}
+                    </div>
+                    <div className="text-3xl font-bold text-emerald-400">{r.promedio}</div>
+                    <div className="text-xs text-slate-400">días · {r.cantidad} pedido(s)</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Pedidos demorados */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">🚨 Pedidos con demora</h3>
+              {metricasTiempo.demorados.length > 0 ? (
+                <div className="space-y-2">
+                  {metricasTiempo.demorados.map((pedido: any) => {
+                    const fechaPedido = new Date(pedido.fecha_pedido);
+                    const fechaCompletado = new Date(pedido.fecha_completado);
+                    const dias = Math.ceil((fechaCompletado.getTime() - fechaPedido.getTime()) / (1000 * 60 * 60 * 24));
+                    
+                    return (
+                      <div key={pedido.id} className="flex justify-between items-center p-3 bg-red-900/20 border border-red-700/50 rounded-lg">
+                        <div>
+                          <div className="font-medium">{pedido.cliente_nombre} - {pedido.producto_nombre}</div>
+                          <div className="text-sm text-slate-400">
+                            {pedido.bultos_solicitados} bultos · {dias} días
+                          </div>
+                        </div>
+                        <div className="text-red-400 font-bold">⚠️ Demorado</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center text-slate-400 py-4">
+                  No hay pedidos demorados
+                </div>
+              )}
+            </div>
+
+            {/* Resumen general */}
+            <div className="grid md:grid-cols-4 gap-3 pt-4 border-t border-slate-700">
+              <div className="text-center">
+                <div className="text-2xl font-bold">
+                  {(state.pedidos_fabricar || []).filter((p: any) => p.estado === "pendiente").length}
+                </div>
+                <div className="text-sm text-slate-400">Pendientes</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold">
+                  {(state.pedidos_fabricar || []).filter((p: any) => p.estado === "en_curso").length}
+                </div>
+                <div className="text-sm text-slate-400">En curso</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold">
+                  {(state.pedidos_fabricar || []).filter((p: any) => p.estado === "completado").length}
+                </div>
+                <div className="text-sm text-slate-400">Completados</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-amber-400">
+                  {money((state.pedidos_fabricar || []).reduce((sum: number, p: any) => sum + (p.adelanto_monto || 0), 0))}
+                </div>
+                <div className="text-sm text-slate-400">Total adelantos</div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 // AQUÍ SIGUE EL RESTO DE TU CÓDIGO (PrintArea, Login, etc.)
 /* ===== Página principal ===== */
@@ -11568,6 +12170,9 @@ export default function Page() {
 )}
             {session.role === "admin" && tab === "Producción" && (
   <ProduccionTab state={state} setState={setState} session={session} />
+)}
+            {session.role !== "cliente" && session.role !== "pedido-online" && tab === "Pedidos a Fabricar" && (
+  <PedidosFabricarTab state={state} setState={setState} session={session} />
 )}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
