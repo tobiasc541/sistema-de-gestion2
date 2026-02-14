@@ -73,12 +73,14 @@ type PedidoPendiente = {
   observaciones?: string;
 };
 // 👇👇👇 TIPO PARA INVERSORES
+// 👇👇👇 TIPO PARA INVERSORES (con porcentaje)
 type Inversor = {
   id: string;
   nombre: string;
   monto_mensual: number;
+  porcentaje: number; // 👈 NUEVO: porcentaje de ganancia que le corresponde
   fecha_inicio: string;
-  tasa_retorno: number; // porcentaje
+  tasa_retorno: number;
   estado: "activo" | "inactivo";
   notas?: string;
   created_at: string;
@@ -12149,129 +12151,146 @@ function InversoresTab({ state, setState, session }: any) {
   const [montoMensual, setMontoMensual] = useState("");
   const [fechaInicio, setFechaInicio] = useState(new Date().toISOString().split('T')[0]);
   const [tasaRetorno, setTasaRetorno] = useState("10");
+  const [porcentaje, setPorcentaje] = useState("");
   const [notas, setNotas] = useState("");
   const [editando, setEditando] = useState<string | null>(null);
 
-  // Calcular métricas de todos los inversores
-  const metricas = useMemo(() => {
-    const inversores = state.inversores || [];
-    const invoices = state.invoices || [];
-    const gastos = state.gastos || [];
-    
-    // Calcular ganancia del mes actual
-    const ahora = new Date();
-    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-    const finMes = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0);
-    
-    // Ventas del mes
-    const ventasMes = invoices
-      .filter((inv: any) => {
-        const fecha = new Date(inv.date_iso);
-        return inv.type === "Factura" && fecha >= inicioMes && fecha <= finMes;
-      })
-      .reduce((sum: number, inv: any) => sum + parseNum(inv.total), 0);
-    
-    // Costos del mes
-    const costosMes = invoices
-      .filter((inv: any) => {
-        const fecha = new Date(inv.date_iso);
-        return inv.type === "Factura" && fecha >= inicioMes && fecha <= finMes;
-      })
-      .reduce((sum: number, inv: any) => sum + parseNum(inv.cost || 0), 0);
-    
-    // Gastos del mes
-    const gastosMes = gastos
-      .filter((g: any) => {
-        const fecha = new Date(g.date_iso);
-        return fecha >= inicioMes && fecha <= finMes;
-      })
-      .reduce((sum: number, g: any) => sum + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
-    
-    const gananciaNeta = ventasMes - costosMes - gastosMes;
-    
-    // Capital total invertido
-    const capitalTotal = inversores.reduce((sum: number, inv: any) => sum + parseNum(inv.monto_mensual), 0);
-    
-    // Días del mes
-    const diasEnMes = finMes.getDate();
-    const diasTranscurridos = Math.min(ahora.getDate(), diasEnMes);
-    const diasRestantes = diasEnMes - diasTranscurridos;
-    
-    // Métricas por inversor
-    const metricasInversores = inversores
-      .filter((inv: any) => inv.estado === "activo")
-      .map((inv: any) => {
-        const monto = parseNum(inv.monto_mensual);
-        const porcentajeDelCapital = capitalTotal > 0 ? monto / capitalTotal : 0;
-        
-        // Ganancia que le corresponde a este inversor
-        const gananciaAsignada = gananciaNeta * porcentajeDelCapital;
-        
-        // ROI (Retorno de Inversión) - Anualizado
-        const gananciaMensual = gananciaAsignada;
-        const roi = monto > 0 ? (gananciaMensual * 12 / monto) * 100 : 0;
-        
-        // Payback: en cuántos días se recupera la inversión
-        const gananciaDiaria = gananciaAsignada / diasTranscurridos || 0;
-        const paybackDias = gananciaDiaria > 0 ? Math.ceil(monto / gananciaDiaria) : 999;
-        
-        // Ventas diarias necesarias para cubrir este inversor
-        const margenPromedio = ventasMes > 0 ? (ventasMes - costosMes) / ventasMes : 0.3; // 30% default
-        const ventasDiariasNecesarias = margenPromedio > 0 ? (monto / diasEnMes) / margenPromedio : 0;
-        
-        // Progreso del mes
-        const progreso = monto > 0 ? Math.min(100, (gananciaAsignada / monto) * 100) : 0;
-        
-        // Estado de salud
-        let estado = "saludable";
-        if (progreso < 30 && diasTranscurridos > diasEnMes * 0.5) estado = "alerta";
-        if (progreso < 15 && diasTranscurridos > diasEnMes * 0.7) estado = "critico";
-        
-        return {
-          inversor_id: inv.id,
-          inversor_nombre: inv.nombre,
-          monto_mensual: monto,
-          ganancia_mes_actual: gananciaAsignada,
-          ventas_mes_actual: ventasMes,
-          payback_dias: paybackDias,
-          ventas_diarias_necesarias: ventasDiariasNecesarias,
-          progreso,
-          dias_restantes: diasRestantes,
-          roi,
-          estado,
-        };
-      });
-    
-    return {
-      metricas: metricasInversores,
-      totalInversores: inversores.length,
-      activos: inversores.filter((i: any) => i.estado === "activo").length,
-      capitalTotal,
-      gananciaNeta,
-      ventasMes,
-      diasTranscurridos,
-      diasRestantes,
-      saludables: metricasInversores.filter((m: any) => m.estado === "saludable").length,
-      alerta: metricasInversores.filter((m: any) => m.estado === "alerta").length,
-      critico: metricasInversores.filter((m: any) => m.estado === "critico").length,
-    };
-  }, [state.inversores, state.invoices, state.gastos]);
-
+ // Calcular métricas de todos los inversores (SOLO ACTIVOS, con PORCENTAJE MANUAL)
+const metricas = useMemo(() => {
+  const inversores = (state.inversores || []).filter((i: any) => i.estado === "activo");
+  const invoices = state.invoices || [];
+  const gastos = state.gastos || [];
+  
+  // Calcular ganancia del mes actual
+  const ahora = new Date();
+  const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+  const finMes = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0);
+  
+  // Ventas del mes
+  const ventasMes = invoices
+    .filter((inv: any) => {
+      const fecha = new Date(inv.date_iso);
+      return inv.type === "Factura" && fecha >= inicioMes && fecha <= finMes;
+    })
+    .reduce((sum: number, inv: any) => sum + parseNum(inv.total), 0);
+  
+  // Costos del mes
+  const costosMes = invoices
+    .filter((inv: any) => {
+      const fecha = new Date(inv.date_iso);
+      return inv.type === "Factura" && fecha >= inicioMes && fecha <= finMes;
+    })
+    .reduce((sum: number, inv: any) => sum + parseNum(inv.cost || 0), 0);
+  
+  // Gastos del mes
+  const gastosMes = gastos
+    .filter((g: any) => {
+      const fecha = new Date(g.date_iso);
+      return fecha >= inicioMes && fecha <= finMes;
+    })
+    .reduce((sum: number, g: any) => sum + parseNum(g.efectivo) + parseNum(g.transferencia), 0);
+  
+  const gananciaNeta = ventasMes - costosMes - gastosMes;
+  
+  // Capital total invertido (solo para referencia)
+  const capitalTotal = inversores.reduce((sum: number, inv: any) => sum + parseNum(inv.monto_mensual), 0);
+  
+  // Días del mes
+  const diasEnMes = finMes.getDate();
+  const diasTranscurridos = Math.min(ahora.getDate(), diasEnMes);
+  const diasRestantes = diasEnMes - diasTranscurridos;
+  
+  // Suma de porcentajes para verificar que no pase de 100
+  const sumaPorcentajes = inversores.reduce((sum: number, inv: any) => sum + parseNum(inv.porcentaje), 0);
+  if (sumaPorcentajes > 100) {
+    console.warn(`⚠️ La suma de porcentajes es ${sumaPorcentajes}%. Debería ser 100% o menos`);
+  }
+  
+  // Métricas por inversor (usando PORCENTAJE MANUAL)
+  const metricasInversores = inversores
+    .map((inv: any) => {
+      const monto = parseNum(inv.monto_mensual);
+      const porcentajeInv = parseNum(inv.porcentaje) / 100; // Convertir a decimal (ej: 10% -> 0.10)
+      
+      // Ganancia que le corresponde según el PORCENTAJE MANUAL
+      const gananciaAsignada = gananciaNeta * porcentajeInv;
+      
+      // Lo que HAY que pagarle (el monto acordado)
+      const debePagar = monto;
+      
+      // Diferencia: lo que ganó vs lo que debe pagar
+      const diferencia = gananciaAsignada - debePagar;
+      
+      // ROI (Retorno de Inversión) - Anualizado
+      const roi = debePagar > 0 ? (gananciaAsignada * 12 / debePagar) * 100 : 0;
+      
+      // Payback: en cuántos días junta lo que debe pagar
+      const gananciaDiaria = gananciaAsignada / diasTranscurridos || 0;
+      const paybackDias = gananciaDiaria > 0 ? Math.ceil(debePagar / gananciaDiaria) : 999;
+      
+      // Ventas diarias necesarias para juntar lo que debe pagar
+      const margenPromedio = ventasMes > 0 ? (ventasMes - costosMes) / ventasMes : 0.3;
+      const ventasDiariasNecesarias = margenPromedio > 0 ? (debePagar / diasEnMes) / margenPromedio : 0;
+      
+      // Progreso: qué porcentaje de lo que debe pagar ya juntó
+      const progreso = debePagar > 0 ? Math.min(100, (gananciaAsignada / debePagar) * 100) : 0;
+      
+      // Estado de salud
+      let estado = "saludable";
+      if (diferencia < 0) { // Si ganó menos de lo que debe pagar
+        if (Math.abs(diferencia) > debePagar * 0.3) estado = "critico";
+        else if (Math.abs(diferencia) > debePagar * 0.1) estado = "alerta";
+      }
+      
+      return {
+        inversor_id: inv.id,
+        inversor_nombre: inv.nombre,
+        monto_mensual: debePagar,
+        porcentaje: porcentajeInv * 100,
+        ganancia_mes_actual: gananciaAsignada,
+        diferencia: diferencia,
+        ventas_mes_actual: ventasMes,
+        payback_dias: paybackDias,
+        ventas_diarias_necesarias: ventasDiariasNecesarias,
+        progreso,
+        dias_restantes: diasRestantes,
+        roi,
+        estado,
+      };
+    });
+  
+  return {
+    metricas: metricasInversores,
+    totalInversores: (state.inversores || []).length,
+    activos: inversores.length,
+    inactivos: (state.inversores || []).filter((i: any) => i.estado !== "activo").length,
+    capitalTotal,
+    sumaPorcentajes: inversores.reduce((sum: any, inv: any) => sum + inv.porcentaje, 0),
+    gananciaNeta,
+    ventasMes,
+    diasTranscurridos,
+    diasRestantes,
+    saludables: metricasInversores.filter((m: any) => m.estado === "saludable").length,
+    alerta: metricasInversores.filter((m: any) => m.estado === "alerta").length,
+    critico: metricasInversores.filter((m: any) => m.estado === "critico").length,
+  };
+}, [state.inversores, state.invoices, state.gastos]);
   async function guardarInversor() {
     if (!nombre.trim()) return alert("El nombre es obligatorio");
     if (!montoMensual || parseNum(montoMensual) <= 0) return alert("Ingresá un monto válido");
 
-    const inversor = {
-      id: editando || "inv_" + Math.random().toString(36).slice(2, 8),
-      nombre: nombre.trim(),
-      monto_mensual: parseNum(montoMensual),
-      fecha_inicio: fechaInicio,
-      tasa_retorno: parseNum(tasaRetorno),
-      estado: "activo",
-      notas: notas.trim() || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+  const inversor = {
+  id: editando || "inv_" + Math.random().toString(36).slice(2, 8),
+  nombre: nombre.trim(),
+  monto_mensual: parseNum(montoMensual),
+  porcentaje: parseNum(porcentaje), // 👈 AGREGAR ESTA LÍNEA
+  fecha_inicio: fechaInicio,
+  tasa_retorno: parseNum(tasaRetorno),
+  estado: "activo",
+  notas: notas.trim() || null,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+};
 
     const st = clone(state);
     
@@ -12302,22 +12321,25 @@ function InversoresTab({ state, setState, session }: any) {
     }
 
     // Limpiar formulario
-    setNombre("");
-    setMontoMensual("");
-    setFechaInicio(new Date().toISOString().split('T')[0]);
-    setTasaRetorno("10");
-    setNotas("");
-    setEditando(null);
+    // Limpiar formulario
+setNombre("");
+setMontoMensual("");
+setPorcentaje(""); // 👈 AGREGAR
+setFechaInicio(new Date().toISOString().split('T')[0]);
+setTasaRetorno("10");
+setNotas("");
+setEditando(null);
   }
 
-  function editarInversor(inv: any) {
-    setNombre(inv.nombre);
-    setMontoMensual(String(inv.monto_mensual));
-    setFechaInicio(inv.fecha_inicio.split('T')[0]);
-    setTasaRetorno(String(inv.tasa_retorno));
-    setNotas(inv.notas || "");
-    setEditando(inv.id);
-  }
+ function editarInversor(inv: any) {
+  setNombre(inv.nombre);
+  setMontoMensual(String(inv.monto_mensual));
+  setPorcentaje(String(inv.porcentaje || "")); // 👈 AGREGAR
+  setFechaInicio(inv.fecha_inicio.split('T')[0]);
+  setTasaRetorno(String(inv.tasa_retorno));
+  setNotas(inv.notas || "");
+  setEditando(inv.id);
+}
 
   async function toggleEstado(inversorId: string, estadoActual: string) {
     const st = clone(state);
@@ -12368,39 +12390,14 @@ function InversoresTab({ state, setState, session }: any) {
       {/* Formulario de carga (solo admin) */}
       {session?.role === "admin" && (
         <Card title={editando ? "✏️ Editar Inversor" : "➕ Agregar Inversor"}>
-          <div className="grid md:grid-cols-3 gap-3">
-            <Input
-              label="Nombre *"
-              value={nombre}
-              onChange={setNombre}
-              placeholder="Ej: Juan Pérez"
-            />
-            <NumberInput
-              label="Monto Mensual *"
-              value={montoMensual}
-              onChange={setMontoMensual}
-              placeholder="Ej: 200000"
-            />
-            <Input
-              label="Fecha de Inicio"
-              type="date"
-              value={fechaInicio}
-              onChange={setFechaInicio}
-            />
-            <NumberInput
-              label="Tasa de Retorno Esperada (%)"
-              value={tasaRetorno}
-              onChange={setTasaRetorno}
-              placeholder="10"
-            />
-            <Input
-              label="Notas (opcional)"
-              value={notas}
-              onChange={setNotas}
-              placeholder="Observaciones..."
-              className="md:col-span-2"
-            />
-          </div>
+        <div className="grid md:grid-cols-4 gap-3">
+  <Input label="Nombre *" value={nombre} onChange={setNombre} placeholder="Ej: Juan Pérez" />
+  <NumberInput label="Monto Mensual *" value={montoMensual} onChange={setMontoMensual} placeholder="Ej: 200000" />
+  <NumberInput label="Porcentaje (%) *" value={porcentaje} onChange={setPorcentaje} placeholder="Ej: 10" />
+  <Input label="Fecha de Inicio" type="date" value={fechaInicio} onChange={setFechaInicio} />
+  <NumberInput label="Tasa Retorno %" value={tasaRetorno} onChange={setTasaRetorno} placeholder="10" />
+  <Input label="Notas" value={notas} onChange={setNotas} placeholder="Observaciones..." className="md:col-span-2" />
+</div>
           <div className="flex gap-2 mt-4">
             <Button onClick={guardarInversor} tone="emerald">
               {editando ? "Actualizar" : "Guardar Inversor"}
@@ -12429,6 +12426,7 @@ function InversoresTab({ state, setState, session }: any) {
               <tr>
                 <th className="py-2 pr-4">Inversor</th>
                 <th className="py-2 pr-4">Monto</th>
+                <th className="py-2 pr-4">%</th>
                 <th className="py-2 pr-4">Ganancia Mes</th>
                 <th className="py-2 pr-4">ROI (anual)</th>
                 <th className="py-2 pr-4">Payback</th>
@@ -12443,6 +12441,7 @@ function InversoresTab({ state, setState, session }: any) {
                 <tr key={m.inversor_id}>
                   <td className="py-2 pr-4 font-medium">{m.inversor_nombre}</td>
                   <td className="py-2 pr-4">{money(m.monto_mensual)}</td>
+                  <td className="py-2 pr-4 text-center font-medium text-blue-400">{m.porcentaje}%</td>
                   <td className={`py-2 pr-4 ${m.ganancia_mes_actual >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {money(m.ganancia_mes_actual)}
                   </td>
