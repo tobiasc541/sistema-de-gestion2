@@ -12384,12 +12384,13 @@ function editarInversor(inv: any) {
             </Button>
             {editando && (
               <Button tone="slate" onClick={() => {
-                setEditando(null);
-                setNombre("");
-                setMontoMensual("");
-                setFechaInicio(new Date().toISOString().split('T')[0]);
-                setTasaRetorno("10");
-                setNotas("");
+             setEditando(null);
+// Limpiar solo los estados que existen
+setNombre("");
+setCapitalInvertido("");
+setPorcentaje("");
+setFechaInicio(new Date().toISOString().split('T')[0]);
+setNotas("");
               }}>
                 Cancelar
               </Button>
