@@ -11404,25 +11404,63 @@ todasProducciones.forEach((prod: any) => {
     </div>
   );
 }
-/* ===== PEDIDOS A FABRICAR ===== */
+/* ===== PEDIDOS A FABRICAR MEJORADO ===== */
 function PedidosFabricarTab({ state, setState, session }: any) {
   const [vista, setVista] = useState<"pedidos" | "metricas">("pedidos");
   const [clienteId, setClienteId] = useState("");
-  const [productoId, setProductoId] = useState("");
-  const [bultosSolicitados, setBultosSolicitados] = useState("");
+  const [productosSeleccionados, setProductosSeleccionados] = useState<any[]>([]);
+  const [productoActual, setProductoActual] = useState("");
+  const [cantidadActual, setCantidadActual] = useState("");
   const [adelantoMonto, setAdelantoMonto] = useState("");
   const [adelantoMetodo, setAdelantoMetodo] = useState("efectivo");
   const [observaciones, setObservaciones] = useState("");
   const [adelantoChecked, setAdelantoChecked] = useState(false);
   
   // Para avances
-  const [pedidoSeleccionado, setPedidoSeleccionado] = useState("");
+  const [pedidoSeleccionado, setPedidoSeleccionado] = useState<any>(null);
+  const [productoAvance, setProductoAvance] = useState("");
   const [avanceBultos, setAvanceBultos] = useState("");
   const [avanceObs, setAvanceObs] = useState("");
   const [mostrarModalAvance, setMostrarModalAvance] = useState(false);
   
+  // Para historial
+  const [pedidoHistorial, setPedidoHistorial] = useState<any>(null);
+  const [mostrarHistorial, setMostrarHistorial] = useState(false);
+
   const productos = state.products || [];
   const clientes = state.clients || [];
+
+  // Agregar producto a la lista del pedido
+  const agregarProducto = () => {
+    if (!productoActual) return alert("Seleccioná un producto");
+    if (!cantidadActual || parseNum(cantidadActual) <= 0) return alert("Ingresá cantidad válida");
+
+    const producto = productos.find((p: any) => p.id === productoActual);
+    
+    setProductosSeleccionados([
+      ...productosSeleccionados,
+      {
+        id: producto.id,
+        nombre: producto.name,
+        bultos_solicitados: parseNum(cantidadActual),
+        bultos_fabricados: 0,
+        avances: []
+      }
+    ]);
+
+    setProductoActual("");
+    setCantidadActual("");
+  };
+
+  // Eliminar producto de la lista
+  const eliminarProducto = (index: number) => {
+    setProductosSeleccionados(productosSeleccionados.filter((_, i) => i !== index));
+  };
+
+  // Calcular total del pedido
+  const totalBultosPedido = productosSeleccionados.reduce((sum, p) => sum + p.bultos_solicitados, 0);
+  const totalFabricadoPedido = productosSeleccionados.reduce((sum, p) => sum + (p.bultos_fabricados || 0), 0);
+  const progresoTotal = totalBultosPedido > 0 ? (totalFabricadoPedido / totalBultosPedido) * 100 : 0;
 
   // Calcular métricas de tiempo
   const metricasTiempo = useMemo(() => {
@@ -11457,53 +11495,28 @@ function PedidosFabricarTab({ state, setState, session }: any) {
       }
     });
 
-    // Calcular promedios
     const promedios = Object.entries(rangos).map(([key, data]: [string, any]) => ({
       rango: key,
       cantidad: data.pedidos.length,
       promedio: data.pedidos.length > 0 ? Math.round((data.totalDias / data.pedidos.length) * 10) / 10 : 0,
-      pedidos: data.pedidos
     }));
 
-    // Pedidos demorados (más del promedio de su rango)
-    const demorados: any[] = [];
-    pedidosCompletados.forEach((pedido: any) => {
-      const bultos = pedido.bultos_solicitados;
-      const fechaPedido = new Date(pedido.fecha_pedido);
-      const fechaCompletado = new Date(pedido.fecha_completado);
-      const dias = Math.ceil((fechaCompletado.getTime() - fechaPedido.getTime()) / (1000 * 60 * 60 * 24));
-      
-      let rangoPromedio = 0;
-      if (bultos <= 10) rangoPromedio = promedios.find(p => p.rango === "-10")?.promedio || 0;
-      else if (bultos <= 30) rangoPromedio = promedios.find(p => p.rango === "10-30")?.promedio || 0;
-      else if (bultos <= 50) rangoPromedio = promedios.find(p => p.rango === "30-50")?.promedio || 0;
-      else if (bultos <= 100) rangoPromedio = promedios.find(p => p.rango === "50-100")?.promedio || 0;
-      else rangoPromedio = promedios.find(p => p.rango === "+100")?.promedio || 0;
-      
-      if (dias > rangoPromedio * 1.3) { // 30% más que el promedio
-        demorados.push(pedido);
-      }
-    });
-
-    return { promedios, demorados };
+    return { promedios };
   }, [state.pedidos_fabricar]);
 
   // Crear nuevo pedido
   async function crearPedido() {
     if (!clienteId) return alert("Seleccioná un cliente");
-    if (!productoId) return alert("Seleccioná un producto");
-    if (!bultosSolicitados || parseNum(bultosSolicitados) <= 0) return alert("Ingresá bultos solicitados");
+    if (productosSeleccionados.length === 0) return alert("Agregá al menos un producto");
 
     const cliente = clientes.find((c: any) => c.id === clienteId);
-    const producto = productos.find((p: any) => p.id === productoId);
     
     const pedido = {
       id: "pf_" + Math.random().toString(36).slice(2, 8),
       cliente_id: clienteId,
       cliente_nombre: cliente?.name || "Cliente",
-      producto_id: productoId,
-      producto_nombre: producto?.name || "Producto",
-      bultos_solicitados: parseNum(bultosSolicitados),
+      productos: productosSeleccionados,
+      bultos_solicitados: totalBultosPedido,
       bultos_fabricados: 0,
       adelanto_monto: adelantoChecked ? parseNum(adelantoMonto) : 0,
       adelanto_metodo: adelantoChecked ? adelantoMetodo : null,
@@ -11531,30 +11544,47 @@ function PedidosFabricarTab({ state, setState, session }: any) {
 
     // Limpiar formulario
     setClienteId("");
-    setProductoId("");
-    setBultosSolicitados("");
+    setProductosSeleccionados([]);
     setAdelantoMonto("");
     setAdelantoChecked(false);
     setObservaciones("");
   }
 
-  // Registrar avance
+  // Registrar avance por producto
   async function registrarAvance() {
     if (!pedidoSeleccionado) return;
+    if (!productoAvance) return alert("Seleccioná un producto");
     if (!avanceBultos || parseNum(avanceBultos) <= 0) return alert("Ingresá bultos fabricados");
 
     const st = clone(state);
-    const pedido = st.pedidos_fabricar.find((p: any) => p.id === pedidoSeleccionado);
+    const pedido = st.pedidos_fabricar.find((p: any) => p.id === pedidoSeleccionado.id);
     
     if (!pedido) return alert("Pedido no encontrado");
 
     const bultosAgregados = parseNum(avanceBultos);
-    const nuevoTotal = pedido.bultos_fabricados + bultosAgregados;
+    
+    // Actualizar el producto específico
+    const productoIndex = pedido.productos.findIndex((p: any) => p.id === productoAvance);
+    if (productoIndex === -1) return alert("Producto no encontrado");
+    
+    const producto = pedido.productos[productoIndex];
+    const nuevoFabricado = (producto.bultos_fabricados || 0) + bultosAgregados;
+    
+    // Actualizar producto
+    pedido.productos[productoIndex] = {
+      ...producto,
+      bultos_fabricados: Math.min(nuevoFabricado, producto.bultos_solicitados)
+    };
+
+    // Recalcular total fabricado del pedido
+    pedido.bultos_fabricados = pedido.productos.reduce((sum: number, p: any) => sum + (p.bultos_fabricados || 0), 0);
 
     // Crear avance
     const avance = {
       id: "av_" + Math.random().toString(36).slice(2, 8),
-      pedido_id: pedidoSeleccionado,
+      pedido_id: pedido.id,
+      producto_id: productoAvance,
+      producto_nombre: producto.nombre,
       bultos_agregados: bultosAgregados,
       fecha_avance: new Date().toISOString(),
       registrado_por: session?.name || "admin",
@@ -11562,20 +11592,20 @@ function PedidosFabricarTab({ state, setState, session }: any) {
       created_at: new Date().toISOString(),
     };
 
-    // Actualizar pedido
-    pedido.bultos_fabricados = nuevoTotal;
-    
     // Si es el primer avance, marcar fecha de inicio
     if (!pedido.fecha_inicio && pedido.estado === "pendiente") {
       pedido.fecha_inicio = new Date().toISOString();
       pedido.estado = "en_curso";
     }
     
-    // Si llegó al total, marcar completado
-    if (nuevoTotal >= pedido.bultos_solicitados) {
+    // Verificar si todos los productos están completados
+    const todosCompletados = pedido.productos.every((p: any) => 
+      (p.bultos_fabricados || 0) >= p.bultos_solicitados
+    );
+    
+    if (todosCompletados) {
       pedido.estado = "completado";
       pedido.fecha_completado = new Date().toISOString();
-      pedido.bultos_fabricados = pedido.bultos_solicitados; // Ajustar por si se pasa
     }
 
     // Guardar
@@ -11594,14 +11624,17 @@ function PedidosFabricarTab({ state, setState, session }: any) {
 
     // Cerrar modal
     setMostrarModalAvance(false);
-    setPedidoSeleccionado("");
+    setPedidoSeleccionado(null);
+    setProductoAvance("");
     setAvanceBultos("");
     setAvanceObs("");
   }
 
   // Obtener avances de un pedido
   const getAvancesPedido = (pedidoId: string) => {
-    return (state.avances_fabricacion || []).filter((a: any) => a.pedido_id === pedidoId);
+    return (state.avances_fabricacion || [])
+      .filter((a: any) => a.pedido_id === pedidoId)
+      .sort((a: any, b: any) => new Date(b.fecha_avance).getTime() - new Date(a.fecha_avance).getTime());
   };
 
   return (
@@ -11627,7 +11660,7 @@ function PedidosFabricarTab({ state, setState, session }: any) {
           {/* Formulario nuevo pedido (solo admin) */}
           {session?.role === "admin" && (
             <Card title="➕ Nuevo Pedido a Fabricar">
-              <div className="grid md:grid-cols-3 gap-3">
+              <div className="grid md:grid-cols-2 gap-3 mb-4">
                 <Select
                   label="Cliente *"
                   value={clienteId}
@@ -11637,26 +11670,60 @@ function PedidosFabricarTab({ state, setState, session }: any) {
                     ...clientes.map((c: any) => ({ value: c.id, label: `${c.number} - ${c.name}` }))
                   ]}
                 />
-                
-                <Select
-                  label="Producto *"
-                  value={productoId}
-                  onChange={setProductoId}
-                  options={[
-                    { value: "", label: "— Seleccionar —" },
-                    ...productos.map((p: any) => ({ value: p.id, label: p.name }))
-                  ]}
-                />
-                
-                <NumberInput
-                  label="Bultos solicitados *"
-                  value={bultosSolicitados}
-                  onChange={setBultosSolicitados}
-                  placeholder="Ej: 50"
-                />
               </div>
 
-              <div className="mt-3 p-3 bg-slate-800/30 rounded-lg">
+              {/* Agregar productos */}
+              <div className="mb-4 p-4 bg-slate-800/30 rounded-lg">
+                <h4 className="text-sm font-semibold mb-3">Agregar Productos al Pedido</h4>
+                <div className="grid md:grid-cols-3 gap-3">
+                  <Select
+                    label="Producto"
+                    value={productoActual}
+                    onChange={setProductoActual}
+                    options={[
+                      { value: "", label: "— Seleccionar —" },
+                      ...productos.map((p: any) => ({ value: p.id, label: p.name }))
+                    ]}
+                  />
+                  <NumberInput
+                    label="Bultos solicitados"
+                    value={cantidadActual}
+                    onChange={setCantidadActual}
+                    placeholder="Ej: 50"
+                  />
+                  <div className="pt-6">
+                    <Button onClick={agregarProducto} tone="slate">
+                      ➕ Agregar
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Lista de productos agregados */}
+                {productosSeleccionados.length > 0 && (
+                  <div className="mt-4">
+                    <div className="text-sm font-semibold mb-2">Productos en este pedido:</div>
+                    <div className="space-y-2">
+                      {productosSeleccionados.map((prod, idx) => (
+                        <div key={idx} className="flex justify-between items-center p-2 bg-slate-700/30 rounded">
+                          <span>{prod.nombre} - {prod.bultos_solicitados} bultos</span>
+                          <button
+                            onClick={() => eliminarProducto(idx)}
+                            className="text-red-400 hover:text-red-300 text-sm"
+                          >
+                            ✕ Eliminar
+                          </button>
+                        </div>
+                      ))}
+                      <div className="text-right text-sm font-semibold pt-2 border-t border-slate-600">
+                        Total: {totalBultosPedido} bultos
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Adelanto */}
+              <div className="mb-4 p-3 bg-slate-800/30 rounded-lg">
                 <div className="flex items-center gap-2 mb-3">
                   <input
                     type="checkbox"
@@ -11691,7 +11758,7 @@ function PedidosFabricarTab({ state, setState, session }: any) {
                 )}
               </div>
 
-              <div className="mt-3">
+              <div className="mb-4">
                 <Input
                   label="Observaciones (opcional)"
                   value={observaciones}
@@ -11700,7 +11767,7 @@ function PedidosFabricarTab({ state, setState, session }: any) {
                 />
               </div>
 
-              <div className="flex gap-2 mt-4">
+              <div className="flex gap-2">
                 <Button onClick={crearPedido} tone="emerald">
                   Crear Pedido
                 </Button>
@@ -11715,19 +11782,15 @@ function PedidosFabricarTab({ state, setState, session }: any) {
                 .sort((a: any, b: any) => new Date(b.fecha_pedido).getTime() - new Date(a.fecha_pedido).getTime())
                 .map((pedido: any) => {
                   const progreso = pedido.bultos_solicitados > 0 
-                    ? Math.min(100, (pedido.bultos_fabricados / pedido.bultos_solicitados) * 100)
+                    ? (pedido.bultos_fabricados / pedido.bultos_solicitados) * 100
                     : 0;
-                  const avances = getAvancesPedido(pedido.id);
-                  const ultimoAvance = avances.sort((a: any, b: any) => 
-                    new Date(b.fecha_avance).getTime() - new Date(a.fecha_avance).getTime()
-                  )[0];
 
                   return (
                     <div key={pedido.id} className="border border-slate-700 rounded-xl p-4">
                       <div className="flex justify-between items-start mb-3">
                         <div>
                           <div className="font-semibold text-lg">
-                            {pedido.cliente_nombre} - {pedido.producto_nombre}
+                            {pedido.cliente_nombre}
                           </div>
                           <div className="text-sm text-slate-400">
                             Pedido: {new Date(pedido.fecha_pedido).toLocaleDateString("es-AR")}
@@ -11748,9 +11811,10 @@ function PedidosFabricarTab({ state, setState, session }: any) {
                         </Chip>
                       </div>
 
-                      <div className="mb-3">
+                      {/* Progreso total */}
+                      <div className="mb-4">
                         <div className="flex justify-between text-sm mb-1">
-                          <span>Progreso: {pedido.bultos_fabricados} / {pedido.bultos_solicitados} bultos</span>
+                          <span>Progreso total: {pedido.bultos_fabricados || 0} / {pedido.bultos_solicitados} bultos</span>
                           <span className="font-semibold">{Math.round(progreso)}%</span>
                         </div>
                         <div className="w-full bg-slate-700 rounded-full h-2.5">
@@ -11761,17 +11825,37 @@ function PedidosFabricarTab({ state, setState, session }: any) {
                         </div>
                       </div>
 
-                      {ultimoAvance && (
-                        <div className="text-xs text-slate-400 mb-3">
-                          Último avance: {new Date(ultimoAvance.fecha_avance).toLocaleString("es-AR")} 
-                          ({ultimoAvance.bultos_agregados} bultos) - {ultimoAvance.registrado_por}
+                      {/* Productos del pedido */}
+                      <div className="mb-4">
+                        <div className="text-sm font-semibold mb-2">Productos:</div>
+                        <div className="space-y-2">
+                          {pedido.productos?.map((prod: any, idx: number) => {
+                            const prodProgreso = prod.bultos_solicitados > 0 
+                              ? ((prod.bultos_fabricados || 0) / prod.bultos_solicitados) * 100
+                              : 0;
+                            return (
+                              <div key={idx} className="p-2 bg-slate-800/30 rounded">
+                                <div className="flex justify-between text-sm">
+                                  <span>{prod.nombre}</span>
+                                  <span>{(prod.bultos_fabricados || 0)} / {prod.bultos_solicitados} bultos</span>
+                                </div>
+                                <div className="w-full bg-slate-700 rounded-full h-1.5 mt-1">
+                                  <div 
+                                    className="bg-blue-500 h-1.5 rounded-full"
+                                    style={{ width: `${prodProgreso}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                      )}
+                      </div>
 
+                      {/* Acciones */}
                       <div className="flex gap-2">
                         <Button 
                           onClick={() => {
-                            setPedidoSeleccionado(pedido.id);
+                            setPedidoSeleccionado(pedido);
                             setMostrarModalAvance(true);
                           }}
                           tone="slate"
@@ -11783,14 +11867,8 @@ function PedidosFabricarTab({ state, setState, session }: any) {
                         <Button 
                           tone="slate"
                           onClick={() => {
-                            const avancesLista = getAvancesPedido(pedido.id);
-                            let mensaje = `📋 Historial de avances:\n\n`;
-                            avancesLista.forEach((a: any, i: number) => {
-                              mensaje += `${i+1}. ${new Date(a.fecha_avance).toLocaleString("es-AR")}: ${a.bultos_agregados} bultos (${a.registrado_por})\n`;
-                              if (a.observaciones) mensaje += `   Obs: ${a.observaciones}\n`;
-                            });
-                            if (avancesLista.length === 0) mensaje = "No hay avances registrados";
-                            alert(mensaje);
+                            setPedidoHistorial(pedido);
+                            setMostrarHistorial(true);
                           }}
                         >
                           📜 Ver Historial
@@ -11814,11 +11892,28 @@ function PedidosFabricarTab({ state, setState, session }: any) {
             </div>
           </Card>
 
-          {/* Modal de avance */}
-          {mostrarModalAvance && (
+          {/* MODAL DE AVANCE */}
+          {mostrarModalAvance && pedidoSeleccionado && (
             <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
               <div className="bg-slate-900 rounded-2xl border border-slate-700 max-w-md w-full p-6">
                 <h3 className="text-xl font-bold mb-4">Registrar Avance</h3>
+                <p className="text-sm text-slate-400 mb-4">
+                  Pedido: {pedidoSeleccionado.cliente_nombre}
+                </p>
+                
+                <Select
+                  label="Producto *"
+                  value={productoAvance}
+                  onChange={setProductoAvance}
+                  options={[
+                    { value: "", label: "— Seleccionar producto —" },
+                    ...pedidoSeleccionado.productos.map((p: any) => ({
+                      value: p.id,
+                      label: `${p.nombre} (${p.bultos_fabricados || 0}/${p.bultos_solicitados} bultos)`
+                    }))
+                  ]}
+                  className="mb-4"
+                />
                 
                 <NumberInput
                   label="Bultos fabricados hoy *"
@@ -11837,11 +11932,108 @@ function PedidosFabricarTab({ state, setState, session }: any) {
                 />
 
                 <div className="flex gap-2 justify-end">
-                  <Button tone="slate" onClick={() => setMostrarModalAvance(false)}>
+                  <Button tone="slate" onClick={() => {
+                    setMostrarModalAvance(false);
+                    setPedidoSeleccionado(null);
+                    setProductoAvance("");
+                    setAvanceBultos("");
+                    setAvanceObs("");
+                  }}>
                     Cancelar
                   </Button>
                   <Button onClick={registrarAvance} tone="emerald">
                     Guardar Avance
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL DE HISTORIAL */}
+          {mostrarHistorial && pedidoHistorial && (
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 rounded-2xl border border-slate-700 max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <h3 className="text-xl font-bold">Historial de Avances</h3>
+                  <button
+                    onClick={() => {
+                      setMostrarHistorial(false);
+                      setPedidoHistorial(null);
+                    }}
+                    className="text-slate-400 hover:text-slate-200"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="mb-4 p-3 bg-slate-800/30 rounded-lg">
+                  <div className="font-semibold">{pedidoHistorial.cliente_nombre}</div>
+                  <div className="text-sm text-slate-400">
+                    Pedido: {new Date(pedidoHistorial.fecha_pedido).toLocaleDateString("es-AR")}
+                  </div>
+                </div>
+
+                {/* Resumen de productos */}
+                <div className="mb-4">
+                  <div className="text-sm font-semibold mb-2">Productos:</div>
+                  <div className="space-y-2">
+                    {pedidoHistorial.productos?.map((prod: any, idx: number) => {
+                      const avancesProducto = getAvancesPedido(pedidoHistorial.id)
+                        .filter((a: any) => a.producto_id === prod.id);
+                      const totalAvances = avancesProducto.reduce((sum, a) => sum + a.bultos_agregados, 0);
+                      
+                      return (
+                        <div key={idx} className="p-3 bg-slate-800/30 rounded-lg">
+                          <div className="flex justify-between font-medium">
+                            <span>{prod.nombre}</span>
+                            <span>{totalAvances} / {prod.bultos_solicitados} bultos</span>
+                          </div>
+                          
+                          {avancesProducto.length > 0 ? (
+                            <div className="mt-2 space-y-2">
+                              {avancesProducto.map((avance, aidx) => (
+                                <div key={aidx} className="text-sm border-l-2 border-emerald-500 pl-3">
+                                  <div className="flex justify-between">
+                                    <span className="text-emerald-400">+{avance.bultos_agregados} bultos</span>
+                                    <span className="text-slate-400">
+                                      {new Date(avance.fecha_avance).toLocaleString("es-AR")}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-slate-400">
+                                    por: {avance.registrado_por}
+                                  </div>
+                                  {avance.observaciones && (
+                                    <div className="text-xs text-slate-500 mt-1">
+                                      📝 {avance.observaciones}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-slate-500 mt-1">
+                              Sin avances registrados
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {pedidoHistorial.observaciones && (
+                  <div className="mt-4 p-3 bg-slate-800/30 rounded-lg">
+                    <div className="text-sm font-semibold mb-1">Observaciones del pedido:</div>
+                    <div className="text-sm text-slate-300">{pedidoHistorial.observaciones}</div>
+                  </div>
+                )}
+
+                <div className="flex justify-end mt-4">
+                  <Button tone="slate" onClick={() => {
+                    setMostrarHistorial(false);
+                    setPedidoHistorial(null);
+                  }}>
+                    Cerrar
                   </Button>
                 </div>
               </div>
@@ -11870,36 +12062,6 @@ function PedidosFabricarTab({ state, setState, session }: any) {
                   </div>
                 ))}
               </div>
-            </div>
-
-            {/* Pedidos demorados */}
-            <div>
-              <h3 className="text-lg font-semibold mb-3">🚨 Pedidos con demora</h3>
-              {metricasTiempo.demorados.length > 0 ? (
-                <div className="space-y-2">
-                  {metricasTiempo.demorados.map((pedido: any) => {
-                    const fechaPedido = new Date(pedido.fecha_pedido);
-                    const fechaCompletado = new Date(pedido.fecha_completado);
-                    const dias = Math.ceil((fechaCompletado.getTime() - fechaPedido.getTime()) / (1000 * 60 * 60 * 24));
-                    
-                    return (
-                      <div key={pedido.id} className="flex justify-between items-center p-3 bg-red-900/20 border border-red-700/50 rounded-lg">
-                        <div>
-                          <div className="font-medium">{pedido.cliente_nombre} - {pedido.producto_nombre}</div>
-                          <div className="text-sm text-slate-400">
-                            {pedido.bultos_solicitados} bultos · {dias} días
-                          </div>
-                        </div>
-                        <div className="text-red-400 font-bold">⚠️ Demorado</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-center text-slate-400 py-4">
-                  No hay pedidos demorados
-                </div>
-              )}
             </div>
 
             {/* Resumen general */}
