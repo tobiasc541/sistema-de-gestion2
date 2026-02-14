@@ -12336,33 +12336,33 @@ function editarInversor(inv: any) {
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       {/* KPIs Principales */}
-      <div className="grid md:grid-cols-5 gap-3">
-        <Card title="Inversores Activos">
-          <div className="text-3xl font-bold text-emerald-400">{metricas.activos}</div>
-          <div className="text-xs text-slate-400">de {metricas.totalInversores} totales</div>
-        </Card>
-        <Card title="Capital Comprometido">
-          <div className="text-2xl font-bold text-blue-400">{money(metricas.capitalTotal)}</div>
-          <div className="text-xs text-slate-400">por mes</div>
-        </Card>
-        <Card title="Ganancia Neta del Mes">
-          <div className={`text-2xl font-bold ${metricas.gananciaNeta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            {money(metricas.gananciaNeta)}
-          </div>
-          <div className="text-xs text-slate-400">día {metricas.diasTranscurridos}/30</div>
-        </Card>
-        <Card title="Ventas del Mes">
-          <div className="text-2xl font-bold text-purple-400">{money(metricas.ventasMes)}</div>
-          <div className="text-xs text-slate-400">{money(metricas.ventasMes / 30)}/día promedio</div>
-        </Card>
-        <Card title="Salud Inversores">
-          <div className="flex justify-center gap-2 text-sm">
-            <span className="text-emerald-400">✅ {metricas.saludables}</span>
-            <span className="text-amber-400">⚠️ {metricas.alerta}</span>
-            <span className="text-red-400">🔴 {metricas.critico}</span>
-          </div>
-        </Card>
-      </div>
+     <div className="grid md:grid-cols-5 gap-3">
+  <Card title="Inversores Activos">
+    <div className="text-3xl font-bold text-emerald-400">{metricas.metricas.length}</div>
+    <div className="text-xs text-slate-400">de {(state.inversores || []).length} totales</div>
+  </Card>
+  <Card title="Total a Pagar por Mes">
+    <div className="text-2xl font-bold text-blue-400">{money(metricas.totalPagarMes)}</div>
+    <div className="text-xs text-slate-400">a todos los inversores</div>
+  </Card>
+  <Card title="Ganancia Neta del Mes">
+    <div className={`text-2xl font-bold ${metricas.gananciaNeta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+      {money(metricas.gananciaNeta)}
+    </div>
+    <div className="text-xs text-slate-400">día {metricas.diasTranscurridos}/30</div>
+  </Card>
+  <Card title="Ventas del Mes">
+    <div className="text-2xl font-bold text-purple-400">{money(metricas.ventasMes)}</div>
+    <div className="text-xs text-slate-400">{money(metricas.ventasMes / 30)}/día promedio</div>
+  </Card>
+  <Card title="Salud Inversores">
+    <div className="flex justify-center gap-2 text-sm">
+      <span className="text-emerald-400">✅ {metricas.saludables}</span>
+      <span className="text-amber-400">⚠️ {metricas.alerta}</span>
+      <span className="text-red-400">🔴 {metricas.critico}</span>
+    </div>
+  </Card>
+</div>
 
       {/* Formulario de carga (solo admin) */}
       {session?.role === "admin" && (
