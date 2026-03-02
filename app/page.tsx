@@ -10609,7 +10609,7 @@ async function completarPedido(pedido: any) {
       // Guardar factura
       await supabase.from("invoices").insert(invoice);
       
-      // ✅ CORREGIDO: NO actualizamos debt del cliente (estas líneas fueron eliminadas)
+      // ✅ CORREGIDO: NO actualizamos debt del cliente
       
       // Actualizar pedido pendiente
       await supabase.from("pedidos_pendientes")
