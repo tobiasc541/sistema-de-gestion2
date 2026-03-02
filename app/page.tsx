@@ -1780,20 +1780,21 @@ async function saveAndPrint() {
 
 // ====== AGREGAR PEDIDO A PREPARAR (SIEMPRE) ======
 // ✅ CAMBIADO: AHORA SIEMPRE, SIN IMPORTAR STATUS
+// ====== CREAR PEDIDO A PREPARAR (CORREGIDO: sin factura_id) ======
 const pedidoPreparar = {
   id: "prep_" + Math.random().toString(36).slice(2, 8),
-  factura_id: id,
-  tipo: "facturacion",
-  client_id: client.id,
-  client_name: client.name,
-  client_number: client.number,
-  items: items.map((item: any) => ({
+  pedido_pendiente_id: pedido.id,
+  // ✅ ELIMINADO: factura_id: invoiceId,
+  tipo: "pendiente",
+  client_id: pedido.client_id,
+  client_name: pedido.client_name,
+  client_number: cliente?.number || null,
+  items: pedido.items.map((item: any) => ({
     name: item.name,
     section: item.section || "General",
     qty: item.qty,
-    // SIN precio, SIN total
   })),
-  observaciones: "", // Las facturas normales no tienen observaciones
+  observaciones: pedido.observaciones || "",
   fecha_creacion: todayISO(),
   status: "pendiente"
 };
@@ -10512,19 +10513,6 @@ function CalculoSueldosTab({ state, setState }: any) {
 
 // 👇👇👇 PEGA ESTE COMPONENTE COMPLETO JUSTO AQUÍ
 /* ===== PEDIDOS PENDIENTES ===== */
-function PedidosPendientesTab({ state, setState, session }: any) {
-  const [filtro, setFiltro] = useState<"todos" | "pendiente" | "completado" | "cancelado">("pendiente");
-  
-  
-  // Filtrar pedidos según estado
-  const pedidosFiltrados = (state.pedidos_pendientes || []).filter((pedido: any) => {
-    if (filtro === "todos") return true;
-    return pedido.status === filtro;
-  });
-
- // 👇👇👇 REEMPLAZAR LA FUNCIÓN completarPedido con esta versión
-// 👇👇👇 REEMPLAZAR LA FUNCIÓN completarPedido con esta versión
-// 👇👇👇 FUNCIÓN COMPLETAR PEDIDO CORREGIDA
 async function completarPedido(pedido: any) {
   // Preguntar datos de pago
   const efectivoStr = prompt("¿Cuánto pagó en EFECTIVO?", "0") ?? "0";
@@ -10601,7 +10589,6 @@ async function completarPedido(pedido: any) {
   const pedidoPreparar = {
     id: "prep_" + Math.random().toString(36).slice(2, 8),
     pedido_pendiente_id: pedido.id,
-    // ✅ NO USAMOS factura_id
     tipo: "pendiente",
     client_id: pedido.client_id,
     client_name: pedido.client_name,
@@ -10616,21 +10603,13 @@ async function completarPedido(pedido: any) {
     status: "pendiente"
   };
   
-  // Agregar al estado local
-  st.pedidos_preparar = st.pedidos_preparar || [];
-  st.pedidos_preparar.push(pedidoPreparar);
-  
-  // ✅ ACTUALIZAR EL ESTADO GLOBAL
-  setState(st);
-  
-  // Guardar en Supabase
+  // ✅ NUEVO ORDEN CORRECTO: Primero guardamos en Supabase
   if (hasSupabase) {
     try {
       // Guardar factura
       await supabase.from("invoices").insert(invoice);
       
-      // ✅ CORREGIDO: NO actualizamos debt del cliente
-      // El cliente NO se modifica, solo se crea la factura
+      // ✅ CORREGIDO: NO actualizamos debt del cliente (estas líneas fueron eliminadas)
       
       // Actualizar pedido pendiente
       await supabase.from("pedidos_pendientes")
@@ -10647,11 +10626,12 @@ async function completarPedido(pedido: any) {
         }
       }
       
-      // ✅ GUARDAR PEDIDO A PREPARAR (ahora con la estructura correcta)
+      // ✅ GUARDAR PEDIDO A PREPARAR (con la estructura correcta)
       console.log("📦 Guardando en pedidos_preparar:", pedidoPreparar);
       const { error } = await supabase.from("pedidos_preparar").insert(pedidoPreparar);
       if (error) {
         console.error("❌ Error al guardar en pedidos_preparar:", error);
+        throw error;
       } else {
         console.log("✅ Pedido preparar guardado correctamente");
       }
@@ -10659,10 +10639,21 @@ async function completarPedido(pedido: any) {
       // Actualizar contador
       await saveCountersSupabase(st.meta);
       
+      // ✅ SOLO DESPUÉS DE QUE SUPABASE CONFIRMA, actualizamos el estado local
+      st.pedidos_preparar = st.pedidos_preparar || [];
+      st.pedidos_preparar.push(pedidoPreparar);
+      setState(st);
+      
     } catch (error) {
       console.error("Error al completar pedido:", error);
       alert("Error al guardar. Los datos pueden estar inconsistentes.");
+      return; // Salir sin actualizar estado local
     }
+  } else {
+    // Modo sin Supabase - actualizar estado local directamente
+    st.pedidos_preparar = st.pedidos_preparar || [];
+    st.pedidos_preparar.push(pedidoPreparar);
+    setState(st);
   }
   
   // Imprimir factura
@@ -10677,139 +10668,6 @@ Total: ${money(pedido.total)}
 Pagado: ${money(totalPagos)}
 ${pedido.total > totalPagos ? `Deuda de facturación: ${money(pedido.total - totalPagos)}` : ''}
 📦 Se agregó a "Preparar Pedidos"`);
-}
-  
- // 👇👇👇 AÑADIR ESTO a la función cancelarPedido
-async function cancelarPedido(pedidoId: string) {
-  if (!confirm("¿Cancelar este pedido?")) return;
-  // NOTA: No se necesita revertir stock porque nunca se descontó
-  
-  const st = clone(state);
-  const pedido = (st.pedidos_pendientes || []).find((p: any) => p.id === pedidoId);
-  
-  if (pedido) {
-    // ✅ CORRECCIÓN: No es necesario revertir stock porque nunca se descontó
-    // Solo marcar como cancelado
-    pedido.status = "cancelado";
-    setState(st);
-    
-    // Actualizar en Supabase
-    if (hasSupabase) {
-      await supabase.from("pedidos_pendientes")
-        .update({ status: "cancelado" })
-        .eq("id", pedidoId);
-    }
-    
-    alert("✅ Pedido cancelado");
-  }
-  }
-
-  return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card 
-        title="📋 Pedidos Pendientes de Pago"
-        actions={
-          <div className="flex gap-2">
-            <Select
-              value={filtro}
-              onChange={setFiltro}
-              options={[
-                { value: "pendiente", label: "Pendientes" },
-                { value: "completado", label: "Completados" },
-                { value: "cancelado", label: "Cancelados" },
-                { value: "todos", label: "Todos" },
-              ]}
-            />
-            <Button tone="slate" onClick={async () => {
-              const refreshedState = await loadFromSupabase(seedState());
-              setState(refreshedState);
-            }}>
-              Actualizar
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          {pedidosFiltrados.length === 0 ? (
-            <div className="text-center text-slate-400 py-8">
-              No hay pedidos {filtro !== "todos" ? `con estado "${filtro}"` : ""}.
-            </div>
-          ) : (
-            pedidosFiltrados.map((pedido: any) => (
-              <div key={pedido.id} className="border border-slate-700 rounded-xl p-4">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <div className="font-semibold">
-                      Pedido #{pedido.number} - {pedido.client_name}
-                    </div>
-                    <div className="text-sm text-slate-400">
-                      Vendedor: {pedido.vendor_name} · 
-                      {new Date(pedido.date_iso).toLocaleString("es-AR")}
-                    </div>
-                    {pedido.observaciones && (
-                      <div className="text-sm text-slate-300 mt-1">
-                        <strong>Observaciones:</strong> {pedido.observaciones}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold">{money(pedido.total)}</div>
-                    <Chip tone={
-                      pedido.status === "pendiente" ? "amber" :
-                      pedido.status === "completado" ? "emerald" : "red"
-                    }>
-                      {pedido.status === "pendiente" && "⏳ Pendiente"}
-                      {pedido.status === "completado" && "✅ Completado"}
-                      {pedido.status === "cancelado" && "❌ Cancelado"}
-                    </Chip>
-                  </div>
-                </div>
-
-                {/* Items del pedido */}
-                <div className="mb-4">
-                  <div className="text-sm font-semibold mb-2">Productos:</div>
-                  <div className="grid gap-2">
-                    {pedido.items.map((item: any, idx: number) => (
-                      <div key={idx} className="flex justify-between text-sm">
-                        <span>{item.name} × {item.qty}</span>
-                        <span>{money(parseNum(item.qty) * parseNum(item.unitPrice))}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Acciones según estado */}
-                <div className="flex gap-2">
-                 {pedido.status === "pendiente" && (session?.role === "admin" || session?.role === "vendedor") && (
-  <>
-    <Button onClick={() => completarPedido(pedido)} tone="emerald">
-      💰 Completar Pago
-    </Button>
-    <Button tone="red" onClick={() => cancelarPedido(pedido.id)}>
-      ❌ Cancelar Pedido
-    </Button>
-  </>
-)}
-                  <Button tone="slate" onClick={() => {
-                    // Ver detalles
-                    const detalle = {
-                      ...pedido,
-                      type: "PedidoPendiente",
-                      mensaje: "DETALLE DE PEDIDO PENDIENTE"
-                    };
-                    window.dispatchEvent(new CustomEvent("print-invoice", { detail: detalle } as any));
-                    setTimeout(() => window.print(), 0);
-                  }}>
-                    📄 Imprimir Detalle
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </Card>
-    </div>
-  );
 }
 // 👆👆👆 HAST
 
