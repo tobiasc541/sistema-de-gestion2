@@ -10302,6 +10302,238 @@ function ValesEmpleadosTab({ state, setState, session }: any) {
     </div>
   );
 }
+/* ===== PEDIDOS PENDIENTES ===== */
+function PedidosPendientesTab({ state, setState, session }: any) {
+  const [filtro, setFiltro] = useState<"pendiente" | "completado" | "cancelado" | "todos">("pendiente");
+  
+  // 👇👇👇 FUNCIÓN COMPLETAR PEDIDO (AHORA DENTRO DEL COMPONENTE)
+  async function completarPedido(pedido: any) {
+    // Preguntar datos de pago
+    const efectivoStr = prompt("¿Cuánto pagó en EFECTIVO?", "0") ?? "0";
+    const transferenciaStr = prompt("¿Cuánto pagó por TRANSFERENCIA?", "0") ?? "0";
+    const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
+    
+    const efectivo = parseNum(efectivoStr);
+    const transferencia = parseNum(transferenciaStr);
+    const alias = aliasStr.trim();
+    const totalPagos = efectivo + transferencia;
+    
+    if (totalPagos < pedido.total) {
+      if (!confirm(`El cliente pagó ${money(totalPagos)} pero el total es ${money(pedido.total)}. ¿Marcar como completado y generar una deuda por la diferencia?`)) {
+        return;
+      }
+    }
+    
+    const st = clone(state); // ✅ AHORA SÍ FUNCIONA
+    
+    // ✅ DESCONTAR STOCK
+    pedido.items.forEach((item: any) => {
+      const product = st.products.find((p: any) => p.id === item.productId);
+      if (product) {
+        product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
+      }
+    });
+    
+    // Crear factura
+    const invoiceNumber = st.meta.invoiceCounter++;
+    const invoiceId = "inv_" + invoiceNumber;
+    
+    const invoice = {
+      id: invoiceId,
+      number: invoiceNumber,
+      date_iso: todayISO(),
+      client_id: pedido.client_id,
+      client_name: pedido.client_name,
+      vendor_id: pedido.vendor_id,
+      vendor_name: pedido.vendor_name,
+      items: clone(pedido.items),
+      total: pedido.total,
+      cost: calcInvoiceCost(pedido.items),
+      payments: { 
+        cash: efectivo, 
+        transfer: transferencia, 
+        change: Math.max(0, totalPagos - pedido.total),
+        alias: alias,
+        saldo_aplicado: 0
+      },
+      status: totalPagos >= pedido.total ? "Pagada" : "No Pagada",
+      type: "Factura",
+    };
+    
+    st.invoices.push(invoice);
+    
+    // Actualizar estado del pedido
+    const pedidoIndex = (st.pedidos_pendientes || []).findIndex((p: any) => p.id === pedido.id);
+    if (pedidoIndex !== -1) {
+      st.pedidos_pendientes[pedidoIndex].status = "completado";
+    }
+    
+    // Crear pedido a preparar
+    const pedidoPreparar = {
+      id: "prep_" + Math.random().toString(36).slice(2, 8),
+      pedido_pendiente_id: pedido.id,
+      tipo: "pendiente",
+      client_id: pedido.client_id,
+      client_name: pedido.client_name,
+      items: pedido.items.map((item: any) => ({
+        name: item.name,
+        section: item.section || "General",
+        qty: item.qty,
+      })),
+      observaciones: pedido.observaciones || "",
+      fecha_creacion: todayISO(),
+      status: "pendiente"
+    };
+    
+    // Guardar en Supabase
+    if (hasSupabase) {
+      try {
+        await supabase.from("invoices").insert(invoice);
+        await supabase.from("pedidos_pendientes")
+          .update({ status: "completado" })
+          .eq("id", pedido.id);
+        
+        for (const item of pedido.items) {
+          const product = st.products.find((p: any) => p.id === item.productId);
+          if (product) {
+            await supabase.from("products")
+              .update({ stock: product.stock })
+              .eq("id", item.productId);
+          }
+        }
+        
+        await supabase.from("pedidos_preparar").insert(pedidoPreparar);
+        await saveCountersSupabase(st.meta);
+        
+        st.pedidos_preparar = st.pedidos_preparar || [];
+        st.pedidos_preparar.push(pedidoPreparar);
+        setState(st);
+        
+      } catch (error) {
+        console.error("Error:", error);
+        alert("Error al guardar");
+        return;
+      }
+    } else {
+      st.pedidos_preparar = st.pedidos_preparar || [];
+      st.pedidos_preparar.push(pedidoPreparar);
+      setState(st);
+    }
+    
+    // Imprimir
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+    await nextPaint();
+    window.print();
+    
+    alert(`✅ Pedido completado - Factura Nº ${invoiceNumber}`);
+  }
+
+  // Filtrar pedidos
+  const pedidosFiltrados = (state.pedidos_pendientes || []).filter((p: any) => {
+    if (filtro === "todos") return true;
+    return p.status === filtro;
+  });
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      <Card 
+        title="📋 Pedidos Pendientes de Pago"
+        actions={
+          <div className="flex gap-2">
+            <Select
+              value={filtro}
+              onChange={setFiltro}
+              options={[
+                { value: "pendiente", label: "⏳ Pendientes" },
+                { value: "completado", label: "✅ Completados" },
+                { value: "cancelado", label: "❌ Cancelados" },
+                { value: "todos", label: "📋 Todos" },
+              ]}
+            />
+            <Button tone="slate" onClick={async () => {
+              const refreshed = await loadFromSupabase(seedState());
+              setState(refreshed);
+            }}>
+              🔄 Actualizar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {pedidosFiltrados.length === 0 ? (
+            <div className="text-center text-slate-400 py-8">
+              No hay pedidos pendientes
+            </div>
+          ) : (
+            pedidosFiltrados.map((pedido: any) => (
+              <div key={pedido.id} className="border border-slate-700 rounded-xl p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <div className="font-semibold">
+                      #{pedido.number} - {pedido.client_name}
+                    </div>
+                    <div className="text-sm text-slate-400">
+                      {new Date(pedido.date_iso).toLocaleString("es-AR")} · Vendedor: {pedido.vendor_name}
+                    </div>
+                  </div>
+                  <Chip tone={pedido.status === "pendiente" ? "amber" : "emerald"}>
+                    {pedido.status}
+                  </Chip>
+                </div>
+
+                <div className="mb-4">
+                  <div className="text-sm font-semibold mb-2">Productos:</div>
+                  <div className="space-y-1">
+                    {pedido.items.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-sm">
+                        <span>{item.name} × {item.qty}</span>
+                        <span>{money(item.qty * item.unitPrice)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-right font-bold mt-2">
+                    Total: {money(pedido.total)}
+                  </div>
+                </div>
+
+                {pedido.observaciones && (
+                  <div className="text-sm text-slate-400 mb-3">
+                    📝 {pedido.observaciones}
+                  </div>
+                )}
+
+                {pedido.status === "pendiente" && (
+                  <div className="flex gap-2">
+                    <Button onClick={() => completarPedido(pedido)} tone="emerald">
+                      💰 Completar Pago
+                    </Button>
+                    <Button tone="red" onClick={() => {
+                      if (confirm("¿Cancelar pedido?")) {
+                        const st = clone(state);
+                        const idx = st.pedidos_pendientes.findIndex((p: any) => p.id === pedido.id);
+                        if (idx !== -1) {
+                          st.pedidos_pendientes[idx].status = "cancelado";
+                          setState(st);
+                          if (hasSupabase) {
+                            supabase.from("pedidos_pendientes")
+                              .update({ status: "cancelado" })
+                              .eq("id", pedido.id);
+                          }
+                        }
+                      }
+                    }}>
+                      ❌ Cancelar
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
 /* ===== CÁLCULO DE SUELDOS ===== */
 function CalculoSueldosTab({ state, setState }: any) {
   const [mes, setMes] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
@@ -10493,165 +10725,7 @@ function CalculoSueldosTab({ state, setState }: any) {
   );
 }
 
-// 👇👇👇 PEGA ESTE COMPONENTE COMPLETO JUSTO AQUÍ
-/* ===== PEDIDOS PENDIENTES ===== */
-async function completarPedido(pedido: any) {
-  // Preguntar datos de pago
-  const efectivoStr = prompt("¿Cuánto pagó en EFECTIVO?", "0") ?? "0";
-  const transferenciaStr = prompt("¿Cuánto pagó por TRANSFERENCIA?", "0") ?? "0";
-  const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
-  
-  const efectivo = parseNum(efectivoStr);
-  const transferencia = parseNum(transferenciaStr);
-  const alias = aliasStr.trim();
-  const totalPagos = efectivo + transferencia;
-  
-  if (totalPagos < pedido.total) {
-    if (!confirm(`El cliente pagó ${money(totalPagos)} pero el total es ${money(pedido.total)}. ¿Marcar como completado y generar una deuda por la diferencia?`)) {
-      return;
-    }
-  }
-  
-  const st = clone(state);
-  
-  // ✅ DESCONTAR STOCK cuando se completa el pago
-  pedido.items.forEach((item: any) => {
-    const product = st.products.find((p: any) => p.id === item.productId);
-    if (product) {
-      product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
-    }
-  });
-  
-  // 1. Crear factura normal
-  const invoiceNumber = st.meta.invoiceCounter++;
-  const invoiceId = "inv_" + invoiceNumber;
-  
-  const invoice = {
-    id: invoiceId,
-    number: invoiceNumber,
-    date_iso: todayISO(),
-    client_id: pedido.client_id,
-    client_name: pedido.client_name,
-    vendor_id: pedido.vendor_id,
-    vendor_name: pedido.vendor_name,
-    items: clone(pedido.items),
-    total: pedido.total,
-    cost: calcInvoiceCost(pedido.items),
-    payments: { 
-      cash: efectivo, 
-      transfer: transferencia, 
-      change: Math.max(0, totalPagos - pedido.total),
-      alias: alias,
-      saldo_aplicado: 0
-    },
-    status: totalPagos >= pedido.total ? "Pagada" : "No Pagada",
-    type: "Factura",
-  };
-  
-  // 2. Agregar a facturas
-  st.invoices.push(invoice);
-  
-  // 3. ✅ CORREGIDO: NO sumamos a deuda manual
-  const cliente = st.clients.find((c: any) => c.id === pedido.client_id);
-  if (cliente) {
-    const deudaAdicional = Math.max(0, pedido.total - totalPagos);
-    if (deudaAdicional > 0) {
-      // ✅ SOLO registramos, NO sumamos a cliente.debt
-      console.log(`💰 Deuda de facturación generada: ${money(deudaAdicional)} para ${cliente.name}`);
-    }
-  }
-  
-  // 4. Actualizar estado del pedido
-  const pedidoIndex = (st.pedidos_pendientes || []).findIndex((p: any) => p.id === pedido.id);
-  if (pedidoIndex !== -1) {
-    st.pedidos_pendientes[pedidoIndex].status = "completado";
-  }
-  
-  // ====== CREAR PEDIDO A PREPARAR (CORREGIDO: sin factura_id) ======
-  const pedidoPreparar = {
-    id: "prep_" + Math.random().toString(36).slice(2, 8),
-    pedido_pendiente_id: pedido.id,
-    tipo: "pendiente",
-    client_id: pedido.client_id,
-    client_name: pedido.client_name,
-    client_number: cliente?.number || null,
-    items: pedido.items.map((item: any) => ({
-      name: item.name,
-      section: item.section || "General",
-      qty: item.qty,
-    })),
-    observaciones: pedido.observaciones || "",
-    fecha_creacion: todayISO(),
-    status: "pendiente"
-  };
-  
-  // ✅ NUEVO ORDEN CORRECTO: Primero guardamos en Supabase
-  if (hasSupabase) {
-    try {
-      // Guardar factura
-      await supabase.from("invoices").insert(invoice);
-      
-      // ✅ CORREGIDO: NO actualizamos debt del cliente
-      
-      // Actualizar pedido pendiente
-      await supabase.from("pedidos_pendientes")
-        .update({ status: "completado" })
-        .eq("id", pedido.id);
-      
-      // ✅ ACTUALIZAR STOCK en Supabase
-      for (const item of pedido.items) {
-        const product = st.products.find((p: any) => p.id === item.productId);
-        if (product) {
-          await supabase.from("products")
-            .update({ stock: product.stock })
-            .eq("id", item.productId);
-        }
-      }
-      
-      // ✅ GUARDAR PEDIDO A PREPARAR (con la estructura correcta)
-      console.log("📦 Guardando en pedidos_preparar:", pedidoPreparar);
-      const { error } = await supabase.from("pedidos_preparar").insert(pedidoPreparar);
-      if (error) {
-        console.error("❌ Error al guardar en pedidos_preparar:", error);
-        throw error;
-      } else {
-        console.log("✅ Pedido preparar guardado correctamente");
-      }
-      
-      // Actualizar contador
-      await saveCountersSupabase(st.meta);
-      
-      // ✅ SOLO DESPUÉS DE QUE SUPABASE CONFIRMA, actualizamos el estado local
-      st.pedidos_preparar = st.pedidos_preparar || [];
-      st.pedidos_preparar.push(pedidoPreparar);
-      setState(st);
-      
-    } catch (error) {
-      console.error("Error al completar pedido:", error);
-      alert("Error al guardar. Los datos pueden estar inconsistentes.");
-      return; // Salir sin actualizar estado local
-    }
-  } else {
-    // Modo sin Supabase - actualizar estado local directamente
-    st.pedidos_preparar = st.pedidos_preparar || [];
-    st.pedidos_preparar.push(pedidoPreparar);
-    setState(st);
-  }
-  
-  // Imprimir factura
-  window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
-  await nextPaint();
-  window.print();
-  
-  // Mensaje de confirmación
-  alert(`✅ Pedido completado
-Factura Nº ${invoiceNumber}
-Total: ${money(pedido.total)}
-Pagado: ${money(totalPagos)}
-${pedido.total > totalPagos ? `Deuda de facturación: ${money(pedido.total - totalPagos)}` : ''}
-📦 Se agregó a "Preparar Pedidos"`);
-}
-// 👆👆👆 HAST
+
 
 /* ===== PREPARAR PEDIDOS ===== */
 function PrepararPedidosTab({ state, setState, session }: any) {
