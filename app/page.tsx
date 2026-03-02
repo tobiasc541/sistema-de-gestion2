@@ -2251,38 +2251,56 @@ function ClientesTab({ state, setState, session }: any) {
     const [listaPrecio, setListaPrecio] = useState("1"); // 👈 AGREGAR ESTA LÍNEA
 
   async function addClient() {
-    if (!name.trim()) return;
-    
-    const newClient = {
+  if (!name.trim()) return;
+  
+  const newClient = {
     id: "c" + Math.random().toString(36).slice(2, 8),
     number: parseInt(String(number), 10),
     name: name.trim(),
     debt: modoAdmin ? parseNum(deudaInicial) : 0,
     saldo_favor: modoAdmin ? parseNum(saldoFavorInicial) : 0,
-    lista_precio: listaPrecio, // 👈 AGREGAR ESTO
+    lista_precio: listaPrecio,
     creado_por: session?.name || "admin",
     fecha_creacion: todayISO(),
     deuda_manual: modoAdmin && parseNum(deudaInicial) > 0
   };
 
-    const st = clone(state);
-    st.clients.push(newClient);
-    setState(st);
-    
-       // Limpiar formulario
-    setName("");
-    setNumber(ensureUniqueNumber(st.clients));
-    setDeudaInicial("");
-    setSaldoFavorInicial("");
-    setListaPrecio("1"); // 👈 AGREGAR ESTA LÍNEA
-    setModoAdmin(false);
-    if (hasSupabase) {
-      await supabase.from("clients").insert(newClient);
+  const st = clone(state);
+  st.clients.push(newClient);
+  
+  // ✅ Primero actualizamos el estado local para que la UI sea rápida
+  setState(st);
+  
+  // Limpiar formulario
+  setName("");
+  setNumber(ensureUniqueNumber(st.clients));
+  setDeudaInicial("");
+  setSaldoFavorInicial("");
+  setListaPrecio("1");
+  setModoAdmin(false);
+  
+  // ✅ Luego guardamos en Supabase
+  if (hasSupabase) {
+    try {
+      const { error } = await supabase.from("clients").insert(newClient);
+      if (error) {
+        throw error;
+      }
+      alert(`Cliente agregado ${modoAdmin ? 'con deuda/saldo manual' : 'correctamente'}`);
+    } catch (error) {
+      console.error("Error al guardar cliente en Supabase:", error);
+      alert("❌ Error al guardar el cliente en la base de datos. Los cambios podrían no ser permanentes.");
+      
+      // ✅ Si hay error en Supabase, revertimos el estado local para que coincida
+      // con la realidad del servidor. Recargamos desde Supabase.
+      const refreshedState = await loadFromSupabase(seedState());
+      setState(refreshedState);
     }
-
+  } else {
+    // Modo local (sin Supabase)
     alert(`Cliente agregado ${modoAdmin ? 'con deuda/saldo manual' : 'correctamente'}`);
   }
-
+}
   // Función para que admin agregue deuda manualmente
   async function agregarDeudaManual(clienteId: string) {
     const deuda = prompt("Ingrese el monto de deuda a agregar:", "0");
@@ -10505,6 +10523,7 @@ function PedidosPendientesTab({ state, setState, session }: any) {
   });
 
  // 👇👇👇 REEMPLAZAR LA FUNCIÓN completarPedido con esta versión
+// 👇👇👇 REEMPLAZAR LA FUNCIÓN completarPedido con esta versión
 async function completarPedido(pedido: any) {
   // Preguntar datos de pago
   const efectivoStr = prompt("¿Cuánto pagó en EFECTIVO?", "0") ?? "0";
@@ -10517,7 +10536,7 @@ async function completarPedido(pedido: any) {
   const totalPagos = efectivo + transferencia;
   
   if (totalPagos < pedido.total) {
-    if (!confirm(`El cliente pagó ${money(totalPagos)} pero el total es ${money(pedido.total)}. ¿Marcar como completado igual?`)) {
+    if (!confirm(`El cliente pagó ${money(totalPagos)} pero el total es ${money(pedido.total)}. ¿Marcar como completado y generar una deuda por la diferencia?`)) {
       return;
     }
   }
@@ -10561,11 +10580,15 @@ async function completarPedido(pedido: any) {
   // 2. Agregar a facturas
   st.invoices.push(invoice);
   
-  // 3. Actualizar cliente (deuda si no pagó completo)
+  // 3. ✅ ACTUALIZAR CLIENTE (deuda si no pagó completo)
   const cliente = st.clients.find((c: any) => c.id === pedido.client_id);
-  if (cliente && totalPagos < pedido.total) {
-    const deudaAdicional = pedido.total - totalPagos;
-    cliente.debt = parseNum(cliente.debt) + deudaAdicional;
+  if (cliente) {
+    const deudaAdicional = Math.max(0, pedido.total - totalPagos);
+    if (deudaAdicional > 0) {
+      // ✅ Sumamos la nueva deuda a la deuda manual del cliente
+      cliente.debt = parseNum(cliente.debt) + deudaAdicional;
+      console.log(`💰 Deuda adicional de ${money(deudaAdicional)} sumada a ${cliente.name}. Nueva deuda total: ${money(cliente.debt)}`);
+    }
   }
   
   // 4. Actualizar estado del pedido
@@ -10597,6 +10620,7 @@ async function completarPedido(pedido: any) {
   st.pedidos_preparar = st.pedidos_preparar || [];
   st.pedidos_preparar.push(pedidoPreparar);
   
+  // ✅ ACTUALIZAR EL ESTADO GLOBAL
   setState(st);
   
   // Guardar en Supabase
@@ -10605,8 +10629,8 @@ async function completarPedido(pedido: any) {
       // Guardar factura
       await supabase.from("invoices").insert(invoice);
       
-      // Actualizar cliente
-      if (cliente && totalPagos < pedido.total) {
+      // ✅ Actualizar cliente
+      if (cliente) {
         await supabase.from("clients")
           .update({ debt: cliente.debt })
           .eq("id", pedido.client_id);
@@ -10617,7 +10641,7 @@ async function completarPedido(pedido: any) {
         .update({ status: "completado" })
         .eq("id", pedido.id);
       
-      // ✅ ACTUALIZAR STOCK en Supabase (solo cuando se completa el pago)
+      // ✅ ACTUALIZAR STOCK en Supabase
       for (const item of pedido.items) {
         const product = st.products.find((p: any) => p.id === item.productId);
         if (product) {
@@ -10644,7 +10668,13 @@ async function completarPedido(pedido: any) {
   await nextPaint();
   window.print();
   
-  alert(`✅ Pedido completado\nFactura Nº ${invoiceNumber}\nTotal: ${money(pedido.total)}\n📦 Se agregó a "Preparar Pedidos"`);
+  // ✅ Mensaje de confirmación más claro
+  alert(`✅ Pedido completado
+Factura Nº ${invoiceNumber}
+Total: ${money(pedido.total)}
+Pagado: ${money(totalPagos)}
+${pedido.total > totalPagos ? `Deuda generada: ${money(pedido.total - totalPagos)}` : ''}
+📦 Se agregó a "Preparar Pedidos"`);
 }
   
  // 👇👇👇 AÑADIR ESTO a la función cancelarPedido
