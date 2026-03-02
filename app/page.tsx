@@ -10524,6 +10524,7 @@ function PedidosPendientesTab({ state, setState, session }: any) {
 
  // 👇👇👇 REEMPLAZAR LA FUNCIÓN completarPedido con esta versión
 // 👇👇👇 REEMPLAZAR LA FUNCIÓN completarPedido con esta versión
+// 👇👇👇 FUNCIÓN COMPLETAR PEDIDO CORREGIDA
 async function completarPedido(pedido: any) {
   // Preguntar datos de pago
   const efectivoStr = prompt("¿Cuánto pagó en EFECTIVO?", "0") ?? "0";
@@ -10580,14 +10581,13 @@ async function completarPedido(pedido: any) {
   // 2. Agregar a facturas
   st.invoices.push(invoice);
   
-  // 3. ✅ ACTUALIZAR CLIENTE (deuda si no pagó completo)
+  // 3. ✅ CORREGIDO: NO sumamos a deuda manual
   const cliente = st.clients.find((c: any) => c.id === pedido.client_id);
   if (cliente) {
     const deudaAdicional = Math.max(0, pedido.total - totalPagos);
     if (deudaAdicional > 0) {
-      // ✅ Sumamos la nueva deuda a la deuda manual del cliente
-      cliente.debt = parseNum(cliente.debt) + deudaAdicional;
-      console.log(`💰 Deuda adicional de ${money(deudaAdicional)} sumada a ${cliente.name}. Nueva deuda total: ${money(cliente.debt)}`);
+      // ✅ SOLO registramos, NO sumamos a cliente.debt
+      console.log(`💰 Deuda de facturación generada: ${money(deudaAdicional)} para ${cliente.name}`);
     }
   }
   
@@ -10597,15 +10597,15 @@ async function completarPedido(pedido: any) {
     st.pedidos_pendientes[pedidoIndex].status = "completado";
   }
   
-  // ====== CREAR PEDIDO A PREPARAR (SOLO CUANDO SE COMPLETA EL PAGO) ======
+  // ====== CREAR PEDIDO A PREPARAR (CORREGIDO: sin factura_id) ======
   const pedidoPreparar = {
     id: "prep_" + Math.random().toString(36).slice(2, 8),
     pedido_pendiente_id: pedido.id,
-    factura_id: invoiceId,
+    // ✅ NO USAMOS factura_id
     tipo: "pendiente",
     client_id: pedido.client_id,
     client_name: pedido.client_name,
-    client_number: cliente?.number,
+    client_number: cliente?.number || null,
     items: pedido.items.map((item: any) => ({
       name: item.name,
       section: item.section || "General",
@@ -10629,12 +10629,8 @@ async function completarPedido(pedido: any) {
       // Guardar factura
       await supabase.from("invoices").insert(invoice);
       
-      // ✅ Actualizar cliente
-      if (cliente) {
-        await supabase.from("clients")
-          .update({ debt: cliente.debt })
-          .eq("id", pedido.client_id);
-      }
+      // ✅ CORREGIDO: NO actualizamos debt del cliente
+      // El cliente NO se modifica, solo se crea la factura
       
       // Actualizar pedido pendiente
       await supabase.from("pedidos_pendientes")
@@ -10651,8 +10647,14 @@ async function completarPedido(pedido: any) {
         }
       }
       
-      // GUARDAR PEDIDO A PREPARAR
-      await supabase.from("pedidos_preparar").insert(pedidoPreparar);
+      // ✅ GUARDAR PEDIDO A PREPARAR (ahora con la estructura correcta)
+      console.log("📦 Guardando en pedidos_preparar:", pedidoPreparar);
+      const { error } = await supabase.from("pedidos_preparar").insert(pedidoPreparar);
+      if (error) {
+        console.error("❌ Error al guardar en pedidos_preparar:", error);
+      } else {
+        console.log("✅ Pedido preparar guardado correctamente");
+      }
       
       // Actualizar contador
       await saveCountersSupabase(st.meta);
@@ -10668,12 +10670,12 @@ async function completarPedido(pedido: any) {
   await nextPaint();
   window.print();
   
-  // ✅ Mensaje de confirmación más claro
+  // Mensaje de confirmación
   alert(`✅ Pedido completado
 Factura Nº ${invoiceNumber}
 Total: ${money(pedido.total)}
 Pagado: ${money(totalPagos)}
-${pedido.total > totalPagos ? `Deuda generada: ${money(pedido.total - totalPagos)}` : ''}
+${pedido.total > totalPagos ? `Deuda de facturación: ${money(pedido.total - totalPagos)}` : ''}
 📦 Se agregó a "Preparar Pedidos"`);
 }
   
