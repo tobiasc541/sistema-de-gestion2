@@ -1780,34 +1780,47 @@ async function saveAndPrint() {
   st.meta.lastSavedInvoiceId = id;
   setState(st);
 
-  // ====== CREAR PEDIDO A PREPARAR (CORREGIDO) ======
-  const pedidoPreparar = {
-    id: "prep_" + Math.random().toString(36).slice(2, 8),
-    factura_id: id, // ✅ CORREGIDO: Usamos invoice.id
-    tipo: "facturacion",
-    client_id: client.id,
-    client_name: client.name,
-    client_number: client.number,
-    items: items.map((item: any) => ({
-      name: item.name,
-      section: item.section || "General",
-      qty: item.qty,
-    })),
-    observaciones: "",
-    fecha_creacion: todayISO(),
-    status: "pendiente"
-  };
+ // ====== GUARDAR PEDIDO A PREPARAR EN SUPABASE (VERSIÓN CORREGIDA) ======
+const pedidoPreparar = {
+  id: "prep_" + Math.random().toString(36).slice(2, 8),
+  pedido_pendiente_id: null,      // ✅ Campo correcto de la tabla (null porque no viene de pedido pendiente)
+  pedido_online_id: null,         // ✅ Campo correcto de la tabla (null porque no viene de pedido online)
+  tipo: "facturacion",            // ✅ Identifica que viene de facturación directa
+  client_id: client.id,
+  client_name: client.name,
+  client_number: client.number,
+  items: items.map((item: any) => ({
+    name: item.name,
+    section: item.section || "General",
+    qty: item.qty,
+  })),
+  observaciones: "",
+  fecha_creacion: todayISO(),
+  status: "pendiente"
+};
 
-  if (hasSupabase) {
-    await supabase.from("invoices").insert(invoice);
+try {
+  console.log("📦 Guardando en pedidos_preparar:", pedidoPreparar);
+  const { error } = await supabase.from("pedidos_preparar").insert(pedidoPreparar);
+  
+  if (error) {
+    console.error("❌ Error al guardar en pedidos_preparar:", error);
+    alert(`Error al guardar: ${error.message}`);
+    throw error;
+  } else {
+    console.log("✅ Pedido preparar guardado correctamente");
     
-    // ====== GUARDAR PEDIDO A PREPARAR EN SUPABASE ======
-    try {
-      await supabase.from("pedidos_preparar").insert(pedidoPreparar);
-      console.log("✅ Pedido preparar guardado:", pedidoPreparar);
-    } catch (error) {
-      console.error("❌ Error guardando pedido_preparar:", error);
-    }
+    // ✅ Actualizar estado local DESPUÉS de confirmar en Supabase
+    st.pedidos_preparar = st.pedidos_preparar || [];
+    st.pedidos_preparar.push(pedidoPreparar);
+    setState(st);
+  }
+} catch (error) {
+  console.error("❌ Error crítico:", error);
+  alert("Error al guardar el pedido a preparar");
+  return;
+}
+// ====== FIN GUARDAR ======
     // ====== FIN GUARDAR ======
 
     // ✅ CORRECCIÓN: Solo actualizar saldo_favor, NO la deuda
