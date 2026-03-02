@@ -1543,6 +1543,7 @@ function ClientePanel({ state, setState, session }: any) {
 
 /* =====================  TABS  ===================== */
 /* Facturación */
+/* Facturación */
 function FacturacionTab({ state, setState, session }: any) {
   const isMobile = useIsMobile();
   
@@ -1555,13 +1556,9 @@ function FacturacionTab({ state, setState, session }: any) {
   const [items, setItems] = useState<any[]>([]);
   const [payCash, setPayCash] = useState("");
   const [payTransf, setPayTransf] = useState("");
-  const [payChange, setPayChange] = useState(""); // vuelto (opcional)
+  const [payChange, setPayChange] = useState("");
   const [alias, setAlias] = useState("");
- 
-  // 👇👇👇 NUEVO ESTADO PARA EL BUSCADOR DE CLIENTES
   const [clienteSearch, setClienteSearch] = useState("");
-
-  // 👇👇👇 NUEVO ESTADO PARA EL BUSCADOR AVANZADO DE PRODUCTOS
   const [busquedaAvanzada, setBusquedaAvanzada] = useState({
     seccion: "",
     nombre: "",
@@ -1571,44 +1568,35 @@ function FacturacionTab({ state, setState, session }: any) {
   const client = state.clients.find((c: any) => c.id === clientId);
   const vendor = state.vendors.find((v: any) => v.id === vendorId);
   
-  // 👇👇👇 FUNCIÓN PARA FILTRAR CLIENTES
   const filteredClients = state.clients.filter((c: any) => {
     if (!clienteSearch.trim()) return true;
-    
     const searchTerm = clienteSearch.toLowerCase().trim();
     const matchName = c.name.toLowerCase().includes(searchTerm);
     const matchNumber = String(c.number).includes(searchTerm);
-    
     return matchName || matchNumber;
   });
  
   const sections = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "Otros")))];
   const lists = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.list_label || "General")))];
 
-  // 👇👇👇 FILTRO MEJORADO DE PRODUCTOS CON BÚSQUEDA AVANZADA
   const filteredProducts = state.products.filter((p: any) => {
     const okS = sectionFilter === "Todas" || p.section === sectionFilter;
     const okL = listFilter === "Todas" || p.list_label === listFilter;
-    
-    // 👇 NUEVA LÓGICA DE BÚSQUEDA AVANZADA
     const okNombre = !busquedaAvanzada.nombre || 
       p.name.toLowerCase().includes(busquedaAvanzada.nombre.toLowerCase());
     const okSeccion = !busquedaAvanzada.seccion || 
       p.section.toLowerCase().includes(busquedaAvanzada.seccion.toLowerCase()) ||
       p.id.toLowerCase().includes(busquedaAvanzada.seccion.toLowerCase());
-    
     return okS && okL && okNombre && okSeccion;
   });
 
-   function addItem(p: any) {
+  function addItem(p: any) {
     const existing = items.find((it: any) => it.productId === p.id);
-    
-    // Determinar precio según lista seleccionada
-    let unit = p.price1; // MITOBICEL LOCAL por defecto
-    if (priceList === "2") unit = p.price2; // MITOBICEL PROVINCIAS
-    else if (priceList === "3") unit = p.price3 || 0; // MITOBICEL EXCLUSIVO
-    else if (priceList === "4") unit = p.price4 || 0; // ALE LOCAL
-    else if (priceList === "5") unit = p.price5 || 0; // ALE PROVINCIA
+    let unit = p.price1;
+    if (priceList === "2") unit = p.price2;
+    else if (priceList === "3") unit = p.price3 || 0;
+    else if (priceList === "4") unit = p.price4 || 0;
+    else if (priceList === "5") unit = p.price5 || 0;
     
     if (existing) {
       setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it)));
@@ -1623,212 +1611,174 @@ function FacturacionTab({ state, setState, session }: any) {
       }]);
     }
   }
-// 👇👇👇 PEGA ESTA FUNCIÓN COMPLETA JUSTO ANTES de saveAndPrint
-// 👇👇👇 REEMPLAZAR LA FUNCIÓN enviarAMili con esta versión
-async function enviarAMili() {
-  if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
-  if (items.length === 0) return alert("Agregá productos al carrito.");
-  
-  // Validar stock
-  const validacionStock = validarStockDisponible(state.products, items);
-  if (!validacionStock.valido) {
-    const mensajeError = `No hay suficiente stock para los siguientes productos:\n\n${validacionStock.productosSinStock.join('\n')}`;
-    return alert(mensajeError);
+
+  // Función para enviar a Mili (Punto 14)
+  async function enviarAMili() {
+    if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
+    if (items.length === 0) return alert("Agregá productos al carrito.");
+    
+    const validacionStock = validarStockDisponible(state.products, items);
+    if (!validacionStock.valido) {
+      const mensajeError = `No hay suficiente stock para los siguientes productos:\n\n${validacionStock.productosSinStock.join('\n')}`;
+      return alert(mensajeError);
+    }
+    
+    const total = calcInvoiceTotal(items);
+    const observaciones = prompt("Observaciones para Mili (opcional):", "");
+    
+    const st = clone(state);
+    const number = st.meta.invoiceCounter++;
+    const id = "pend_" + number;
+    
+    const pedidoPendiente = {
+      id,
+      number,
+      date_iso: todayISO(),
+      client_id: client.id,
+      client_name: client.name,
+      vendor_id: vendor.id,
+      vendor_name: vendor.name,
+      items: clone(items),
+      total,
+      status: "pendiente",
+      observaciones: observaciones?.trim()
+    };
+    
+    st.pedidos_pendientes = st.pedidos_pendientes || [];
+    st.pedidos_pendientes.push(pedidoPendiente);
+    setState(st);
+    
+    if (hasSupabase) {
+      try {
+        await supabase.from("pedidos_pendientes").insert(pedidoPendiente);
+      } catch (error: any) {
+        console.error("Error al guardar pedido pendiente:", error);
+        alert("Error al guardar el pedido. Intenta nuevamente.");
+        return;
+      }
+    }
+    
+    const comprobantePedido = {
+      ...pedidoPendiente,
+      type: "PedidoPendiente",
+      mensaje: "PEDIDO PENDIENTE DE PAGO - ENTREGAR A MILI"
+    };
+    
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: comprobantePedido } as any));
+    await nextPaint();
+    window.print();
+    
+    setPayCash("");
+    setPayTransf("");
+    setPayChange("");
+    setAlias("");
+    setItems([]);
+    
+    alert(`✅ Pedido enviado a Mili\nNúmero: ${number}\nTotal: ${money(total)}\nMili completará el pago.`);
   }
-  
-  const total = calcInvoiceTotal(items);
-  const observaciones = prompt("Observaciones para Mili (opcional):", "");
-  
-  const st = clone(state);
-  const number = st.meta.invoiceCounter++;
-  const id = "pend_" + number;
-  
-  // Crear pedido pendiente
-  const pedidoPendiente = {
-    id,
-    number,
-    date_iso: todayISO(),
-    client_id: client.id,
-    client_name: client.name,
-    vendor_id: vendor.id,
-    vendor_name: vendor.name,
-    items: clone(items),
-    total,
-    status: "pendiente",
-    observaciones: observaciones?.trim()
-  };
-  
-  // Agregar al estado local
-  st.pedidos_pendientes = st.pedidos_pendientes || [];
-  st.pedidos_pendientes.push(pedidoPendiente);
-  
-  // ✅ CORRECCIÓN: NO descontar stock aquí, solo al completar el pago
-  // El stock se descontará cuando se complete el pago en Pedidos Pendientes
-  setState(st);
-  
-  // Guardar en Supabase
-  if (hasSupabase) {
+
+  // Función para guardar e imprimir factura
+  async function saveAndPrint() {
+    if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
+    if (items.length === 0) return alert("Agregá productos al carrito.");
+    
+    const validacionStock = validarStockDisponible(state.products, items);
+    if (!validacionStock.valido) {
+      const mensajeError = `No hay suficiente stock para los siguientes productos:\n\n${validacionStock.productosSinStock.join('\n')}`;
+      return alert(mensajeError);
+    }
+    
+    const total = calcInvoiceTotal(items);
+    const cash  = parseNum(payCash);
+    const transf = parseNum(payTransf);
+    const suggestedChange = Math.max(0, cash - Math.max(0, total - transf));
+    const change = payChange.trim() === "" ? suggestedChange : Math.max(0, parseNum(payChange));
+    if (change > cash) return alert("El vuelto no puede ser mayor al efectivo entregado.");
+
+    const st = clone(state);
+    const number = st.meta.invoiceCounter++;
+    const id = "inv_" + number;
+
+    const cl = st.clients.find((c:any) => c.id === client.id)!;
+    const saldoActual = parseNum(cl.saldo_favor || 0);
+    const saldoAplicado = Math.min(total, saldoActual);
+    const totalTrasSaldo = total - saldoAplicado;
+    const applied = Math.max(0, cash + transf - change);
+    const debtDelta = Math.max(0, totalTrasSaldo - applied);
+    const status = debtDelta > 0 ? "No Pagada" : "Pagada";
+
+    cl.saldo_favor = saldoActual - saldoAplicado;
+    
+    items.forEach(item => {
+      const product = st.products.find((p: any) => p.id === item.productId);
+      if (product) {
+        product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
+      }
+    });
+    
+    const invoice = {
+      id,
+      number,
+      date_iso: todayISO(),
+      client_id: client.id,
+      client_name: client.name,
+      vendor_id: vendor.id,
+      vendor_name: vendor.name,
+      items: clone(items),
+      total,
+      total_after_credit: totalTrasSaldo,
+      cost: calcInvoiceCost(items),
+      payments: { cash, transfer: transf, change, alias: alias.trim(), saldo_aplicado: saldoAplicado },
+      status,
+      type: "Factura",
+    };
+
+    st.invoices.push(invoice);
+    st.meta.lastSavedInvoiceId = id;
+    setState(st);
+
+    const pedidoPreparar = {
+      id: "prep_" + Math.random().toString(36).slice(2, 8),
+      pedido_pendiente_id: null,
+      pedido_online_id: null,
+      tipo: "facturacion",
+      client_id: client.id,
+      client_name: client.name,
+      client_number: client.number,
+      items: items.map((item: any) => ({
+        name: item.name,
+        section: item.section || "General",
+        qty: item.qty,
+      })),
+      observaciones: "",
+      fecha_creacion: todayISO(),
+      status: "pendiente"
+    };
+
     try {
-      // Guardar pedido pendiente
-      await supabase.from("pedidos_pendientes").insert(pedidoPendiente);
+      console.log("📦 Guardando en pedidos_preparar:", pedidoPreparar);
+      const { error } = await supabase.from("pedidos_preparar").insert(pedidoPreparar);
       
-      // ✅ CORRECCIÓN: NO actualizar stock aquí
-      // await saveCountersSupabase(st.meta);
-      
-    } catch (error: any) {
-      console.error("Error al guardar pedido pendiente:", error);
-      alert("Error al guardar el pedido. Intenta nuevamente.");
+      if (error) {
+        console.error("❌ Error al guardar en pedidos_preparar:", error);
+        alert(`Error al guardar: ${error.message}`);
+        throw error;
+      } else {
+        console.log("✅ Pedido preparar guardado correctamente");
+        st.pedidos_preparar = st.pedidos_preparar || [];
+        st.pedidos_preparar.push(pedidoPreparar);
+        setState(st);
+      }
+    } catch (error) {
+      console.error("❌ Error crítico:", error);
+      alert("Error al guardar el pedido a preparar");
       return;
     }
-  }
-  
-  // Imprimir comprobante de pedido
-  const comprobantePedido = {
-    ...pedidoPendiente,
-    type: "PedidoPendiente",
-    mensaje: "PEDIDO PENDIENTE DE PAGO - ENTREGAR A MILI"
-  };
-  
-  window.dispatchEvent(new CustomEvent("print-invoice", { detail: comprobantePedido } as any));
-  await nextPaint();
-  window.print();
-  
-  // Limpiar UI
-  setPayCash("");
-  setPayTransf("");
-  setPayChange("");
-  setAlias("");
-  setItems([]);
-  
-  alert(`✅ Pedido enviado a Mili\nNúmero: ${number}\nTotal: ${money(total)}\nMili completará el pago.`);
-}
 
-// 👆👆👆 HASTA AQUÍ LA NUEVA FUNCIÓN
-
-
-
-async function saveAndPrint() {
-  if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
-  if (items.length === 0) return alert("Agregá productos al carrito.");
-  
-  // ✅ VALIDAR STOCK ANTES DE CONTINUAR
-  const validacionStock = validarStockDisponible(state.products, items);
-  if (!validacionStock.valido) {
-    const mensajeError = `No hay suficiente stock para los siguientes productos:\n\n${validacionStock.productosSinStock.join('\n')}`;
-    return alert(mensajeError);
-  }
-  
-  const total = calcInvoiceTotal(items);
-  const cash  = parseNum(payCash);
-  const transf = parseNum(payTransf);
-  const suggestedChange = Math.max(0, cash - Math.max(0, total - transf));
-  const change = payChange.trim() === "" ? suggestedChange : Math.max(0, parseNum(payChange));
-  if (change > cash) return alert("El vuelto no puede ser mayor al efectivo entregado.");
-
-  const st = clone(state);
-  const number = st.meta.invoiceCounter++;
-  const id = "inv_" + number;
-
-  // 1) Consumir saldo a favor del cliente ANTES de calcular deuda
-  const cl = st.clients.find((c:any) => c.id === client.id)!;
-  const saldoActual = parseNum(cl.saldo_favor || 0);
-  const saldoAplicado = Math.min(total, saldoActual);
-  const totalTrasSaldo = total - saldoAplicado;
-
-  // 2) Lo efectivamente aplicado por pagos (efectivo+transf - vuelto)
-  const applied = Math.max(0, cash + transf - change);
-
-  // 3) Deuda que queda luego de aplicar saldo y pagos
-  const debtDelta = Math.max(0, totalTrasSaldo - applied);
-  
-  // ✅ CORRECCIÓN: NO sumar deuda manualmente si ya se calcula automáticamente
-  // Solo actualizar si realmente hay deuda pendiente
-  const status = debtDelta > 0 ? "No Pagada" : "Pagada";
-
-  // 4) Actualizar cliente: bajar saldo_favor, NO sumar deuda manualmente
-  cl.saldo_favor = saldoActual - saldoAplicado;
-  
-  // ✅ CORRECCIÓN IMPORTANTE: No modificar cl.debt aquí
-  // La deuda se calculará automáticamente desde las facturas pendientes
-  
-  // ⭐⭐⭐⭐ NUEVO: DESCONTAR STOCK DE PRODUCTOS VENDIDOS ⭐⭐⭐⭐⭐
-  items.forEach(item => {
-    const product = st.products.find((p: any) => p.id === item.productId);
-    if (product) {
-      product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
-    }
-  });
-  
-  const invoice = {
-    id,
-    number,
-    date_iso: todayISO(),
-    client_id: client.id,
-    client_name: client.name,
-    vendor_id: vendor.id,
-    vendor_name: vendor.name,
-    items: clone(items),
-    total,
-    total_after_credit: totalTrasSaldo,
-    cost: calcInvoiceCost(items),
-    payments: { cash, transfer: transf, change, alias: alias.trim(), saldo_aplicado: saldoAplicado },
-    status,
-    type: "Factura",
-  };
-
-  st.invoices.push(invoice);
-  st.meta.lastSavedInvoiceId = id;
-  setState(st);
-
- // ====== GUARDAR PEDIDO A PREPARAR EN SUPABASE (VERSIÓN CORREGIDA) ======
-const pedidoPreparar = {
-  id: "prep_" + Math.random().toString(36).slice(2, 8),
-  pedido_pendiente_id: null,      // ✅ Campo correcto de la tabla (null porque no viene de pedido pendiente)
-  pedido_online_id: null,         // ✅ Campo correcto de la tabla (null porque no viene de pedido online)
-  tipo: "facturacion",            // ✅ Identifica que viene de facturación directa
-  client_id: client.id,
-  client_name: client.name,
-  client_number: client.number,
-  items: items.map((item: any) => ({
-    name: item.name,
-    section: item.section || "General",
-    qty: item.qty,
-  })),
-  observaciones: "",
-  fecha_creacion: todayISO(),
-  status: "pendiente"
-};
-
-try {
-  console.log("📦 Guardando en pedidos_preparar:", pedidoPreparar);
-  const { error } = await supabase.from("pedidos_preparar").insert(pedidoPreparar);
-  
-  if (error) {
-    console.error("❌ Error al guardar en pedidos_preparar:", error);
-    alert(`Error al guardar: ${error.message}`);
-    throw error;
-  } else {
-    console.log("✅ Pedido preparar guardado correctamente");
-    
-    // ✅ Actualizar estado local DESPUÉS de confirmar en Supabase
-    st.pedidos_preparar = st.pedidos_preparar || [];
-    st.pedidos_preparar.push(pedidoPreparar);
-    setState(st);
-  }
-} catch (error) {
-  console.error("❌ Error crítico:", error);
-  alert("Error al guardar el pedido a preparar");
-  return;
-}
-// ====== FIN GUARDAR ======
-    // ====== FIN GUARDAR ======
-
-    // ✅ CORRECCIÓN: Solo actualizar saldo_favor, NO la deuda
     await supabase.from("clients").update({ 
       saldo_favor: cl.saldo_favor 
     }).eq("id", client.id);
 
-    // ⭐⭐⭐⭐ ACTUALIZAR STOCK EN SUPABASE ⭐⭐⭐⭐⭐
     for (const item of items) {
       const product = st.products.find((p: any) => p.id === item.productId);
       if (product) {
@@ -1839,157 +1789,142 @@ try {
     }
 
     await saveCountersSupabase(st.meta);
+    
+    st.pedidos_preparar = st.pedidos_preparar || [];
+    st.pedidos_preparar.push(pedidoPreparar);
+    setState(st);
+
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+    await nextPaint();
+    window.print();
+    
+    setPayCash("");
+    setPayTransf("");
+    setPayChange("");
+    setAlias("");
+    setItems([]);
   }
 
-  // ✅ AGREGAR AL ESTADO LOCAL DESPUÉS DE GUARDAR EN SUPABASE
-  st.pedidos_preparar = st.pedidos_preparar || [];
-  st.pedidos_preparar.push(pedidoPreparar);
-  setState(st);
-
-  window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
-  await nextPaint();
-  window.print();
-  
-  // Limpiar UI
-  setPayCash("");
-  setPayTransf("");
-  setPayChange("");
-  setAlias("");
-  setItems([]);
-}
-
-const total = calcInvoiceTotal(items);
-const cash = parseNum(payCash);
-const transf = parseNum(payTransf);
-
-// Vuelto sugerido automáticamente: solo sale del EFECTIVO
-const suggestedChange = Math.max(0, cash - Math.max(0, total - transf));
-// Si el usuario no escribió nada, usamos el sugerido
-const change = payChange.trim() === "" ? suggestedChange : Math.max(0, parseNum(payChange));
-
-const paid = cash + transf;                               // lo que ENTREGÓ el cliente
-const applied = Math.max(0, cash + transf - change);      // lo que realmente se aplica a la factura
-const toPay = Math.max(0, total - applied);
-
+  // Cálculos para el renderizado
+  const total = calcInvoiceTotal(items);
+  const cash = parseNum(payCash);
+  const transf = parseNum(payTransf);
+  const suggestedChange = Math.max(0, cash - Math.max(0, total - transf));
+  const change = payChange.trim() === "" ? suggestedChange : Math.max(0, parseNum(payChange));
+  const paid = cash + transf;
+  const applied = Math.max(0, cash + transf - change);
+  const toPay = Math.max(0, total - applied);
   const grouped = groupBy(filteredProducts, "section");
 
-   return (
+  // ---- A PARTIR DE AQUÍ VA EL JSX DEL RENDER ----
+  return (
     <div className="max-w-7xl mx-auto p-2 md:p-4 space-y-3 md:space-y-4">
       <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-3 md:gap-4`}>
-       <Card title="Datos" className={isMobile ? 'text-sm' : ''}>
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
-    
-    {/* 👇👇👇 NUEVO BUSCADOR - REEMPLAZA EL SELECT DE CLIENTE */}
-    <div className="md:col-span-2">
-      <div className="relative">
-        <Input
-          label="Buscar Cliente (Nombre o Número)"
-          value={clienteSearch}
-          onChange={setClienteSearch}
-          placeholder="Ej: 'Kiosco' o '1001'..."
-          className="pr-20"
-        />
-        
-        {/* Mostrar resultados del buscador */}
-        {clienteSearch && (
-          <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-            {filteredClients.length === 0 ? (
-              <div className="p-3 text-sm text-slate-400 text-center">
-                No se encontraron clientes
-              </div>
-            ) : (
-              filteredClients.slice(0, 10).map((c: any) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => {
-                    setClientId(c.id);
-                    setClienteSearch(""); // Limpiar búsqueda después de seleccionar
-                  }}
-                  className={`w-full text-left p-3 hover:bg-slate-700 border-b border-slate-700 last:border-b-0 ${
-                    clientId === c.id ? 'bg-emerald-900/30' : ''
-                  }`}
-                >
-                  <div className="font-medium">{c.name}</div>
-                  <div className="text-xs text-slate-400">
-                    N° {c.number} | Deuda: {(() => {
-                      const detalleDeudas = calcularDetalleDeudas(state, c.id);
-                      const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
-                      return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
-                    })()}
+        <Card title="Datos" className={isMobile ? 'text-sm' : ''}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
+            {/* BUSCADOR DE CLIENTES */}
+            <div className="md:col-span-2">
+              <div className="relative">
+                <Input
+                  label="Buscar Cliente (Nombre o Número)"
+                  value={clienteSearch}
+                  onChange={setClienteSearch}
+                  placeholder="Ej: 'Kiosco' o '1001'..."
+                  className="pr-20"
+                />
+                {clienteSearch && (
+                  <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {filteredClients.length === 0 ? (
+                      <div className="p-3 text-sm text-slate-400 text-center">
+                        No se encontraron clientes
+                      </div>
+                    ) : (
+                      filteredClients.slice(0, 10).map((c: any) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setClientId(c.id);
+                            setClienteSearch("");
+                          }}
+                          className={`w-full text-left p-3 hover:bg-slate-700 border-b border-slate-700 last:border-b-0 ${
+                            clientId === c.id ? 'bg-emerald-900/30' : ''
+                          }`}
+                        >
+                          <div className="font-medium">{c.name}</div>
+                          <div className="text-xs text-slate-400">
+                            N° {c.number} | Deuda: {(() => {
+                              const detalleDeudas = calcularDetalleDeudas(state, c.id);
+                              const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
+                              return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
+                            })()}
+                          </div>
+                        </button>
+                      ))
+                    )}
                   </div>
-                </button>
-              ))
-            )}
-          </div>
-        )}
-      </div>
-      
-      {/* Mostrar cliente seleccionado actualmente */}
-              {/* Mostrar cliente seleccionado actualmente */}
-          {client && (
-            <div className="mt-2 p-2 bg-slate-800/50 rounded-lg border border-slate-700">
-              <div className="text-sm font-medium">Cliente seleccionado:</div>
-              <div className="text-sm">
-                <span className="font-semibold">{client.name}</span> 
-                <span className="text-slate-400 ml-2">(N° {client.number})</span>
+                )}
               </div>
-              <div className="text-xs text-slate-400 mt-1">
-                Deuda: {(() => {
-                  const detalleDeudas = calcularDetalleDeudas(state, client.id);
-                  const deudaNeta = calcularDeudaTotal(detalleDeudas, client);
-                  return deudaNeta > 0 ? (
-                    <span className="text-amber-400 font-semibold">{money(deudaNeta)}</span>
-                  ) : (
-                    <span className="text-emerald-400">✅ Al día</span>
-                  );
-                })()}
-                <span className="mx-2">·</span>
-                Saldo a favor: <span className="text-emerald-400 font-semibold">
-                  {money(client.saldo_favor || 0)}
-                </span>
-                {/* 👇👇👇 NUEVO: INDICADOR DE LISTA (PASO 13) */}
-                <span className="mx-2">·</span>
-                Lista: <span className="text-purple-400 font-semibold">
-                  {client.lista_precio === "1" ? "MITOBICEL LOCAL" :
-                   client.lista_precio === "2" ? "MITOBICEL PROVINCIAS" :
-                   client.lista_precio === "3" ? "MITOBICEL EXCLUSIVO" :
-                   client.lista_precio === "4" ? "ALE LOCAL" :
-                   client.lista_precio === "5" ? "ALE PROVINCIA" : "No asignada"}
-                </span>
-              </div>
+              {client && (
+                <div className="mt-2 p-2 bg-slate-800/50 rounded-lg border border-slate-700">
+                  <div className="text-sm font-medium">Cliente seleccionado:</div>
+                  <div className="text-sm">
+                    <span className="font-semibold">{client.name}</span> 
+                    <span className="text-slate-400 ml-2">(N° {client.number})</span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">
+                    Deuda: {(() => {
+                      const detalleDeudas = calcularDetalleDeudas(state, client.id);
+                      const deudaNeta = calcularDeudaTotal(detalleDeudas, client);
+                      return deudaNeta > 0 ? (
+                        <span className="text-amber-400 font-semibold">{money(deudaNeta)}</span>
+                      ) : (
+                        <span className="text-emerald-400">✅ Al día</span>
+                      );
+                    })()}
+                    <span className="mx-2">·</span>
+                    Saldo a favor: <span className="text-emerald-400 font-semibold">
+                      {money(client.saldo_favor || 0)}
+                    </span>
+                    <span className="mx-2">·</span>
+                    Lista: <span className="text-purple-400 font-semibold">
+                      {client.lista_precio === "1" ? "MITOBICEL LOCAL" :
+                       client.lista_precio === "2" ? "MITOBICEL PROVINCIAS" :
+                       client.lista_precio === "3" ? "MITOBICEL EXCLUSIVO" :
+                       client.lista_precio === "4" ? "ALE LOCAL" :
+                       client.lista_precio === "5" ? "ALE PROVINCIA" : "No asignada"}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-    </div>
-    {/* 👆👆👆 FIN DEL NUEVO BUSCADOR */}
 
-    {/* 👇👇👇 EL RESTO PERMANECE IGUAL */}
-    <Select
-      label="Vendedor"
-      value={vendorId}
-      onChange={setVendorId}
-      options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))}
-    />
-    
-    <Select
-      label="Lista de precios"
-      value={priceList}
-      onChange={setPriceList}
-      options={[
-        { value: "1", label: "Mitobicel" },
-        { value: "2", label: "ElshoppingDlc" },
-      ]}
-    />
-  </div>
-</Card>
+            {/* SELECCIONES DE VENDEDOR Y LISTA */}
+            <Select
+              label="Vendedor"
+              value={vendorId}
+              onChange={setVendorId}
+              options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))}
+            />
+            <Select
+              label="Lista de precios"
+              value={priceList}
+              onChange={setPriceList}
+              options={[
+                { value: "1", label: "Mitobicel" },
+                { value: "2", label: "ElshoppingDlc" },
+              ]}
+            />
+          </div>
+        </Card>
 
+        {/* CARD DE PAGOS */}
         <Card title="Pagos" className={isMobile ? 'text-sm' : ''}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3 items-end">
             <NumberInput label="Efectivo" value={payCash} onChange={setPayCash} placeholder="0" />
             <NumberInput label="Transferencia" value={payTransf} onChange={setPayTransf} placeholder="0" />
             <NumberInput label="Vuelto (efectivo)" value={payChange} onChange={setPayChange} placeholder="0" />
             <Input label="Alias / CVU destino" value={alias} onChange={setAlias} placeholder="ej: mitobicel.algo.banco" />
-            
             <div className="md:col-span-2 text-xs text-slate-300">
               Pagado: <span className="font-semibold">{money(paid)}</span> — 
               Falta: <span className="font-semibold">{money(toPay)}</span> — 
@@ -1998,42 +1933,42 @@ const toPay = Math.max(0, total - applied);
           </div>
         </Card>
 
-   <Card title="Totales" className={isMobile ? 'text-sm' : ''}>
-  <div className="space-y-2">
-    <div className="flex items-center justify-between">
-      <span>Subtotal</span>
-      <span>{money(total)}</span>
-    </div>
-    <div className="flex items-center justify-between text-lg font-bold">
-      <span>Total</span>
-      <span>{money(total)}</span>
-    </div>
-    <div className="flex items-center justify-end gap-2 pt-2">
-      {/* 👇👇👇 NUEVO BOTÓN PARA VENDEDORES - AGREGADO AQUÍ */}
-      {session?.role === "vendedor" && (
-        <Button 
-          onClick={enviarAMili}
-          tone="blue"
-          className="flex-1 md:flex-none text-center justify-center"
-        >
-          {isMobile ? "📤 Mili" : "Enviar a Mili"}
-        </Button>
-      )}
-      
-      {/* Botón original */}
-      <Button 
-        onClick={saveAndPrint} 
-        tone="emerald"
-        className={`${session?.role === "vendedor" ? 'flex-1 md:flex-none' : 'w-full md:w-auto'} text-center justify-center`}
-      >
-        {isMobile ? "🖨️ Guardar" : "Guardar e Imprimir"}
-      </Button>
-    </div>
-  </div>
-</Card>
-</div> {/* 👈 ESTE ES EL DIV QUE FALTABA CERRAR */}
+        {/* CARD DE TOTALES */}
+        <Card title="Totales" className={isMobile ? 'text-sm' : ''}>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span>Subtotal</span>
+              <span>{money(total)}</span>
+            </div>
+            <div className="flex items-center justify-between text-lg font-bold">
+              <span>Total</span>
+              <span>{money(total)}</span>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              {session?.role === "vendedor" && (
+                <Button 
+                  onClick={enviarAMili}
+                  tone="blue"
+                  className="flex-1 md:flex-none text-center justify-center"
+                >
+                  {isMobile ? "📤 Mili" : "Enviar a Mili"}
+                </Button>
+              )}
+              <Button 
+                onClick={saveAndPrint} 
+                tone="emerald"
+                className={`${session?.role === "vendedor" ? 'flex-1 md:flex-none' : 'w-full md:w-auto'} text-center justify-center`}
+              >
+                {isMobile ? "🖨️ Guardar" : "Guardar e Imprimir"}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </div> {/* 👈 ESTE CIERRA EL PRIMER GRID */}
+
+      {/* CARD DE PRODUCTOS */}
       <Card title="Productos" className={isMobile ? 'text-sm' : ''}>
-        {/* 👇👇👇 NUEVO DISEÑO MEJORADO PARA FILTROS */}
+        {/* FILTROS */}
         <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-4'} gap-2 mb-3`}>
           <Select 
             label="Sección" 
@@ -2047,8 +1982,6 @@ const toPay = Math.max(0, total - applied);
             onChange={setListFilter} 
             options={lists.map((s: any) => ({ value: s, label: s }))} 
           />
-          
-          {/* 👇👇👇 NUEVO BUSCADOR AVANZADO */}
           <div className="space-y-1">
             <Input 
               label="Buscar por nombre" 
@@ -2063,7 +1996,6 @@ const toPay = Math.max(0, total - applied);
               placeholder="Código o sección..."
             />
           </div>
-          
           <div className={`${isMobile ? 'text-center' : 'pt-6'}`}>
             <Chip tone="emerald">Productos: {filteredProducts.length}</Chip>
             {(busquedaAvanzada.nombre || busquedaAvanzada.seccion) && (
@@ -2074,7 +2006,7 @@ const toPay = Math.max(0, total - applied);
           </div>
         </div>
 
-        {/* 👇👇👇 BOTONES PARA LIMPIAR BÚSQUEDAS */}
+        {/* BOTONES LIMPIAR BÚSQUEDA */}
         {(busquedaAvanzada.nombre || busquedaAvanzada.seccion) && (
           <div className="flex gap-2 mb-3">
             <Button 
@@ -2094,7 +2026,9 @@ const toPay = Math.max(0, total - applied);
           </div>
         )}
 
+        {/* LISTA DE PRODUCTOS Y CARRITO */}
         <div className={`${isMobile ? 'space-y-4' : 'grid md:grid-cols-2 gap-4'}`}>
+          {/* Panel izquierdo: Productos disponibles */}
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <div className="text-sm font-semibold">Productos Disponibles</div>
@@ -2136,20 +2070,19 @@ const toPay = Math.max(0, total - applied);
                         <div key={p.id} className="flex items-center justify-between px-3 py-2 hover:bg-slate-800/30 transition-colors">
                           <div className="min-w-0 flex-1">
                             <div className="text-sm font-medium truncate">{p.name}</div>
-                          <div className="text-xs text-slate-400">
-  {/* 👇 MUESTRA EL PRECIO SEGÚN LA LISTA DEL CLIENTE */}
-  Precio: {money(
-    priceList === "1" ? p.price1 :
-    priceList === "2" ? p.price2 :
-    priceList === "3" ? (p.price3 || 0) :
-    priceList === "4" ? (p.price4 || 0) :
-    priceList === "5" ? (p.price5 || 0) : p.price1
-  )} · 
-  Stock: {p.stock || 0}
-  {p.stock_minimo && p.stock < p.stock_minimo && (
-    <span className="text-amber-400 ml-1">⚠️ Bajo stock</span>
-  )}
-</div>
+                            <div className="text-xs text-slate-400">
+                              Precio: {money(
+                                priceList === "1" ? p.price1 :
+                                priceList === "2" ? p.price2 :
+                                priceList === "3" ? (p.price3 || 0) :
+                                priceList === "4" ? (p.price4 || 0) :
+                                priceList === "5" ? (p.price5 || 0) : p.price1
+                              )} · 
+                              Stock: {p.stock || 0}
+                              {p.stock_minimo && p.stock < p.stock_minimo && (
+                                <span className="text-amber-400 ml-1">⚠️ Bajo stock</span>
+                              )}
+                            </div>
                           </div>
                           <Button 
                             onClick={() => addItem(p)} 
@@ -2168,6 +2101,7 @@ const toPay = Math.max(0, total - applied);
             )}
           </div>
 
+          {/* Panel derecho: Carrito */}
           <div className="space-y-3">
             <div className="text-sm font-semibold">Carrito ({items.length} producto(s))</div>
             <div className="rounded-xl border border-slate-800 divide-y divide-slate-800 max-h-[400px] overflow-y-auto">
@@ -2232,8 +2166,8 @@ const toPay = Math.max(0, total - applied);
           </div>
         </div>
       </Card>
-    </div>
-  );
+    </div> // 👈 ESTE CIERRA EL DIV PRINCIPAL DE LA FUNCIÓN
+  ); // 👈 ESTE ES EL RETURN DE LA FUNCIÓN
 }
 
 /* Clientes */
