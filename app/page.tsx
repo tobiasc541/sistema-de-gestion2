@@ -355,8 +355,8 @@ function seedState() {
     pedidos_fabricar: [] as PedidoFabricar[],
 avances_fabricacion: [] as AvanceFabricacion[],
     inversores: [] as Inversor[],
-    aliases: [] as Alias[],
-pagos_aliases: [] as PagoAlias[],
+    alias: [] as Alias[],
+pagos_alias: [] as PagoAlias[],
   };
 }
 
