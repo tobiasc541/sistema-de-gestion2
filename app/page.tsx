@@ -452,13 +452,28 @@ async function loadFromSupabase(fallback: any) {
       }));
     }
 
-    // INVOICES
-    const { data: invoices, error: invErr } = await supabase.from("invoices").select("*").order("number");
-    if (invErr) { 
-      console.error("SELECT invoices:", invErr); 
-    } else if (invoices) {
-      out.invoices = invoices;
-    }
+  // ===== INVOICES - VERSIÓN CORREGIDA =====
+console.log("📥 Cargando facturas desde Supabase...");
+const { data: invoices, error: invErr } = await supabase
+  .from("invoices")
+  .select("*")
+  .order("date_iso", { ascending: false }); // ← CAMBIADO: ordenar por fecha, no por number
+
+if (invErr) { 
+  console.error("❌ ERROR SELECT invoices:", invErr);
+  console.error("Detalle del error:", JSON.stringify(invErr, null, 2));
+  alert("Error cargando facturas. Revisa la consola.");
+} else if (invoices) {
+  console.log(`✅ Cargadas ${invoices.length} facturas correctamente`);
+  if (invoices.length > 0) {
+    console.log("Primera factura:", invoices[0]);
+    console.log("Última factura:", invoices[invoices.length - 1]);
+  }
+  out.invoices = invoices;
+} else {
+  console.log("⚠️ No se encontraron facturas");
+  out.invoices = [];
+}
 
     // DEVOLUCIONES
     const { data: devoluciones, error: devErr } = await supabase
@@ -4687,6 +4702,38 @@ function VendedoresTab({ state, setState }: any) {
 
 /* Reportes */
 function ReportesTab({ state, setState, session }: any) {
+  // ===== DIAGNÓSTICO VISUAL - PEGAR JUSTO AQUÍ =====
+  const [diagnostico, setDiagnostico] = useState<any>(null);
+  
+  useEffect(() => {
+    const verificarDatos = async () => {
+      console.log("🔍 VERIFICANDO DATOS EN REPORTESTAB");
+      console.log("Estado local - facturas:", state.invoices?.length || 0);
+      
+      if (hasSupabase) {
+        // Consulta directa a Supabase
+        const { data, error, count } = await supabase
+          .from("invoices")
+          .select("*", { count: "exact", head: false })
+          .limit(5);
+          
+        setDiagnostico({
+          estadoLocal: state.invoices?.length || 0,
+          supabaseTotal: count,
+          supabaseMuestra: data,
+          error: error?.message
+        });
+        
+        console.log("📊 DIAGNÓSTICO:", { 
+          local: state.invoices?.length, 
+          supabase: count,
+          error: error?.message 
+        });
+      }
+    };
+    
+    verificarDatos();
+  }, []);
   // ====== Filtros de fecha ======
   const pad2 = (n: number) => String(n).padStart(2, "0");
   const today = new Date();
@@ -5154,7 +5201,58 @@ function ReportesTab({ state, setState, session }: any) {
   // ===== AQUÍ ESTÁ EL RETURN PRINCIPAL DEL COMPONENTE =====
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <Card title="Filtros">
+      {/* 👇 TARJETA ROJA - DIAGNÓSTICO */}
+      {diagnostico && (
+        <Card title="🔧 DIAGNÓSTICO (temporal)" className="border-red-500 border">
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span>Facturas en estado local:</span>
+              <span className={diagnostico.estadoLocal > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>
+                {diagnostico.estadoLocal}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Facturas en Supabase:</span>
+              <span className={diagnostico.supabaseTotal > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>
+                {diagnostico.supabaseTotal || 0}
+              </span>
+            </div>
+            {diagnostico.error && (
+              <div className="text-red-400">
+                Error: {diagnostico.error}
+              </div>
+            )}
+            {diagnostico.supabaseMuestra && diagnostico.supabaseMuestra.length > 0 && (
+              <div className="mt-2">
+                <div className="font-semibold">Muestra de facturas en Supabase:</div>
+                {diagnostico.supabaseMuestra.map((f: any, i: number) => (
+                  <div key={i} className="text-xs border-b border-slate-700 py-1">
+                    #{f.number} - {f.client_name} - {new Date(f.date_iso).toLocaleDateString()} - ${f.total}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+      {/* 👆 FIN TARJETA ROJA */}
+
+      <Card 
+        title="Filtros"
+        actions={
+          <div className="flex gap-2">
+            <Button tone="slate" onClick={async () => {
+              console.log("🔄 RECARGANDO DATOS MANUALMENTE...");
+              const refreshedState = await loadFromSupabase(seedState());
+              setState(refreshedState);
+              alert(`✅ Datos recargados. Facturas: ${refreshedState.invoices?.length || 0}`);
+            }}>
+              🔄 Recargar Datos
+            </Button>
+            <Button onClick={imprimirReporte}>Imprimir reporte</Button>
+          </div>
+        }
+      >
         <div className="grid md:grid-cols-4 gap-3">
           <Select
             label="Período"
@@ -5170,8 +5268,10 @@ function ReportesTab({ state, setState, session }: any) {
           {periodo === "mes" && <Input label="Mes" type="month" value={mes} onChange={setMes} />}
           {periodo === "anio" && <Input label="Año" type="number" value={anio} onChange={setAnio} />}
         </div>
+        <div className="mt-2 text-xs text-slate-400">
+          {state.invoices?.length || 0} facturas en total
+        </div>
       </Card>
-
       <Card title="Acciones" actions={
         <div className="flex gap-2">
           <Button tone="slate" onClick={async () => {
