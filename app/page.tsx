@@ -1751,19 +1751,28 @@ function FacturacionTab({ state, setState, session }: any) {
     st.meta.lastSavedInvoiceId = id;
     setState(st);
 
-   const pedidoPreparar = {
+ const pedidoPreparar = {
   id: "prep_" + Math.random().toString(36).slice(2, 8),
-  pedido_pendiente_id: pedido.id,
-  tipo: "pendiente",
-  client_id: pedido.client_id,
-  client_name: pedido.client_name,
-  items: pedido.items.map((item: any) => ({
+
+  pedido_pendiente_id: null,
+  pedido_online_id: null,
+
+  tipo: "factura",
+
+  client_id: client.id,
+  client_name: client.name,
+  client_number: client.number || null,
+
+  items: items.map((item: any) => ({
     name: item.name,
     section: item.section || "General",
     qty: item.qty,
   })),
-  observaciones: pedido.observaciones || "",
-  date_iso: todayISO(),
+
+  observaciones: "",
+
+  fecha_creacion: new Date().toISOString(),
+
   status: "pendiente"
 };
     // ===== GUARDAR EN SUPABASE - VERSIÓN CORREGIDA =====
