@@ -152,6 +152,7 @@ type Pedido = {
   comprobante_subido_at?: string;
   lista_usada?: string; // 👈 AGREGAR ESTA LÍNEA
 };
+
 // 👇👇👇 TIPO PRODUCCIÓN MEJORADO
 type Produccion = {
   id: string;
@@ -253,6 +254,31 @@ type Cliente = {
   deuda_manual?: boolean;
   lista_precio?: string; // 👈 NUEVO: '1', '2', '3', '4', '5'
 };
+// ===== TIPOS PARA ALIASES (NUEVO) =====
+type Alias = {
+  id: string;
+  alias: string;           // Ej: mariano123
+  titular_nombre: string;  // A nombre de quién está
+  cuil: string;            // CUIL de la persona
+  monto_inicial: number;   // Monto inicial (ej: 100)
+  monto_disponible: number; // Monto disponible (inicial - pagos)
+  estado: "activo" | "inactivo";
+  notas?: string;
+  fecha_creacion: string;
+  fecha_actualizacion: string;
+};
+
+type PagoAlias = {
+  id: string;
+  alias_id: string;
+  alias_nombre: string;
+  monto: number;
+  referencia_tipo: "factura" | "debt_payment" | "gasto" | "pedido_pendiente";
+  referencia_id: string;
+  referencia_numero?: number;
+  fecha_pago: string;
+  registrado_por: string;
+};
 /* ===== LISTAS DE PRECIOS ===== */
 const LISTAS_PRECIOS = [
   { value: "1", label: "MITOBICEL LOCAL" },
@@ -329,6 +355,8 @@ function seedState() {
     pedidos_fabricar: [] as PedidoFabricar[],
 avances_fabricacion: [] as AvanceFabricacion[],
     inversores: [] as Inversor[],
+    aliases: [] as Alias[],
+pagos_aliases: [] as PagoAlias[],
   };
 }
 
@@ -653,6 +681,44 @@ try {
       console.error("Error cargando inversores:", error);
       out.inversores = [];
     }
+    // ===== AGREGAR DESPUÉS DE INVERSORES =====
+// ALIASES
+try {
+  const { data: aliases, error: aliasesErr } = await supabase
+    .from("aliases")
+    .select("*")
+    .order("alias");
+  
+  if (aliasesErr) {
+    console.error("SELECT aliases:", aliasesErr);
+    out.aliases = [];
+  } else {
+    out.aliases = aliases || [];
+    console.log(`✅ Cargados ${out.aliases.length} aliases`);
+  }
+} catch (error) {
+  console.error("Error cargando aliases:", error);
+  out.aliases = [];
+}
+
+// PAGOS DE ALIASES
+try {
+  const { data: pagosAliases, error: pagosErr } = await supabase
+    .from("pagos_aliases")
+    .select("*")
+    .order("fecha_pago", { ascending: false });
+  
+  if (pagosErr) {
+    console.error("SELECT pagos_aliases:", pagosErr);
+    out.pagos_aliases = [];
+  } else {
+    out.pagos_aliases = pagosAliases || [];
+    console.log(`✅ Cargados ${out.pagos_aliases.length} pagos de aliases`);
+  }
+} catch (error) {
+  console.error("Error cargando pagos_aliases:", error);
+  out.pagos_aliases = [];
+}
 
     // Si está vacío, NO sembrar datos de ejemplo
     if (!out.vendors?.length && !out.clients?.length && !out.products?.length) {
@@ -1396,7 +1462,8 @@ const TABS = [
     "Porcentajes Ganancia",
     "Producción",
       "Pedidos a Fabricar",
-     "Inversores", // 👈 NUEVA PESTAÑA AGREGADA AQUÍ
+     "Inversores",
+     "Alias",// 👈 NUEVA PESTAÑA AGREGADA AQUÍ
   ] : []),
   ];
 
@@ -1404,7 +1471,7 @@ const TABS = [
     role === "admin"
       ? TABS
       : role === "vendedor"
-      ? ["Facturación", "Clientes", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online","Pedidos Pendientes","Preparar Pedidos", "Pedidos a Fabricar"] // 👈 QUITAR "Productos"
+      ? ["Facturación", "Clientes", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online","Pedidos Pendientes","Preparar Pedidos", "Pedidos a Fabricar","Alias"] // 👈 QUITAR "Productos"
       : role === "pedido-online"
       ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
       : ["Panel"];
@@ -1775,6 +1842,33 @@ function FacturacionTab({ state, setState, session }: any) {
 
   status: "pendiente"
 };
+    // ===== REGISTRAR PAGO EN ALIAS SI CORRESPONDE =====
+if (alias.trim() && parseNum(transf) > 0) {
+  // Buscar el alias en el estado
+  const aliasUsado = state.aliases?.find((a: Alias) => 
+    a.alias.toLowerCase() === alias.trim().toLowerCase() && a.estado === "activo"
+  );
+  
+  if (aliasUsado) {
+    const pagoAlias = {
+      id: "pago_" + Math.random().toString(36).slice(2, 8),
+      alias_id: aliasUsado.id,
+      alias_nombre: aliasUsado.alias,
+      monto: transf,
+      referencia_tipo: "factura",
+      referencia_id: id,
+      referencia_numero: number,
+      fecha_pago: todayISO(),
+      registrado_por: session?.name || "sistema"
+    };
+    
+    // Agregar al estado local
+    st.pagos_aliases = st.pagos_aliases || [];
+    st.pagos_aliases.push(pagoAlias);
+    
+    console.log(`💰 Alias ${aliasUsado.alias} usado en factura #${number} por $${transf}`);
+  }
+}
     // ===== GUARDAR EN SUPABASE - VERSIÓN CORREGIDA =====
     try {
       // 1. GUARDAR LA FACTURA (ESTO ES LO QUE FALTABA)
@@ -4137,6 +4231,29 @@ async function eliminarDeudaCliente(clienteId: string) {
       debt_before: deudaReal,
 debt_after: Math.max(0, deudaReal - totalPago), // Calcular correctamente      deuda_real_antes: deudaReal,
     };
+    // ===== REGISTRAR PAGO EN ALIAS SI CORRESPONDE =====
+if (alias.trim() && parseNum(transf) > 0) {
+  const aliasUsado = state.aliases?.find((a: Alias) => 
+    a.alias.toLowerCase() === alias.trim().toLowerCase() && a.estado === "activo"
+  );
+  
+  if (aliasUsado) {
+    const pagoAlias = {
+      id: "pago_" + Math.random().toString(36).slice(2, 8),
+      alias_id: aliasUsado.id,
+      alias_nombre: aliasUsado.alias,
+      monto: parseNum(transf),
+      referencia_tipo: "debt_payment",
+      referencia_id: id,
+      referencia_numero: number,
+      fecha_pago: todayISO(),
+      registrado_por: session?.name || "sistema"
+    };
+    
+    st.pagos_aliases = st.pagos_aliases || [];
+    st.pagos_aliases.push(pagoAlias);
+  }
+}
 
     // Guardar en debt_payments LOCAL
     st.debt_payments = st.debt_payments || [];
@@ -7793,7 +7910,467 @@ function nextPaint() {
     requestAnimationFrame(() => requestAnimationFrame(() => res()))
   );
 }
+/* ===== GESTIÓN DE ALIASES CON CUIL ===== */
+function AliasesTab({ state, setState, session }: any) {
+  const [alias, setAlias] = useState("");
+  const [titular, setTitular] = useState("");
+  const [cuil, setCuil] = useState("");
+  const [montoInicial, setMontoInicial] = useState("");
+  const [notas, setNotas] = useState("");
+  const [editando, setEditando] = useState<string | null>(null);
+  const [filtroEstado, setFiltroEstado] = useState<"todos" | "activo" | "inactivo">("activo");
+  const [aliasSeleccionado, setAliasSeleccionado] = useState<string | null>(null);
+  const [mostrarHistorial, setMostrarHistorial] = useState(false);
 
+  // Filtrar aliases
+  const aliasesFiltrados = state.aliases?.filter((a: Alias) => {
+    if (filtroEstado === "todos") return true;
+    return a.estado === filtroEstado;
+  }) || [];
+
+  // Calcular saldo disponible para cada alias
+  const aliasesConSaldo = aliasesFiltrados.map((alias: Alias) => {
+    const pagosRealizados = (state.pagos_aliases || [])
+      .filter((p: PagoAlias) => p.alias_id === alias.id)
+      .reduce((sum: number, p: PagoAlias) => sum + p.monto, 0);
+    
+    const montoDisponible = alias.monto_inicial - pagosRealizados;
+    
+    return {
+      ...alias,
+      monto_disponible: Math.max(0, montoDisponible),
+      pagos_realizados: pagosRealizados
+    };
+  }).sort((a, b) => b.monto_disponible - a.monto_disponible);
+
+  // Obtener historial de pagos
+  const obtenerHistorialPagos = (aliasId: string) => {
+    const pagos = (state.pagos_aliases || [])
+      .filter((p: PagoAlias) => p.alias_id === aliasId)
+      .sort((a: any, b: any) => new Date(b.fecha_pago).getTime() - new Date(a.fecha_pago).getTime());
+
+    return pagos.map((pago: PagoAlias) => {
+      let referenciaDetalle = "";
+      
+      if (pago.referencia_tipo === "factura") {
+        const factura = state.invoices?.find((f: any) => f.id === pago.referencia_id);
+        referenciaDetalle = factura ? `Factura #${pad(factura.number)} - ${factura.client_name}` : "";
+      } else if (pago.referencia_tipo === "debt_payment") {
+        const pagoDeuda = state.debt_payments?.find((d: any) => d.id === pago.referencia_id);
+        referenciaDetalle = pagoDeuda ? `Pago de deuda - ${pagoDeuda.client_name}` : "";
+      } else if (pago.referencia_tipo === "gasto") {
+        const gasto = state.gastos?.find((g: any) => g.id === pago.referencia_id);
+        referenciaDetalle = gasto ? `Gasto: ${gasto.detalle}` : "";
+      } else if (pago.referencia_tipo === "pedido_pendiente") {
+        const pedido = state.pedidos_pendientes?.find((p: any) => p.id === pago.referencia_id);
+        referenciaDetalle = pedido ? `Pedido #${pedido.number} - ${pedido.client_name}` : "";
+      }
+      
+      return {
+        ...pago,
+        referencia_detalle: referenciaDetalle
+      };
+    });
+  };
+
+  async function guardarAlias() {
+    if (!alias.trim()) return alert("El alias es obligatorio");
+    if (!titular.trim()) return alert("El nombre del titular es obligatorio");
+    if (!cuil.trim()) return alert("El CUIL es obligatorio");
+    if (!montoInicial || parseNum(montoInicial) <= 0) return alert("El monto inicial debe ser mayor a 0");
+
+    const ahora = new Date().toISOString();
+    
+    const nuevoAlias: Alias = {
+      id: editando || "alias_" + Math.random().toString(36).slice(2, 8),
+      alias: alias.trim().toLowerCase(),
+      titular_nombre: titular.trim(),
+      cuil: cuil.trim(),
+      monto_inicial: parseNum(montoInicial),
+      monto_disponible: parseNum(montoInicial),
+      estado: "activo",
+      notas: notas.trim() || undefined,
+      fecha_creacion: editando ? undefined : ahora,
+      fecha_actualizacion: ahora,
+    };
+
+    const st = clone(state);
+    
+    if (editando) {
+      const index = st.aliases.findIndex((a: Alias) => a.id === editando);
+      if (index !== -1) {
+        nuevoAlias.fecha_creacion = st.aliases[index].fecha_creacion;
+        st.aliases[index] = nuevoAlias;
+      }
+    } else {
+      st.aliases.push(nuevoAlias);
+    }
+    
+    setState(st);
+
+    if (hasSupabase) {
+      try {
+        if (editando) {
+          await supabase.from("aliases").update(nuevoAlias).eq("id", editando);
+        } else {
+          await supabase.from("aliases").insert(nuevoAlias);
+        }
+        alert(`Alias ${editando ? 'actualizado' : 'agregado'} correctamente`);
+      } catch (error) {
+        console.error("Error guardando alias:", error);
+        alert("Error al guardar en Supabase");
+      }
+    }
+
+    // Limpiar formulario
+    setAlias("");
+    setTitular("");
+    setCuil("");
+    setMontoInicial("");
+    setNotas("");
+    setEditando(null);
+  }
+
+  function editarAlias(a: Alias) {
+    setAlias(a.alias);
+    setTitular(a.titular_nombre);
+    setCuil(a.cuil || "");
+    setMontoInicial(String(a.monto_inicial));
+    setNotas(a.notas || "");
+    setEditando(a.id);
+  }
+
+  async function toggleEstadoAlias(aliasId: string, estadoActual: string) {
+    const st = clone(state);
+    const alias = st.aliases.find((a: Alias) => a.id === aliasId);
+    
+    if (alias) {
+      alias.estado = estadoActual === "activo" ? "inactivo" : "activo";
+      alias.fecha_actualizacion = new Date().toISOString();
+      setState(st);
+
+      if (hasSupabase) {
+        await supabase.from("aliases").update(alias).eq("id", aliasId);
+      }
+    }
+  }
+
+  async function recargarAliases() {
+    const refreshedState = await loadFromSupabase(seedState());
+    setState(refreshedState);
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      {/* MODAL DE HISTORIAL */}
+      {mostrarHistorial && aliasSeleccionado && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 rounded-2xl border border-slate-700 max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-xl font-bold">Historial de Pagos</h3>
+              <button
+                onClick={() => {
+                  setMostrarHistorial(false);
+                  setAliasSeleccionado(null);
+                }}
+                className="text-slate-400 hover:text-slate-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            {(() => {
+              const aliasInfo = state.aliases?.find((a: Alias) => a.id === aliasSeleccionado);
+              if (!aliasInfo) return null;
+              
+              const historial = obtenerHistorialPagos(aliasSeleccionado);
+              const pagosRealizados = historial.reduce((sum, p) => sum + p.monto, 0);
+              const disponible = aliasInfo.monto_inicial - pagosRealizados;
+
+              return (
+                <>
+                  <div className="mb-6 p-4 bg-slate-800/30 rounded-lg">
+                    <div className="grid grid-cols-4 gap-4">
+                      <div>
+                        <div className="text-sm text-slate-400">Alias</div>
+                        <div className="font-mono font-bold">{aliasInfo.alias}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-slate-400">Titular</div>
+                        <div>{aliasInfo.titular_nombre}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-slate-400">CUIL</div>
+                        <div className="font-mono text-xs">{aliasInfo.cuil || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-slate-400">Saldo</div>
+                        <div className="text-lg font-bold text-emerald-400">
+                          {money(disponible)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-400">
+                      Inicial: {money(aliasInfo.monto_inicial)} · 
+                      Usado: {money(pagosRealizados)}
+                    </div>
+                  </div>
+
+                  {historial.length === 0 ? (
+                    <div className="text-center text-slate-400 py-8">
+                      No hay pagos registrados para este alias
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {historial.map((pago, idx) => (
+                        <div key={pago.id} className="border border-slate-700 rounded-lg p-3">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="font-semibold text-emerald-400">
+                                - {money(pago.monto)}
+                              </div>
+                              <div className="text-sm text-slate-300">
+                                {new Date(pago.fecha_pago).toLocaleString("es-AR")}
+                              </div>
+                              <div className="text-xs text-slate-400 mt-1">
+                                {pago.referencia_detalle || `ID: ${pago.referencia_id}`}
+                              </div>
+                            </div>
+                            <Chip tone="slate">
+                              {pago.referencia_tipo === "factura" && "🧾 Factura"}
+                              {pago.referencia_tipo === "debt_payment" && "💳 Pago Deuda"}
+                              {pago.referencia_tipo === "gasto" && "💰 Gasto"}
+                              {pago.referencia_tipo === "pedido_pendiente" && "📋 Pedido"}
+                            </Chip>
+                          </div>
+                          <div className="text-xs text-slate-500 mt-2">
+                            Registrado por: {pago.registrado_por}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Formulario de alta de alias (solo admin) */}
+      {session?.role === "admin" && (
+        <Card title={editando ? "✏️ Editar Alias" : "➕ Agregar Alias"}>
+          <div className="grid md:grid-cols-2 gap-3">
+            <Input
+              label="Alias *"
+              value={alias}
+              onChange={setAlias}
+              placeholder="Ej: mariano123"
+            />
+            <Input
+              label="Titular (a nombre de quién) *"
+              value={titular}
+              onChange={setTitular}
+              placeholder="Ej: Mariano Perez"
+            />
+            <Input
+              label="CUIL *"
+              value={cuil}
+              onChange={setCuil}
+              placeholder="Ej: 20-12345678-9"
+            />
+            <NumberInput
+              label="Monto Inicial *"
+              value={montoInicial}
+              onChange={setMontoInicial}
+              placeholder="Ej: 100000"
+            />
+            <Input
+              label="Notas (opcional)"
+              value={notas}
+              onChange={setNotas}
+              placeholder="Ej: Cuenta de Mariano"
+              className="md:col-span-2"
+            />
+          </div>
+          <div className="flex gap-2 mt-4">
+            <Button onClick={guardarAlias} tone="emerald">
+              {editando ? "Actualizar" : "Guardar Alias"}
+            </Button>
+            {editando && (
+              <Button tone="slate" onClick={() => {
+                setEditando(null);
+                setAlias("");
+                setTitular("");
+                setCuil("");
+                setMontoInicial("");
+                setNotas("");
+              }}>
+                Cancelar
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Panel de control de aliases */}
+      <Card
+        title="💰 Control de Aliases"
+        actions={
+          <div className="flex gap-2">
+            <Select
+              value={filtroEstado}
+              onChange={setFiltroEstado}
+              options={[
+                { value: "activo", label: "Solo Activos" },
+                { value: "inactivo", label: "Solo Inactivos" },
+                { value: "todos", label: "Todos" },
+              ]}
+            />
+            <Button tone="slate" onClick={recargarAliases}>
+              🔄 Actualizar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {/* Resumen general */}
+          <div className="grid md:grid-cols-4 gap-3">
+            <div className="bg-slate-800/30 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold">
+                {aliasesConSaldo.filter(a => a.estado === "activo").length}
+              </div>
+              <div className="text-xs text-slate-400">Alias Activos</div>
+            </div>
+            <div className="bg-slate-800/30 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-emerald-400">
+                {money(aliasesConSaldo.reduce((sum, a) => sum + a.monto_disponible, 0))}
+              </div>
+              <div className="text-xs text-slate-400">Total Disponible</div>
+            </div>
+            <div className="bg-slate-800/30 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-amber-400">
+                {money(aliasesConSaldo.reduce((sum, a) => sum + a.pagos_realizados, 0))}
+              </div>
+              <div className="text-xs text-slate-400">Total Usado</div>
+            </div>
+            <div className="bg-slate-800/30 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-purple-400">
+                {money(aliasesConSaldo.reduce((sum, a) => sum + a.monto_inicial, 0))}
+              </div>
+              <div className="text-xs text-slate-400">Total Inicial</div>
+            </div>
+          </div>
+
+          {/* Lista de aliases */}
+          <div className="space-y-3">
+            {aliasesConSaldo.length === 0 ? (
+              <div className="text-center text-slate-400 py-8">
+                No hay aliases registrados
+              </div>
+            ) : (
+              aliasesConSaldo.map((a: any) => {
+                const porcentajeUsado = a.monto_inicial > 0 
+                  ? (a.pagos_realizados / a.monto_inicial) * 100 
+                  : 0;
+                
+                return (
+                  <div
+                    key={a.id}
+                    className={`border rounded-lg p-4 ${
+                      a.estado === "activo" ? "border-slate-700" : "border-red-800/30 bg-red-900/10"
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <div className="font-semibold text-lg font-mono">
+                          {a.alias}
+                        </div>
+                        <div className="text-sm text-slate-300">
+                          {a.titular_nombre}
+                        </div>
+                        <div className="text-xs text-slate-400 font-mono mt-0.5">
+                          CUIL: {a.cuil || "No especificado"}
+                        </div>
+                        {a.notas && (
+                          <div className="text-xs text-slate-500 mt-1">
+                            📝 {a.notas}
+                          </div>
+                        )}
+                      </div>
+                      <Chip tone={a.estado === "activo" ? "emerald" : "red"}>
+                        {a.estado === "activo" ? "✅ Activo" : "⏸️ Inactivo"}
+                      </Chip>
+                    </div>
+
+                    {/* Barra de progreso */}
+                    <div className="mb-3">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>Disponible: {money(a.monto_disponible)}</span>
+                        <span className="text-slate-400">
+                          Usado: {money(a.pagos_realizados)} / {money(a.monto_inicial)}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-700 rounded-full h-2.5">
+                        <div
+                          className={`h-2.5 rounded-full ${
+                            porcentajeUsado >= 90 ? 'bg-red-500' :
+                            porcentajeUsado >= 70 ? 'bg-amber-500' :
+                            'bg-emerald-500'
+                          }`}
+                          style={{ width: `${porcentajeUsado}%` }}
+                        />
+                      </div>
+                      <div className="text-right text-xs text-slate-400 mt-1">
+                        {porcentajeUsado.toFixed(1)}% utilizado
+                      </div>
+                    </div>
+
+                    {/* Acciones */}
+                    <div className="flex gap-2 mt-3">
+                      <Button
+                        tone="slate"
+                        onClick={() => {
+                          setAliasSeleccionado(a.id);
+                          setMostrarHistorial(true);
+                        }}
+                      >
+                        📜 Ver Historial
+                      </Button>
+                      
+                      {session?.role === "admin" && (
+                        <>
+                          <button
+                            onClick={() => editarAlias(a)}
+                            className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 border border-blue-700 rounded"
+                            title="Editar"
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button
+                            onClick={() => toggleEstadoAlias(a.id, a.estado)}
+                            className={`text-sm px-3 py-1 border rounded ${
+                              a.estado === "activo"
+                                ? "text-amber-400 border-amber-700 hover:text-amber-300"
+                                : "text-emerald-400 border-emerald-700 hover:text-emerald-300"
+                            }`}
+                            title={a.estado === "activo" ? "Desactivar" : "Activar"}
+                          >
+                            {a.estado === "activo" ? "⏸️ Desactivar" : "▶️ Activar"}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
 
 /* ===== Área de impresión ===== */
 function PrintArea({ state }: any) {
@@ -12843,6 +13420,9 @@ export default function Page() {
 )}
             {session.role === "admin" && tab === "Inversores" && (
   <InversoresTab state={state} setState={setState} session={session} />
+)}
+            {session.role === "admin" && tab === "Aliases" && (
+  <AliasesTab state={state} setState={setState} session={session} />
 )}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
