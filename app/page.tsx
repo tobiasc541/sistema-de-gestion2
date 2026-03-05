@@ -1845,7 +1845,7 @@ function FacturacionTab({ state, setState, session }: any) {
     // ===== REGISTRAR PAGO EN ALIAS SI CORRESPONDE =====
 if (alias.trim() && parseNum(transf) > 0) {
   // Buscar el alias en el estado
-  const aliasUsado = state.aliases?.find((a: Alias) => 
+  const aliasUsado = state.alias?.find((a: Alias) => 
     a.alias.toLowerCase() === alias.trim().toLowerCase() && a.estado === "activo"
   );
   
@@ -1863,8 +1863,8 @@ if (alias.trim() && parseNum(transf) > 0) {
     };
     
     // Agregar al estado local
-    st.pagos_aliases = st.pagos_aliases || [];
-    st.pagos_aliases.push(pagoAlias);
+    st.pagos_alias = st.pagos_alias || [];
+    st.pagos_alias.push(pagoAlias);
     
     console.log(`💰 Alias ${aliasUsado.alias} usado en factura #${number} por $${transf}`);
   }
@@ -4233,7 +4233,7 @@ debt_after: Math.max(0, deudaReal - totalPago), // Calcular correctamente      d
     };
     // ===== REGISTRAR PAGO EN ALIAS SI CORRESPONDE =====
 if (alias.trim() && parseNum(transf) > 0) {
-  const aliasUsado = state.aliases?.find((a: Alias) => 
+  const aliasUsado = state.alias?.find((a: Alias) => 
     a.alias.toLowerCase() === alias.trim().toLowerCase() && a.estado === "activo"
   );
   
@@ -4250,8 +4250,8 @@ if (alias.trim() && parseNum(transf) > 0) {
       registrado_por: session?.name || "sistema"
     };
     
-    st.pagos_aliases = st.pagos_aliases || [];
-    st.pagos_aliases.push(pagoAlias);
+    st.pagos_alias = st.pagos_alias || [];
+    st.pagos_alias.push(pagoAlias);
   }
 }
 
@@ -7923,14 +7923,14 @@ function AliasesTab({ state, setState, session }: any) {
   const [mostrarHistorial, setMostrarHistorial] = useState(false);
 
   // Filtrar aliases
-  const aliasesFiltrados = state.aliases?.filter((a: Alias) => {
+  const aliasesFiltrados = state.alias?.filter((a: Alias) => {
     if (filtroEstado === "todos") return true;
     return a.estado === filtroEstado;
   }) || [];
 
   // Calcular saldo disponible para cada alias
   const aliasesConSaldo = aliasesFiltrados.map((alias: Alias) => {
-    const pagosRealizados = (state.pagos_aliases || [])
+    const pagosRealizados = (state.pagos_alias || [])
       .filter((p: PagoAlias) => p.alias_id === alias.id)
       .reduce((sum: number, p: PagoAlias) => sum + p.monto, 0);
     
@@ -7945,7 +7945,7 @@ function AliasesTab({ state, setState, session }: any) {
 
   // Obtener historial de pagos
   const obtenerHistorialPagos = (aliasId: string) => {
-    const pagos = (state.pagos_aliases || [])
+    const pagos = (state.pagos_alias || [])
       .filter((p: PagoAlias) => p.alias_id === aliasId)
       .sort((a: any, b: any) => new Date(b.fecha_pago).getTime() - new Date(a.fecha_pago).getTime());
 
@@ -7997,13 +7997,13 @@ function AliasesTab({ state, setState, session }: any) {
     const st = clone(state);
     
     if (editando) {
-      const index = st.aliases.findIndex((a: Alias) => a.id === editando);
+      const index = st.alias.findIndex((a: Alias) => a.id === editando);
       if (index !== -1) {
-        nuevoAlias.fecha_creacion = st.aliases[index].fecha_creacion;
-        st.aliases[index] = nuevoAlias;
+        nuevoAlias.fecha_creacion = st.alias[index].fecha_creacion;
+        st.alias[index] = nuevoAlias;
       }
     } else {
-      st.aliases.push(nuevoAlias);
+      st.alias.push(nuevoAlias);
     }
     
     setState(st);
@@ -8042,7 +8042,7 @@ function AliasesTab({ state, setState, session }: any) {
 
   async function toggleEstadoAlias(aliasId: string, estadoActual: string) {
     const st = clone(state);
-    const alias = st.aliases.find((a: Alias) => a.id === aliasId);
+    const alias = st.alias.find((a: Alias) => a.id === aliasId);
     
     if (alias) {
       alias.estado = estadoActual === "activo" ? "inactivo" : "activo";
@@ -8080,7 +8080,7 @@ function AliasesTab({ state, setState, session }: any) {
             </div>
 
             {(() => {
-              const aliasInfo = state.aliases?.find((a: Alias) => a.id === aliasSeleccionado);
+              const aliasInfo = state.alias?.find((a: Alias) => a.id === aliasSeleccionado);
               if (!aliasInfo) return null;
               
               const historial = obtenerHistorialPagos(aliasSeleccionado);
