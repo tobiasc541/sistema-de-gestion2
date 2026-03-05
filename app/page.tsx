@@ -1691,8 +1691,7 @@ function FacturacionTab({ state, setState, session }: any) {
     
     alert(`✅ Pedido enviado a Mili\nNúmero: ${number}\nTotal: ${money(total)}\nMili completará el pago.`);
   }
-
-  // Función para guardar e imprimir factura
+// Función para guardar e imprimir factura
   async function saveAndPrint() {
     if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
     if (items.length === 0) return alert("Agregá productos al carrito.");
@@ -1770,41 +1769,73 @@ function FacturacionTab({ state, setState, session }: any) {
       status: "pendiente"
     };
 
+    // ===== GUARDAR EN SUPABASE - VERSIÓN CORREGIDA =====
     try {
-      console.log("📦 Guardando en pedidos_preparar:", pedidoPreparar);
-      const { error } = await supabase.from("pedidos_preparar").insert(pedidoPreparar);
+      // 1. GUARDAR LA FACTURA (ESTO ES LO QUE FALTABA)
+      console.log("📝 Guardando factura en Supabase...");
+      const { error: invoiceError } = await supabase
+        .from("invoices")
+        .insert([invoice]);
       
-      if (error) {
-        console.error("❌ Error al guardar en pedidos_preparar:", error);
-        alert(`Error al guardar: ${error.message}`);
-        throw error;
-      } else {
-        console.log("✅ Pedido preparar guardado correctamente");
-        st.pedidos_preparar = st.pedidos_preparar || [];
-        st.pedidos_preparar.push(pedidoPreparar);
-        setState(st);
+      if (invoiceError) {
+        console.error("❌ Error guardando factura:", invoiceError);
+        alert(`Error al guardar factura: ${invoiceError.message}`);
+        return;
       }
+      console.log("✅ Factura guardada correctamente");
+
+      // 2. Guardar pedido a preparar
+      console.log("📦 Guardando en pedidos_preparar:", pedidoPreparar);
+      const { error: prepError } = await supabase
+        .from("pedidos_preparar")
+        .insert([pedidoPreparar]);
+      
+      if (prepError) {
+        console.error("❌ Error guardando pedido_preparar:", prepError);
+        alert(`Error al guardar pedido a preparar: ${prepError.message}`);
+        return;
+      }
+      console.log("✅ Pedido preparar guardado correctamente");
+
+      // 3. Actualizar cliente (saldo a favor)
+      const { error: clientError } = await supabase
+        .from("clients")
+        .update({ saldo_favor: cl.saldo_favor })
+        .eq("id", client.id);
+      
+      if (clientError) {
+        console.error("❌ Error actualizando cliente:", clientError);
+      } else {
+        console.log("✅ Cliente actualizado");
+      }
+
+      // 4. Actualizar stock de productos
+      for (const item of items) {
+        const product = st.products.find((p: any) => p.id === item.productId);
+        if (product) {
+          const { error: stockError } = await supabase
+            .from("products")
+            .update({ stock: product.stock })
+            .eq("id", item.productId);
+          
+          if (stockError) {
+            console.warn(`⚠️ Error actualizando stock de ${item.name}:`, stockError);
+          } else {
+            console.log(`✅ Stock actualizado: ${item.name}`);
+          }
+        }
+      }
+
+      // 5. Actualizar contadores
+      await saveCountersSupabase(st.meta);
+      
     } catch (error) {
-      console.error("❌ Error crítico:", error);
-      alert("Error al guardar el pedido a preparar");
+      console.error("💥 Error crítico:", error);
+      alert("Error al guardar los datos en Supabase");
       return;
     }
-
-    await supabase.from("clients").update({ 
-      saldo_favor: cl.saldo_favor 
-    }).eq("id", client.id);
-
-    for (const item of items) {
-      const product = st.products.find((p: any) => p.id === item.productId);
-      if (product) {
-        await supabase.from("products")
-          .update({ stock: product.stock })
-          .eq("id", item.productId);
-      }
-    }
-
-    await saveCountersSupabase(st.meta);
     
+    // Actualizar estado local con pedido preparar
     st.pedidos_preparar = st.pedidos_preparar || [];
     st.pedidos_preparar.push(pedidoPreparar);
     setState(st);
