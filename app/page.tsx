@@ -7973,63 +7973,97 @@ function AliasesTab({ state, setState, session }: any) {
     });
   };
 
-  async function guardarAlias() {
-    if (!alias.trim()) return alert("El alias es obligatorio");
-    if (!titular.trim()) return alert("El nombre del titular es obligatorio");
-    if (!cuil.trim()) return alert("El CUIL es obligatorio");
-    if (!montoInicial || parseNum(montoInicial) <= 0) return alert("El monto inicial debe ser mayor a 0");
-
-    const ahora = new Date().toISOString();
-    
-    const nuevoAlias: Alias = {
-      id: editando || "alias_" + Math.random().toString(36).slice(2, 8),
-      alias: alias.trim().toLowerCase(),
-      titular_nombre: titular.trim(),
-      cuil: cuil.trim(),
-      monto_inicial: parseNum(montoInicial),
-      monto_disponible: parseNum(montoInicial),
-      estado: "activo",
-      notas: notas.trim() || undefined,
-      fecha_creacion: editando ? undefined : ahora,
-      fecha_actualizacion: ahora,
-    };
-
-    const st = clone(state);
-    
-    if (editando) {
-      const index = st.alias.findIndex((a: Alias) => a.id === editando);
-      if (index !== -1) {
-        nuevoAlias.fecha_creacion = st.alias[index].fecha_creacion;
-        st.alias[index] = nuevoAlias;
-      }
-    } else {
-      st.alias.push(nuevoAlias);
-    }
-    
-    setState(st);
-
-    if (hasSupabase) {
-      try {
-        if (editando) {
-          await supabase.from("aliases").update(nuevoAlias).eq("id", editando);
-        } else {
-          await supabase.from("aliases").insert(nuevoAlias);
-        }
-        alert(`Alias ${editando ? 'actualizado' : 'agregado'} correctamente`);
-      } catch (error) {
-        console.error("Error guardando alias:", error);
-        alert("Error al guardar en Supabase");
-      }
-    }
-
-    // Limpiar formulario
-    setAlias("");
-    setTitular("");
-    setCuil("");
-    setMontoInicial("");
-    setNotas("");
-    setEditando(null);
+ async function guardarAlias() {
+  console.log("🚀 Botón clickeado - Iniciando guardarAlias");
+  
+  console.log("Validando campos:", { alias, titular, cuil, montoInicial });
+  
+  if (!alias.trim()) {
+    console.log("❌ Error: alias vacío");
+    return alert("El alias es obligatorio");
   }
+  if (!titular.trim()) {
+    console.log("❌ Error: titular vacío");
+    return alert("El nombre del titular es obligatorio");
+  }
+  if (!cuil.trim()) {
+    console.log("❌ Error: cuil vacío");
+    return alert("El CUIL es obligatorio");
+  }
+  if (!montoInicial || parseNum(montoInicial) <= 0) {
+    console.log("❌ Error: monto inválido", montoInicial);
+    return alert("El monto inicial debe ser mayor a 0");
+  }
+
+  console.log("✅ Validaciones pasaron");
+
+  const ahora = new Date().toISOString();
+  console.log("Fecha actual:", ahora);
+  
+  const nuevoAlias: Alias = {
+    id: editando || "alias_" + Math.random().toString(36).slice(2, 8),
+    alias: alias.trim().toLowerCase(),
+    titular_nombre: titular.trim(),
+    cuil: cuil.trim(),
+    monto_inicial: parseNum(montoInicial),
+    monto_disponible: parseNum(montoInicial),
+    estado: "activo",
+    notas: notas.trim() || undefined,
+    fecha_creacion: editando ? undefined : ahora,
+    fecha_actualizacion: ahora,
+  };
+
+  console.log("📦 Objeto a guardar:", nuevoAlias);
+
+  const st = clone(state);
+  console.log("📋 Estado clonado");
+  
+  if (editando) {
+    console.log("✏️ Modo edición para ID:", editando);
+    const index = st.alias.findIndex((a: Alias) => a.id === editando);
+    if (index !== -1) {
+      nuevoAlias.fecha_creacion = st.alias[index].fecha_creacion;
+      st.alias[index] = nuevoAlias;
+      console.log("✅ Alias actualizado en índice:", index);
+    }
+  } else {
+    console.log("➕ Modo creación - Agregando nuevo alias");
+    st.alias.push(nuevoAlias);
+  }
+  
+  console.log("🔄 Actualizando estado local");
+  setState(st);
+
+  if (hasSupabase) {
+    console.log("☁️ Intentando guardar en Supabase...");
+    try {
+      if (editando) {
+        console.log("📤 Update en Supabase para ID:", editando);
+        await supabase.from("aliases").update(nuevoAlias).eq("id", editando);
+      } else {
+        console.log("📤 Insert en Supabase");
+        await supabase.from("aliases").insert(nuevoAlias);
+      }
+      console.log("✅ Guardado en Supabase exitoso");
+      alert(`Alias ${editando ? 'actualizado' : 'agregado'} correctamente`);
+    } catch (error) {
+      console.error("❌ Error en Supabase:", error);
+      alert("Error al guardar en Supabase: " + error.message);
+    }
+  } else {
+    console.log("💾 Modo local - Sin Supabase");
+    alert(`Alias ${editando ? 'actualizado' : 'agregado'} correctamente (solo local)`);
+  }
+
+  // Limpiar formulario
+  console.log("🧹 Limpiando formulario");
+  setAlias("");
+  setTitular("");
+  setCuil("");
+  setMontoInicial("");
+  setNotas("");
+  setEditando(null);
+}
 
   function editarAlias(a: Alias) {
     setAlias(a.alias);
@@ -13421,7 +13455,7 @@ export default function Page() {
             {session.role === "admin" && tab === "Inversores" && (
   <InversoresTab state={state} setState={setState} session={session} />
 )}
-         {session.role === "admin" && tab === "Alias" && (
+  {(session.role === "admin" || session.role === "vendedor") && tab === "Alias" && (
   <AliasesTab state={state} setState={setState} session={session} />
 )}
 
