@@ -1751,24 +1751,21 @@ function FacturacionTab({ state, setState, session }: any) {
     st.meta.lastSavedInvoiceId = id;
     setState(st);
 
-    const pedidoPreparar = {
-      id: "prep_" + Math.random().toString(36).slice(2, 8),
-      pedido_pendiente_id: null,
-      pedido_online_id: null,
-      tipo: "facturacion",
-      client_id: client.id,
-      client_name: client.name,
-      client_number: client.number,
-      items: items.map((item: any) => ({
-        name: item.name,
-        section: item.section || "General",
-        qty: item.qty,
-      })),
-      observaciones: "",
-      fecha_creacion: todayISO(),
-      status: "pendiente"
-    };
-
+   const pedidoPreparar = {
+  id: "prep_" + Math.random().toString(36).slice(2, 8),
+  pedido_pendiente_id: pedido.id,
+  tipo: "pendiente",
+  client_id: pedido.client_id,
+  client_name: pedido.client_name,
+  items: pedido.items.map((item: any) => ({
+    name: item.name,
+    section: item.section || "General",
+    qty: item.qty,
+  })),
+  observaciones: pedido.observaciones || "",
+  date_iso: todayISO(),
+  status: "pendiente"
+};
     // ===== GUARDAR EN SUPABASE - VERSIÓN CORREGIDA =====
     try {
       // 1. GUARDAR LA FACTURA (ESTO ES LO QUE FALTABA)
