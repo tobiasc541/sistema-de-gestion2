@@ -3080,6 +3080,8 @@ function ProductosTab({ state, setState, role }: any) {
       
       const diferencia = nuevoPrecio - precioActual;
       const porcentajeAumento = precioActual > 0 ? (diferencia / precioActual) * 100 : 0;
+      const diferenciaCosto = nuevoCosto - (producto.cost || 0);
+      const porcentajeAumentoCosto = (producto.cost || 0) > 0 ? (diferenciaCosto / (producto.cost || 0)) * 100 : 0;
 
       return {
         id: producto.id,
@@ -3087,6 +3089,8 @@ function ProductosTab({ state, setState, role }: any) {
         seccion: producto.section,
         costo_actual: producto.cost || 0,
         costo_nuevo: nuevoCosto,
+        diferencia_costo: Math.round(diferenciaCosto * 100) / 100,
+        porcentaje_aumento_costo: Math.round(porcentajeAumentoCosto * 100) / 100,
         precio_actual: precioActual,
         precio_nuevo: nuevoPrecio,
         diferencia: Math.round(diferencia * 100) / 100,
@@ -3191,8 +3195,18 @@ function ProductosTab({ state, setState, role }: any) {
   }
 
   // 👇👇👇 FUNCIÓN PARA GENERAR LISTA DE PRECIOS POR SECCIÓN EN PDF
-  function imprimirListaPreciosPorSeccion() {
-    const productosPorSeccion = state.products.reduce((acc: any, producto: any) => {
+   // 👇👇👇 FUNCIÓN PARA GENERAR LISTA DE PRECIOS COMPLETA (SIN COSTOS)
+  function imprimirListaPreciosCompleta() {
+    let productosFiltrados = state.products;
+    
+    // Aplicar filtro de sección
+    if (seccionImpresion !== "Todas") {
+      productosFiltrados = productosFiltrados.filter((p: any) => 
+        p.section === seccionImpresion
+      );
+    }
+    
+    const productosPorSeccion = productosFiltrados.reduce((acc: any, producto: any) => {
       const seccion = producto.section || "General";
       if (!acc[seccion]) acc[seccion] = [];
       acc[seccion].push(producto);
@@ -3203,13 +3217,29 @@ function ProductosTab({ state, setState, role }: any) {
       productosPorSeccion[seccion].sort((a: any, b: any) => a.name.localeCompare(b.name));
     });
 
+    // Fecha y hora actual para el PDF
+    const fechaActual = new Date();
+    const fechaFormateada = fechaActual.toLocaleDateString("es-AR", {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const horaFormateada = fechaActual.toLocaleTimeString("es-AR", {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+
     const dataImpresion = {
-      type: "ListaPrecios",
-      titulo: "LISTA DE PRECIOS POR SECCIÓN",
-      fecha: new Date().toLocaleString("es-AR"),
+      type: "ListaPreciosNueva",
+      titulo: "LISTA DE PRECIOS MITOBICEL",
+      subtitulo: "POR PALLET DE 100 BULTOS",
+      fecha: fechaFormateada,
+      hora: horaFormateada,
+      seccion: seccionImpresion,
       productosPorSeccion: productosPorSeccion,
       resumen: {
-        totalProductos: state.products.length,
+        totalProductos: productosFiltrados.length,
         totalSecciones: Object.keys(productosPorSeccion).length,
       }
     };
@@ -3604,7 +3634,29 @@ function ProductosTab({ state, setState, role }: any) {
           </table>
         </div>
       </Card>
-
+      {/* 🖨️ IMPRESIÓN DE LISTA DE PRECIOS */}
+      <Card title="📋 Impresión de Lista de Precios">
+        <div className="grid md:grid-cols-3 gap-3">
+          <Select
+            label="Filtrar por Sección"
+            value={seccionImpresion}
+            onChange={setSeccionImpresion}
+            options={[
+              { value: "Todas", label: "Todas las Secciones" },
+              ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))
+                .map((s: string) => ({ value: s, label: s }))
+            ]}
+          />
+          <div className="pt-6">
+            <Button onClick={imprimirListaPreciosCompleta} tone="emerald">
+              📄 Imprimir Lista de Precios
+            </Button>
+          </div>
+          <div className="pt-6 text-sm text-slate-400">
+            Lista de precios sin costos - MITOBICEL POR PALLET DE 100 BULTOS
+          </div>
+        </div>
+      </Card>
       {/* 🖨️ SISTEMA DE IMPRESIÓN DE STOCK */}
       <Card title="🖨️ Impresión de Stock">
         <div className="grid md:grid-cols-4 gap-3">
@@ -3739,7 +3791,7 @@ function ProductosTab({ state, setState, role }: any) {
             <div className="mt-4 border border-slate-700 rounded-lg overflow-hidden">
               <div className="bg-slate-800/70 p-3 font-semibold text-sm flex justify-between">
                 <span>📋 Vista Previa - Productos que se verán afectados ({vistaPrevia.length})</span>
-                <Button onClick={imprimirListaPreciosPorSeccion} tone="slate" className="text-xs">
+                <Button onClick={imprimirListaPreciosCompleta} tone="slate" className="text-xs">
                   📋 LISTA DE PRECIOS
                 </Button>
               </div>
@@ -3757,6 +3809,8 @@ function ProductosTab({ state, setState, role }: any) {
                         <>
                           <th className="py-2 px-3 text-right">Costo Actual</th>
                           <th className="py-2 px-3 text-right">Costo Nuevo</th>
+                          <th className="py-2 px-3 text-right">Dif. Costo</th>
+                          <th className="py-2 px-3 text-right">% Costo</th>
                         </>
                       )}
                     </tr>
@@ -3780,6 +3834,12 @@ function ProductosTab({ state, setState, role }: any) {
                           <>
                             <td className="py-2 px-3 text-right">{money(item.costo_actual)}</td>
                             <td className="py-2 px-3 text-right text-emerald-400">{money(item.costo_nuevo)}</td>
+                            <td className="py-2 px-3 text-right text-amber-400">
+                              +{money(item.diferencia_costo)}
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              +{item.porcentaje_aumento_costo}%
+                            </td>
                           </>
                         )}
                       </tr>
@@ -3788,7 +3848,7 @@ function ProductosTab({ state, setState, role }: any) {
                   {vistaPrevia.length > 20 && (
                     <tfoot>
                       <tr>
-                        <td colSpan={actualizarCosto ? 8 : 6} className="py-2 px-3 text-center text-slate-400 text-sm">
+                        <td colSpan={actualizarCosto ? 10 : 6} className="py-2 px-3 text-center text-slate-400 text-sm">
                           ... y {vistaPrevia.length - 20} productos más
                         </td>
                       </tr>
@@ -3803,6 +3863,14 @@ function ProductosTab({ state, setState, role }: any) {
                   <span className="ml-2 font-bold text-emerald-400">
                     +{money(vistaPrevia.reduce((sum, item) => sum + item.diferencia, 0))}
                   </span>
+                  {actualizarCosto && (
+                    <span className="ml-4">
+                      <span className="text-slate-400">Impacto en costos:</span>
+                      <span className="ml-2 font-bold text-amber-400">
+                        +{money(vistaPrevia.reduce((sum, item) => sum + item.diferencia_costo, 0))}
+                      </span>
+                    </span>
+                  )}
                 </div>
                 <Button onClick={aplicarAjusteMasivo} tone="emerald">
                   🚀 APLICAR AJUSTE A {vistaPrevia.length} PRODUCTOS
@@ -10044,6 +10112,117 @@ if (ticket) {
     </div>
   );
 }
+  // ==== PLANTILLA: LISTA DE PRECIOS NUEVA (SIN COSTOS) ====
+if (inv?.type === "ListaPreciosNueva") {
+  const fmt = (n: number) => money(parseNum(n));
+  
+  return (
+    <div className="only-print print-area p-14">
+      <div className="max-w-[780px] mx-auto text-black">
+        {/* TÍTULO PRINCIPAL EN GRANDE */}
+        <div className="text-center mb-8">
+          <div style={{ fontWeight: 800, fontSize: 32, letterSpacing: 2, color: "#059669" }}>
+            {inv.titulo}
+          </div>
+          <div style={{ fontWeight: 700, fontSize: 20, marginTop: 8, color: "#1e293b" }}>
+            {inv.subtitulo}
+          </div>
+          <div style={{ marginTop: 16, fontSize: 12, color: "#64748b", borderTop: "1px solid #e2e8f0", paddingTop: 12 }}>
+            <div>📅 Fecha: {inv.fecha}</div>
+            <div>🕐 Hora: {inv.hora}</div>
+            {inv.seccion !== "Todas" && (
+              <div>📂 Sección: {inv.seccion}</div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ borderTop: "2px solid #000", margin: "8px 0 12px" }} />
+
+        {/* Resumen */}
+        <div className="grid grid-cols-2 gap-3 text-sm mb-6" style={{ border: "1px solid #000", padding: 10, backgroundColor: "#f8fafc" }}>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{inv.resumen.totalProductos}</div>
+            <div>Productos totales</div>
+          </div>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{inv.resumen.totalSecciones}</div>
+            <div>Secciones</div>
+          </div>
+        </div>
+
+        {/* Listado por sección - SIN COSTOS */}
+        {Object.entries(inv.productosPorSeccion).map(([seccion, productos]: [string, any]) => (
+          <div key={seccion} style={{ marginBottom: 24, pageBreakInside: 'avoid' }}>
+            <div style={{ 
+              backgroundColor: '#e2e8f0', 
+              padding: '10px 12px', 
+              fontWeight: 800, 
+              fontSize: 16,
+              border: '1px solid #000',
+              marginBottom: 10,
+              borderRadius: '4px'
+            }}>
+              🗂️ {seccion} ({productos.length} productos)
+            </div>
+            
+            <table className="print-table" style={{ width: '100%', fontSize: 11 }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #000' }}>
+                  <th style={{ textAlign: 'left', padding: '8px', width: '45%' }}>Producto</th>
+                  <th style={{ textAlign: 'center', padding: '8px', width: '12%' }}>Unidad</th>
+                  <th style={{ textAlign: 'right', padding: '8px', width: '15%' }}>Precio 1</th>
+                  <th style={{ textAlign: 'right', padding: '8px', width: '15%' }}>Precio 2</th>
+                  <th style={{ textAlign: 'right', padding: '8px', width: '13%' }}>Precio 3/4/5</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productos.map((p: any, idx: number) => (
+                  <tr key={p.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                    <td style={{ padding: '8px', fontWeight: 500 }}>{p.name}</td>
+                    <td style={{ textAlign: 'center', padding: '8px' }}>{p.unidad || "BULTO"}</td>
+                    <td style={{ textAlign: 'right', padding: '8px', fontWeight: 600, color: '#059669' }}>
+                      {fmt(p.price1)}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '8px', fontWeight: 600, color: '#059669' }}>
+                      {fmt(p.price2)}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '8px' }}>
+                      <div>L3: {fmt(p.price3 || 0)}</div>
+                      <div>L4: {fmt(p.price4 || 0)}</div>
+                      <div>L5: {fmt(p.price5 || 0)}</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ backgroundColor: '#f8fafc', fontWeight: 700, borderTop: '2px solid #000' }}>
+                  <td style={{ padding: '10px' }}>Total {seccion}:</td>
+                  <td style={{ textAlign: 'center' }}>{productos.length} productos</td>
+                  <td colSpan={3} style={{ textAlign: 'right' }}>
+                    {productos.length} artículos disponibles
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        ))}
+
+        {/* NOTA FINAL */}
+        <div className="mt-8 text-center" style={{ borderTop: '1px solid #cbd5e1', paddingTop: 16 }}>
+          <div style={{ fontSize: 10, color: '#475569' }}>
+            * Precios por pallet de 100 bultos - Sujetos a cambios sin previo aviso
+          </div>
+          <div style={{ fontSize: 10, marginTop: 4, color: '#475569' }}>
+            Lista generada automáticamente el {inv.fecha} a las {inv.hora}
+          </div>
+          <div style={{ fontSize: 9, marginTop: 8, color: '#94a3b8' }}>
+            {APP_TITLE}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ==== PLANTILLA: FACTURA ====
 const paidCash = parseNum(inv?.payments?.cash || 0);
@@ -10125,6 +10304,7 @@ if (inv?.type === "BoletaPreparacion") {
     </div>
   );
 }
+  
 
 return (
   <div className="only-print print-area p-14">
