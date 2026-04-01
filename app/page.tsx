@@ -2907,14 +2907,7 @@ function ProductosTab({ state, setState, role }: any) {
   const [filtroImpresion, setFiltroImpresion] = useState("todos");
   const [seccionImpresion, setSeccionImpresion] = useState("Todas");
 
-  // 👇👇👇 AGREGAR ESTE useMemo AQUÍ
-  const productosFiltradosPorCategoria = useMemo(() => {
-    if (categoriaSeleccionada === "todas") {
-      return state.products;
-    }
-    return state.products.filter((p: any) => p.section === categoriaSeleccionada);
-  }, [state.products, categoriaSeleccionada]);  
-    // 👇👇👇 ESTADOS PARA AJUSTE MASIVO DE PRECIOS
+  // 👇👇👇 ESTADOS PARA AJUSTE MASIVO DE PRECIOS
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState("todas");
   const [productoEspecifico, setProductoEspecifico] = useState("");
   const [tipoAjuste, setTipoAjuste] = useState("porcentaje");
@@ -2922,6 +2915,14 @@ function ProductosTab({ state, setState, role }: any) {
   const [listasAjustar, setListasAjustar] = useState("todas");
   const [actualizarCosto, setActualizarCosto] = useState(false);
   const [vistaPrevia, setVistaPrevia] = useState<any[]>([]);
+
+  // 👇👇👇 AGREGAR ESTE useMemo AQUÍ
+  const productosFiltradosPorCategoria = useMemo(() => {
+    if (categoriaSeleccionada === "todas") {
+      return state.products;
+    }
+    return state.products.filter((p: any) => p.section === categoriaSeleccionada);
+  }, [state.products, categoriaSeleccionada]);  
 
   // 👇👇👇 FUNCIÓN PARA IMPRIMIR STOCK
   function imprimirStockCompleto() {
@@ -3031,7 +3032,8 @@ function ProductosTab({ state, setState, role }: any) {
       setIngresoStock({ productoId: "", cantidad: "", costo: "" });
     }
   }
-    // 👇👇👇 FUNCIÓN PARA CALCULAR VISTA PREVIA (AUMENTO SOBRE PRECIO EXISTENTE)
+  
+  // 👇👇👇 FUNCIÓN PARA CALCULAR VISTA PREVIA (AUMENTO SOBRE PRECIO EXISTENTE)
   function calcularVistaPrevia() {
     const valor = parseNum(valorAjuste);
     if (valor <= 0) {
@@ -3219,37 +3221,35 @@ function ProductosTab({ state, setState, role }: any) {
   async function addProduct() {
     if (!name.trim()) return;
 
-     const product = {
-    id: editando || "p" + Math.random().toString(36).slice(2, 8),
-    name: name.trim(),
-    section: section.trim() || "General",
-    price1: parseNum(price1),
-    price2: parseNum(price2),
-    price3: parseNum(price3 || 0), // 👈 NUEVO
-    price4: parseNum(price4 || 0), // 👈 NUEVO
-    price5: parseNum(price5 || 0), // 👈 NUEVO
-    stock: parseNum(stock),
-    stock_min: parseNum(stockMinimo),
-    cost: parseNum(cost),
-    list_label: "General"
-  };
+    const product = {
+      id: editando || "p" + Math.random().toString(36).slice(2, 8),
+      name: name.trim(),
+      section: section.trim() || "General",
+      price1: parseNum(price1),
+      price2: parseNum(price2),
+      price3: parseNum(price3 || 0),
+      price4: parseNum(price4 || 0),
+      price5: parseNum(price5 || 0),
+      stock: parseNum(stock),
+      stock_min: parseNum(stockMinimo),
+      cost: parseNum(cost),
+      list_label: "General"
+    };
 
     const st = clone(state);
     
     if (editando) {
-      // Editar producto existente
       const index = st.products.findIndex((p: any) => p.id === editando);
       if (index !== -1) {
         st.products[index] = { ...st.products[index], ...product };
       }
     } else {
-      // Agregar nuevo producto
       st.products.push(product);
     }
     
     setState(st);
     
-       // Limpiar formulario
+    // Limpiar formulario
     setName("");
     setPrice1("");
     setPrice2("");
@@ -3272,6 +3272,9 @@ function ProductosTab({ state, setState, role }: any) {
               section: product.section,
               price1: product.price1,
               price2: product.price2,
+              price3: product.price3,
+              price4: product.price4,
+              price5: product.price5,
               stock: product.stock,
               stock_min: product.stock_min,
               cost: product.cost,
@@ -3306,9 +3309,31 @@ function ProductosTab({ state, setState, role }: any) {
     setEditando(producto.id);
   }
 
-  
+  async function eliminarProducto(productoId: string) {
+    if (!confirm("¿Estás seguro de eliminar este producto?")) return;
+    
+    const st = clone(state);
+    st.products = st.products.filter((p: any) => p.id !== productoId);
+    setState(st);
 
-  
+    if (hasSupabase) {
+      await supabase.from("products").delete().eq("id", productoId);
+    }
+    
+    alert("Producto eliminado correctamente");
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 space-y-4">
+      {/* MÉTRICAS DEL INVENTARIO */}
+      <Card title="📊 Métricas del Inventario">
+        <div className="grid grid-cols-4 gap-4 text-center">
+          <div>
+            <div className="text-2xl font-bold text-emerald-400">{money(capitalInventario)}</div>
+            <div className="text-sm text-slate-400">Capital en Inventario</div>
+            <div className="text-xs text-slate-500 mt-1">
+              Valor total de stock
+            </div>
           </div>
           
           <div className="text-center">
@@ -3340,7 +3365,7 @@ function ProductosTab({ state, setState, role }: any) {
           </div>
         </div>
 
-        {/* 👇👇👇 DETALLE ADICIONAL */}
+        {/* DETALLE ADICIONAL */}
         <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
           <div className="p-3 bg-slate-800/30 rounded-lg">
             <div className="font-semibold mb-2">📊 Valorización por Sección</div>
@@ -3389,7 +3414,7 @@ function ProductosTab({ state, setState, role }: any) {
         </div>
       </Card>
 
-      {/* 👇👇👇 ALERTA PARA PRODUCTOS SIN COSTO */}
+      {/* ALERTA PARA PRODUCTOS SIN COSTO */}
       {productosSinCosto > 0 && (
         <Card title="📝 Productos que Requieren Atención">
           <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-4">
@@ -3427,7 +3452,7 @@ function ProductosTab({ state, setState, role }: any) {
         </Card>
       )}
       
-      {/* 👇👇👇 SECCIÓN DE INGRESO DE STOCK */}
+      {/* SECCIÓN DE INGRESO DE STOCK */}
       <Card title="📦 Ingresar Stock">
         <div className="grid md:grid-cols-4 gap-3">
           <Select
@@ -3468,7 +3493,7 @@ function ProductosTab({ state, setState, role }: any) {
         </div>
       </Card>
 
-         <Card title={editando ? "✏️ Editar producto" : "➕ Crear producto"}>
+      <Card title={editando ? "✏️ Editar producto" : "➕ Crear producto"}>
         <div className="grid md:grid-cols-6 gap-3">
           <Input label="Nombre" value={name} onChange={setName} />
           <Input label="Sección" value={section} onChange={setSection} placeholder="General" />
@@ -3484,16 +3509,23 @@ function ProductosTab({ state, setState, role }: any) {
             <Button onClick={addProduct}>
               {editando ? "Actualizar" : "Agregar"}
             </Button>
- {editando && (
-  <Button tone="slate" onClick={() => {
-    setEditando(null);
-    // Los estados no existen, así que simplemente cancelamos la edición
-    // sin intentar limpiar campos que no están definidos
-  }}>
-    Cancelar
-  </Button>
-)}
-          
+            {editando && (
+              <Button tone="slate" onClick={() => {
+                setEditando(null);
+                setName("");
+                setSection("");
+                setPrice1("");
+                setPrice2("");
+                setPrice3("");
+                setPrice4("");
+                setPrice5("");
+                setStock("");
+                setStockMinimo("");
+                setCost("");
+              }}>
+                Cancelar
+              </Button>
+            )}
           </div>
         </div>
       </Card>
@@ -3501,11 +3533,11 @@ function ProductosTab({ state, setState, role }: any) {
       <Card title="📋 Listado de productos">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-                       <thead className="text-left text-slate-400">
+            <thead className="text-left text-slate-400">
               <tr>
                 <th className="py-2 pr-4">Nombre</th>
                 <th className="py-2 pr-4">Sección</th>
-                             <th className="py-2 pr-4" title="MITOBICEL LOCAL">P1</th>
+                <th className="py-2 pr-4" title="MITOBICEL LOCAL">P1</th>
                 <th className="py-2 pr-4" title="MITOBICEL PROVINCIAS">P2</th>
                 <th className="py-2 pr-4" title="MITOBICEL EXCLUSIVO">P3</th>
                 <th className="py-2 pr-4" title="ALE LOCAL">P4</th>
@@ -3526,7 +3558,7 @@ function ProductosTab({ state, setState, role }: any) {
                   <tr key={p.id} className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "bg-red-900/20" : ""}>
                     <td className="py-2 pr-4">{p.name}</td>
                     <td className="py-2 pr-4">{p.section}</td>
-                                        <td className="py-2 pr-4">{money(p.price1)}</td>
+                    <td className="py-2 pr-4">{money(p.price1)}</td>
                     <td className="py-2 pr-4">{money(p.price2)}</td>
                     <td className="py-2 pr-4">{money(p.price3 || 0)}</td>
                     <td className="py-2 pr-4">{money(p.price4 || 0)}</td>
@@ -3608,9 +3640,7 @@ function ProductosTab({ state, setState, role }: any) {
           </div>
         </div>
       </Card>
-    </div>
-  );
-}
+
       {/* 👇👇👇 NUEVO: PANEL DE AJUSTE MASIVO DE PRECIOS */}
       <Card title="💰 Ajuste Masivo de Precios">
         <div className="space-y-4">
@@ -3782,6 +3812,9 @@ function ProductosTab({ state, setState, role }: any) {
           )}
         </div>
       </Card>
+    </div>
+  );
+}
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS ===== */
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS MEJORADO ===== */
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS MEJORADO ===== */
