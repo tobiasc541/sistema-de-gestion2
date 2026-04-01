@@ -333,7 +333,7 @@ function seedState() {
       gabiFundsByDate: {} as Record<string, number>,
       
     },
-    auth: { adminKey: "46892389" },
+    auth: { adminKey: "25169539" },
     vendors: [] as any[],
     clients: [] as any[],
     products: [] as any[],
@@ -6142,6 +6142,7 @@ function ReportesTab({ state, setState, session }: any) {
 function PresupuestosTab({ state, setState, session }: any) {
   const [clientId, setClientId] = useState(state.clients[0]?.id || "");
   const [vendorId, setVendorId] = useState(session.role === "admin" ? state.vendors[0]?.id : session.id);
+  const [clienteSearch, setClienteSearch] = useState("");
   const [priceList, setPriceList] = useState(() => {
     // Si hay cliente seleccionado, usar su lista predeterminada
     if (clientId) {
@@ -6150,6 +6151,13 @@ function PresupuestosTab({ state, setState, session }: any) {
     }
     return "1";
   });
+  const filteredClients = state.clients.filter((c: any) => {
+  if (!clienteSearch.trim()) return true;
+  const searchTerm = clienteSearch.toLowerCase().trim();
+  const matchName = c.name.toLowerCase().includes(searchTerm);
+  const matchNumber = String(c.number).includes(searchTerm);
+  return matchName || matchNumber;
+});
   const [sectionFilter, setSectionFilter] = useState("Todas");
   const [listFilter, setListFilter] = useState("Todas");
   const [items, setItems] = useState<any[]>([]);
@@ -6318,8 +6326,71 @@ function PresupuestosTab({ state, setState, session }: any) {
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       <Card title="Nuevo presupuesto">
         <div className="grid md:grid-cols-4 gap-3">
-          <Select label="Cliente" value={clientId} onChange={setClientId} options={state.clients.map((c: any) => ({ value: c.id, label: `${c.number} — ${c.name}` }))} />
-          <Select label="Vendedor" value={vendorId} onChange={setVendorId} options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))} />
+{/* BUSCADOR DE CLIENTES - IGUAL AL DE FACTURACIÓN */}
+<div className="relative">
+  <Input
+    label="Buscar Cliente (Nombre o Número)"
+    value={clienteSearch}
+    onChange={setClienteSearch}
+    placeholder="Ej: 'Kiosco' o '1001'..."
+    className="pr-20"
+  />
+  {clienteSearch && (
+    <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+      {filteredClients.length === 0 ? (
+        <div className="p-3 text-sm text-slate-400 text-center">
+          No se encontraron clientes
+        </div>
+      ) : (
+        filteredClients.slice(0, 10).map((c: any) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => {
+              setClientId(c.id);
+              setClienteSearch("");
+            }}
+            className={`w-full text-left p-3 hover:bg-slate-700 border-b border-slate-700 last:border-b-0 ${
+              clientId === c.id ? 'bg-emerald-900/30' : ''
+            }`}
+          >
+            <div className="font-medium">{c.name}</div>
+            <div className="text-xs text-slate-400">
+              N° {c.number} | Lista: {obtenerNombreLista(c.lista_precio || "1")}
+            </div>
+            <div className="text-xs text-slate-500">
+              Deuda: {(() => {
+                const detalleDeudas = calcularDetalleDeudas(state, c.id);
+                const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
+                return deudaNeta > 0 ? money(deudaNeta) : "✅ Al día";
+              })()}
+            </div>
+          </button>
+        ))
+      )}
+    </div>
+  )}
+</div>
+
+{/* Mostrar cliente seleccionado */}
+{client && (
+  <div className="mt-2 p-2 bg-slate-800/50 rounded-lg border border-slate-700">
+    <div className="text-sm font-medium">Cliente seleccionado:</div>
+    <div className="text-sm">
+      <span className="font-semibold">{client.name}</span> 
+      <span className="text-slate-400 ml-2">(N° {client.number})</span>
+    </div>
+    <div className="text-xs text-slate-400 mt-1">
+      Lista: <span className="text-purple-400 font-semibold">
+        {client.lista_precio === "1" ? "MITOBICEL LOCAL" :
+         client.lista_precio === "2" ? "MITOBICEL PROVINCIAS" :
+         client.lista_precio === "3" ? "MITOBICEL EXCLUSIVO" :
+         client.lista_precio === "4" ? "ALE LOCAL" :
+         client.lista_precio === "5" ? "ALE PROVINCIA" : "No asignada"}
+      </span>
+    </div>
+  </div>
+)}          <Select label="Vendedor" value={vendorId} onChange={setVendorId} options={state.vendors.map((v: any) => ({ value: v.id, label: v.name }))} />
           <Select 
             label="Lista de precios" 
             value={priceList} 
