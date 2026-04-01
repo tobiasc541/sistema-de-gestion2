@@ -1,3 +1,4 @@
+/* Presupuestos */
 "use client";
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -6149,18 +6150,17 @@ function PresupuestosTab({ state, setState, session }: any) {
     }
     return "1";
   });
-  const [sectionFilter, setSectionFilter] = useState("Todas"); // 👈 NUEVO
-  const [listFilter, setListFilter] = useState("Todas"); // 👈 NUEVO
+  const [sectionFilter, setSectionFilter] = useState("Todas");
+  const [listFilter, setListFilter] = useState("Todas");
   const [items, setItems] = useState<any[]>([]);
   const [query, setQuery] = useState("");
+  
   const client = state.clients.find((c: any) => c.id === clientId);
   const vendor = state.vendors.find((v: any) => v.id === vendorId);
   
-  // 👇👇👇 AGREGAR ESTAS LÍNEAS PARA LOS FILTROS
   const sections = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "Otros")))];
   const lists = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.list_label || "General")))];
   
-  // 👇👇👇 MODIFICAR ESTA LÍNEA PARA INCLUIR LOS NUEVOS FILTROS
   const filteredProducts = state.products.filter((p: any) => {
     const okS = sectionFilter === "Todas" || p.section === sectionFilter;
     const okL = listFilter === "Todas" || p.list_label === listFilter;
@@ -6168,18 +6168,27 @@ function PresupuestosTab({ state, setState, session }: any) {
     return okS && okL && okQ;
   });
   
-  // 👇👇👇 AGREGAR ESTA LÍNEA PARA AGRUPAR POR SECCIÓN
   const grouped = groupBy(filteredProducts, "section");
+  const total = calcInvoiceTotal(items);
+  
+  // 👇 MOVER EL useEffect AL PRINCIPIO, ANTES DE LAS FUNCIONES
+  useEffect(() => {
+    if (clientId) {
+      const cliente = state.clients.find((c: any) => c.id === clientId);
+      if (cliente?.lista_precio) {
+        setPriceList(cliente.lista_precio);
+      }
+    }
+  }, [clientId, state.clients]);
 
   function addItem(p: any) {
     const existing = items.find((it: any) => it.productId === p.id);
     
-    // Determinar precio según lista seleccionada
-    let unit = p.price1; // MITOBICEL LOCAL por defecto
-    if (priceList === "2") unit = p.price2; // MITOBICEL PROVINCIAS
-    else if (priceList === "3") unit = p.price3 || 0; // MITOBICEL EXCLUSIVO
-    else if (priceList === "4") unit = p.price4 || 0; // ALE LOCAL
-    else if (priceList === "5") unit = p.price5 || 0; // ALE PROVINCIA
+    let unit = p.price1;
+    if (priceList === "2") unit = p.price2;
+    else if (priceList === "3") unit = p.price3 || 0;
+    else if (priceList === "4") unit = p.price4 || 0;
+    else if (priceList === "5") unit = p.price5 || 0;
     
     if (existing) {
       setItems(items.map((it) => (it.productId === p.id ? { ...it, qty: parseNum(it.qty) + 1 } : it)));
@@ -6195,116 +6204,116 @@ function PresupuestosTab({ state, setState, session }: any) {
     }
   }
   
-  // ... el resto de tus funciones permanecen EXACTAMENTE igual ...
   async function guardarPresupuesto() {
-    if (!client || !vendor || items.length === 0) return;
-    const st = clone(state);
-    const number = st.meta.budgetCounter++;
-    const id = "pr_" + number;
-      // 👇👇👇 ACTUALIZAR LISTA CUANDO CAMBIA EL CLIENTE
-  useEffect(() => {
-    if (clientId) {
-      const cliente = state.clients.find((c: any) => c.id === clientId);
-      if (cliente?.lista_precio) {
-        setPriceList(cliente.lista_precio);
-      }
+    if (!client || !vendor || items.length === 0) {
+      alert("Faltan datos: cliente, vendedor o productos");
+      return;
     }
-  }, [clientId, state.clients]);
-    const total = calcInvoiceTotal(items);
-    const b = {
+    
+    try {
+      const st = clone(state);
+      const number = st.meta.budgetCounter++;
+      const id = "pr_" + number;
+      const total = calcInvoiceTotal(items);
+      
+      const b = {
+        id,
+        number,
+        date_iso: todayISO(),
+        client_id: client.id,
+        client_name: client.name,
+        vendor_id: vendor.id,
+        vendor_name: vendor.name,
+        items: clone(items),
+        total,
+        status: "Pendiente",
+      };
+      
+      st.budgets.push(b);
+      setState(st);
+      
+      if (hasSupabase) {
+        await supabase.from("budgets").insert(b);
+        await saveCountersSupabase(st.meta);
+      }
+      
+      alert(`✅ Presupuesto guardado correctamente\nNúmero: ${number}\nTotal: ${money(total)}`);
+      setItems([]);
+      
+    } catch (error: any) {
+      console.error("Error guardando presupuesto:", error);
+      alert(`Error al guardar: ${error.message}`);
+    }
+  }
+
+  async function convertirAFactura(b: any) {
+    const validacionStock = validarStockDisponible(state.products, b.items);
+    if (!validacionStock.valido) {
+      const mensajeError = `No hay suficiente stock para convertir el presupuesto:\n\n${validacionStock.productosSinStock.join('\n')}`;
+      return alert(mensajeError);
+    }
+    
+    const efectivoStr = prompt("¿Cuánto paga en EFECTIVO?", "0") ?? "0";
+    const transferenciaStr = prompt("¿Cuánto paga por TRANSFERENCIA?", "0") ?? "0";
+    const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
+
+    const efectivo = parseNum(efectivoStr);
+    const transferencia = parseNum(transferenciaStr);
+    const alias = aliasStr.trim();
+
+    const st = clone(state);
+    const number = st.meta.invoiceCounter++;
+    const id = "inv_" + number;
+
+    b.items.forEach((item: any) => {
+      const product = st.products.find((p: any) => p.id === item.productId);
+      if (product) {
+        product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
+      }
+    });
+
+    const invoice = {
       id,
       number,
       date_iso: todayISO(),
-      client_id: client.id,
-      client_name: client.name,
-      vendor_id: vendor.id,
-      vendor_name: vendor.name,
-      items: clone(items),
-      total,
-      status: "Pendiente",
+      client_id: b.client_id,
+      client_name: b.client_name,
+      vendor_id: b.vendor_id,
+      vendor_name: b.vendor_name,
+      items: clone(b.items),
+      total: b.total,
+      cost: calcInvoiceCost(b.items),
+      payments: { cash: efectivo, transfer: transferencia, alias },
+      status: (efectivo + transferencia) >= b.total ? "Pagada" : "No Pagada",
+      type: "Factura",
     };
-    st.budgets.push(b);
+
+    st.invoices.push(invoice);
+    const budget = st.budgets.find((x: any) => x.id === b.id)!;
+    budget.status = "Convertido";
     setState(st);
+
     if (hasSupabase) {
-      await supabase.from("budgets").insert(b);
+      await supabase.from("invoices").insert(invoice);
+      await supabase.from("budgets").update({ status: "Convertido" }).eq("id", b.id);
+      
+      for (const item of b.items) {
+        const product = st.products.find((p: any) => p.id === item.productId);
+        if (product) {
+          await supabase.from("products")
+            .update({ stock: product.stock })
+            .eq("id", item.productId);
+        }
+      }
+      
       await saveCountersSupabase(st.meta);
     }
-    alert("Presupuesto guardado.");
-    setItems([]);
+
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
+    await nextPaint();
+    window.print();
   }
 
-async function convertirAFactura(b: any) {
-    // ✅ VALIDAR STOCK ANTES DE CONVERTIR
-  const validacionStock = validarStockDisponible(state.products, b.items);
-  if (!validacionStock.valido) {
-    const mensajeError = `No hay suficiente stock para convertir el presupuesto:\n\n${validacionStock.productosSinStock.join('\n')}`;
-    return alert(mensajeError);
-  }
-  
-  const efectivoStr = prompt("¿Cuánto paga en EFECTIVO?", "0") ?? "0";
-  const transferenciaStr = prompt("¿Cuánto paga por TRANSFERENCIA?", "0") ?? "0";
-  const aliasStr = prompt("Alias/CVU destino de la transferencia (opcional):", "") ?? "";
-
-  const efectivo = parseNum(efectivoStr);
-  const transferencia = parseNum(transferenciaStr);
-  const alias = aliasStr.trim();
-
-  const st = clone(state);
-  const number = st.meta.invoiceCounter++;
-  const id = "inv_" + number;
-
-  // ⭐⭐⭐⭐ DESCONTAR STOCK AL CONVERTIR PRESUPUESTO ⭐⭐⭐⭐⭐
-  b.items.forEach((item: any) => {
-    const product = st.products.find((p: any) => p.id === item.productId);
-    if (product) {
-      product.stock = Math.max(0, parseNum(product.stock) - parseNum(item.qty));
-    }
-  });
-
-  const invoice = {
-    id,
-    number,
-    date_iso: todayISO(),
-    client_id: b.client_id,
-    client_name: b.client_name,
-    vendor_id: b.vendor_id,
-    vendor_name: b.vendor_name,
-    items: clone(b.items),
-    total: b.total,
-    cost: calcInvoiceCost(b.items),
-    payments: { cash: efectivo, transfer: transferencia, alias },
-    status: (efectivo + transferencia) >= b.total ? "Pagada" : "No Pagada",
-    type: "Factura",
-  };
-
-  st.invoices.push(invoice);
-  const budget = st.budgets.find((x: any) => x.id === b.id)!;
-  budget.status = "Convertido";
-  setState(st);
-
-  if (hasSupabase) {
-    await supabase.from("invoices").insert(invoice);
-    await supabase.from("budgets").update({ status: "Convertido" }).eq("id", b.id);
-    
-    // ⭐⭐⭐⭐ ACTUALIZAR STOCK EN SUPABASE ⭐⭐⭐⭐⭐
-    for (const item of b.items) {
-      const product = st.products.find((p: any) => p.id === item.productId);
-      if (product) {
-        await supabase.from("products")
-          .update({ stock: product.stock })
-          .eq("id", item.productId);
-      }
-    }
-    
-    await saveCountersSupabase(st.meta);
-  }
-
-  window.dispatchEvent(new CustomEvent("print-invoice", { detail: invoice } as any));
-  await nextPaint();
-  window.print();
-}
-
-  const total = calcInvoiceTotal(items);
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       <Card title="Nuevo presupuesto">
@@ -6316,10 +6325,10 @@ async function convertirAFactura(b: any) {
             value={priceList} 
             onChange={setPriceList} 
             options={LISTAS_PRECIOS} 
-          />          <Input label="Buscar producto" value={query} onChange={setQuery} placeholder="Nombre..." />
+          />
+          <Input label="Buscar producto" value={query} onChange={setQuery} placeholder="Nombre..." />
         </div>
         
-        {/* 👇👇👇 AGREGAR ESTOS NUEVOS FILTROS */}
         <div className="grid md:grid-cols-4 gap-2 mt-3">
           <Select 
             label="Sección" 
@@ -6341,8 +6350,6 @@ async function convertirAFactura(b: any) {
         <div className="grid md:grid-cols-2 gap-4 mt-3">
           <div className="space-y-2">
             <div className="text-sm font-semibold">Productos</div>
-            
-            {/* 👇👇👇 MODIFICAR LA LISTA DE PRODUCTOS PARA MOSTRAR POR SECCIÓN */}
             <div className="space-y-3">
               {Object.entries(grouped).map(([sec, arr]: any) => (
                 <div key={sec} className="border border-slate-800 rounded-xl">
@@ -6368,51 +6375,49 @@ async function convertirAFactura(b: any) {
             </div>
           </div>
           
-          {/* 👆👆👆 HASTA AQUÍ LOS CAMBIOS EN LA LISTA DE PRODUCTOS */}
-          
           <div className="space-y-2">
             <div className="text-sm font-semibold">Ítems</div>
             <div className="rounded-xl border border-slate-800 divide-y divide-slate-800">
               {items.length === 0 && <div className="p-3 text-sm text-slate-400">Vacío</div>}
-         {items.map((it: any, idx: number) => (
-  <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
-    <div className="col-span-6">
-      <div className="text-sm font-medium">{it.name}</div>
-      <div className="text-xs text-slate-400">{it.section}</div>
-    </div>
-    <div className="col-span-2">
-      <NumberInput
-        label="Cant."
-        value={it.qty}
-        onChange={(v: any) => {
-          const q = Math.max(0, parseNum(v));
-          setItems(items.map((x: any, i: number) => (i === idx ? { ...x, qty: q } : x)));
-        }}
-      />
-    </div>
-    <div className="col-span-3">
-      <NumberInput
-        label="Precio"
-        value={it.unitPrice}
-        onChange={(v: any) => {
-          const q = Math.max(0, parseNum(v));
-          setItems(items.map((x: any, i: number) => (i === idx ? { ...x, unitPrice: q } : x)));
-        }}
-      />
-    </div>
-    <div className="col-span-1 flex items-end justify-end pb-0.5">
-      <button
-        onClick={() => setItems(items.filter((_: any, i: number) => i !== idx))}
-        className="text-xs text-red-400 hover:text-red-300"
-      >
-        ✕
-      </button>
-    </div>
-    <div className="col-span-12 text-right text-xs text-slate-300 pt-1">
-      Subtotal ítem: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
-    </div>
-  </div>
-))}
+              {items.map((it: any, idx: number) => (
+                <div key={idx} className="p-3 grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-6">
+                    <div className="text-sm font-medium">{it.name}</div>
+                    <div className="text-xs text-slate-400">{it.section}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <NumberInput
+                      label="Cant."
+                      value={it.qty}
+                      onChange={(v: any) => {
+                        const q = Math.max(0, parseNum(v));
+                        setItems(items.map((x: any, i: number) => (i === idx ? { ...x, qty: q } : x)));
+                      }}
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    <NumberInput
+                      label="Precio"
+                      value={it.unitPrice}
+                      onChange={(v: any) => {
+                        const q = Math.max(0, parseNum(v));
+                        setItems(items.map((x: any, i: number) => (i === idx ? { ...x, unitPrice: q } : x)));
+                      }}
+                    />
+                  </div>
+                  <div className="col-span-1 flex items-end justify-end pb-0.5">
+                    <button
+                      onClick={() => setItems(items.filter((_: any, i: number) => i !== idx))}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="col-span-12 text-right text-xs text-slate-300 pt-1">
+                    Subtotal ítem: {money(parseNum(it.qty) * parseNum(it.unitPrice))}
+                  </div>
+                </div>
+              ))}
             </div>
             <div className="flex items-center justify-between">
               <div className="text-sm">Total</div>
@@ -6425,7 +6430,6 @@ async function convertirAFactura(b: any) {
         </div>
       </Card>
 
-      {/* EL RESTO DE TU CÓDIGO PERMANECE EXACTAMENTE IGUAL */}
       <Card 
         title="Presupuestos guardados"
         actions={
@@ -6449,7 +6453,7 @@ async function convertirAFactura(b: any) {
                 <th className="py-2 pr-4">Total</th>
                 <th className="py-2 pr-4">Estado</th>
                 <th className="py-2 pr-4">Acción</th>
-              </tr>
+               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
               {state.budgets
@@ -6463,71 +6467,62 @@ async function convertirAFactura(b: any) {
                     <td className="py-2 pr-4">{b.vendor_name}</td>
                     <td className="py-2 pr-4">{money(b.total)}</td>
                     <td className="py-2 pr-4 flex gap-2 items-center">
-  {/* Botón Editar */}
-  <button
-    title="Editar"
-    onClick={() => {
-      setClientId(b.client_id);
-      setVendorId(b.vendor_id);
-      setItems(clone(b.items));
-      alert(`Editando presupuesto Nº ${pad(b.number)}`);
-    }}
-    className="text-blue-400 hover:text-blue-300 text-lg"
-  >
-    ✏️
-  </button>
-
-  {/* Botón Descargar PDF */}
-  <button
-    title="Descargar PDF"
-    onClick={() => {
-      const data = { ...b, type: "Presupuesto" };
-      window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
-      setTimeout(() => window.print(), 0);
-    }}
-    className="text-red-400 hover:text-red-300 text-lg"
-  >
-    📄
-  </button>
-
-  {/* Botón Convertir o estado convertido */}
-  {b.status === "Pendiente" ? (
-    <Button onClick={() => convertirAFactura(b)} tone="emerald">
-      Convertir a factura
-    </Button>
-  ) : (
-    <span className="text-xs">Convertido</span>
-  )}
-{/* Botón Eliminar */}
-<button
-  title="Eliminar presupuesto"
-  onClick={async () => {
-    if (!confirm(`¿Seguro que deseas eliminar el presupuesto Nº ${pad(b.number)}?`)) return;
-    
-    const st = clone(state);
-    st.budgets = st.budgets.filter((x: any) => x.id !== b.id);
-    setState(st);
-    
-    if (hasSupabase) {
-      const { error } = await supabase.from("budgets").delete().eq("id", b.id);
-      if (error) {
-        console.error("Error eliminando presupuesto:", error);
-        alert("Error al eliminar el presupuesto de la base de datos.");
-        // Recargar datos si hay error
-        const refreshedState = await loadFromSupabase(seedState());
-        setState(refreshedState);
-        return;
-      }
-    }
-    alert(`Presupuesto Nº ${pad(b.number)} eliminado correctamente.`);
-  }}
-  className="text-red-500 hover:text-red-400 text-lg ml-2"
->
-  🗑️
-</button>
-</td>
-
-
+                      <button
+                        title="Editar"
+                        onClick={() => {
+                          setClientId(b.client_id);
+                          setVendorId(b.vendor_id);
+                          setItems(clone(b.items));
+                          alert(`Editando presupuesto Nº ${pad(b.number)}`);
+                        }}
+                        className="text-blue-400 hover:text-blue-300 text-lg"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        title="Descargar PDF"
+                        onClick={() => {
+                          const data = { ...b, type: "Presupuesto" };
+                          window.dispatchEvent(new CustomEvent("print-invoice", { detail: data } as any));
+                          setTimeout(() => window.print(), 0);
+                        }}
+                        className="text-red-400 hover:text-red-300 text-lg"
+                      >
+                        📄
+                      </button>
+                      {b.status === "Pendiente" ? (
+                        <Button onClick={() => convertirAFactura(b)} tone="emerald">
+                          Convertir a factura
+                        </Button>
+                      ) : (
+                        <span className="text-xs">Convertido</span>
+                      )}
+                      <button
+                        title="Eliminar presupuesto"
+                        onClick={async () => {
+                          if (!confirm(`¿Seguro que deseas eliminar el presupuesto Nº ${pad(b.number)}?`)) return;
+                          
+                          const st = clone(state);
+                          st.budgets = st.budgets.filter((x: any) => x.id !== b.id);
+                          setState(st);
+                          
+                          if (hasSupabase) {
+                            const { error } = await supabase.from("budgets").delete().eq("id", b.id);
+                            if (error) {
+                              console.error("Error eliminando presupuesto:", error);
+                              alert("Error al eliminar el presupuesto de la base de datos.");
+                              const refreshedState = await loadFromSupabase(seedState());
+                              setState(refreshedState);
+                              return;
+                            }
+                          }
+                          alert(`Presupuesto Nº ${pad(b.number)} eliminado correctamente.`);
+                        }}
+                        className="text-red-500 hover:text-red-400 text-lg ml-2"
+                      >
+                        🗑️
+                      </button>
+                    </td>
                   </tr>
                 ))}
             </tbody>
@@ -6537,7 +6532,6 @@ async function convertirAFactura(b: any) {
     </div>
   );
 }
-
 
 
 // En GastosDevolucionesTab, reemplaza el useEffect completo por este:
