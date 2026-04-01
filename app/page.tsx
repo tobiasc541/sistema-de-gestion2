@@ -2907,6 +2907,22 @@ function ProductosTab({ state, setState, role }: any) {
   const [filtroImpresion, setFiltroImpresion] = useState("todos");
   const [seccionImpresion, setSeccionImpresion] = useState("Todas");
 
+  // 👇👇👇 AGREGAR ESTE useMemo AQUÍ
+  const productosFiltradosPorCategoria = useMemo(() => {
+    if (categoriaSeleccionada === "todas") {
+      return state.products;
+    }
+    return state.products.filter((p: any) => p.section === categoriaSeleccionada);
+  }, [state.products, categoriaSeleccionada]);  
+    // 👇👇👇 ESTADOS PARA AJUSTE MASIVO DE PRECIOS
+  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState("todas");
+  const [productoEspecifico, setProductoEspecifico] = useState("");
+  const [tipoAjuste, setTipoAjuste] = useState("porcentaje");
+  const [valorAjuste, setValorAjuste] = useState("");
+  const [listasAjustar, setListasAjustar] = useState("todas");
+  const [actualizarCosto, setActualizarCosto] = useState(false);
+  const [vistaPrevia, setVistaPrevia] = useState<any[]>([]);
+
   // 👇👇👇 FUNCIÓN PARA IMPRIMIR STOCK
   function imprimirStockCompleto() {
     let productosFiltrados = state.products;
@@ -3015,6 +3031,190 @@ function ProductosTab({ state, setState, role }: any) {
       setIngresoStock({ productoId: "", cantidad: "", costo: "" });
     }
   }
+    // 👇👇👇 FUNCIÓN PARA CALCULAR VISTA PREVIA (AUMENTO SOBRE PRECIO EXISTENTE)
+  function calcularVistaPrevia() {
+    const valor = parseNum(valorAjuste);
+    if (valor <= 0) {
+      alert("Ingresá un valor válido (mayor a 0)");
+      return;
+    }
+
+    let productosAfectados = [];
+    
+    if (productoEspecifico) {
+      const producto = state.products.find((p: any) => p.id === productoEspecifico);
+      if (producto) productosAfectados = [producto];
+    } else {
+      productosAfectados = productosFiltradosPorCategoria;
+    }
+
+    const preview = productosAfectados.map((producto: any) => {
+      // Determinar qué precio base usar según la lista seleccionada
+      let precioActual = 0;
+      if (listasAjustar === "1") precioActual = producto.price1;
+      else if (listasAjustar === "2") precioActual = producto.price2;
+      else if (listasAjustar === "3") precioActual = producto.price3 || 0;
+      else if (listasAjustar === "4") precioActual = producto.price4 || 0;
+      else if (listasAjustar === "5") precioActual = producto.price5 || 0;
+      else precioActual = producto.price1; // "todas" usa lista 1 como referencia
+      
+      let nuevoPrecio = precioActual;
+      let nuevoCosto = producto.cost || 0;
+      
+      if (tipoAjuste === "porcentaje") {
+        nuevoPrecio = precioActual * (1 + valor / 100);
+        if (actualizarCosto) {
+          nuevoCosto = (producto.cost || 0) * (1 + valor / 100);
+        }
+      } else {
+        nuevoPrecio = precioActual + valor;
+        if (actualizarCosto) {
+          nuevoCosto = (producto.cost || 0) + valor;
+        }
+      }
+      
+      nuevoPrecio = Math.max(0, Math.round(nuevoPrecio * 100) / 100);
+      nuevoCosto = Math.max(0, Math.round(nuevoCosto * 100) / 100);
+      
+      const diferencia = nuevoPrecio - precioActual;
+      const porcentajeAumento = precioActual > 0 ? (diferencia / precioActual) * 100 : 0;
+
+      return {
+        id: producto.id,
+        nombre: producto.name,
+        seccion: producto.section,
+        costo_actual: producto.cost || 0,
+        costo_nuevo: nuevoCosto,
+        precio_actual: precioActual,
+        precio_nuevo: nuevoPrecio,
+        diferencia: Math.round(diferencia * 100) / 100,
+        porcentaje_aumento: Math.round(porcentajeAumento * 100) / 100,
+      };
+    });
+
+    setVistaPrevia(preview);
+  }
+
+  // 👇👇👇 FUNCIÓN PARA APLICAR EL AJUSTE MASIVO
+  async function aplicarAjusteMasivo() {
+    if (vistaPrevia.length === 0) {
+      alert("Primero calculá la vista previa");
+      return;
+    }
+
+    const valor = parseNum(valorAjuste);
+    const listasAAplicar = listasAjustar === "todas" 
+      ? ["price1", "price2", "price3", "price4", "price5"] 
+      : [`price${listasAjustar}`];
+
+    const confirmacion = confirm(
+      `⚠️ ¿Estás SEGURO de aplicar el ajuste?\n\n` +
+      `Se modificarán ${vistaPrevia.length} productos.\n` +
+      `Aumento: ${tipoAjuste === "porcentaje" ? valor + "%" : "$" + money(valor)}\n` +
+      `Listas afectadas: ${listasAjustar === "todas" ? "TODAS" : "Lista " + listasAjustar}\n` +
+      `${actualizarCosto ? "💰 También se actualizará el COSTO\n" : ""}\n` +
+      `Esta acción NO se puede deshacer.`
+    );
+
+    if (!confirmacion) return;
+
+    const st = clone(state);
+    let productosModificados = 0;
+
+    for (const item of vistaPrevia) {
+      const producto = st.products.find((p: any) => p.id === item.id);
+      if (!producto) continue;
+
+      // Aplicar ajuste a las listas seleccionadas
+      for (const lista of listasAAplicar) {
+        let precioActual = producto[lista] || 0;
+        let nuevoPrecio = 0;
+        
+        if (tipoAjuste === "porcentaje") {
+          nuevoPrecio = precioActual * (1 + valor / 100);
+        } else {
+          nuevoPrecio = precioActual + valor;
+        }
+        
+        producto[lista] = Math.max(0, Math.round(nuevoPrecio * 100) / 100);
+      }
+
+      // Actualizar costo si está seleccionado
+      if (actualizarCosto) {
+        let costoActual = producto.cost || 0;
+        let nuevoCosto = 0;
+        
+        if (tipoAjuste === "porcentaje") {
+          nuevoCosto = costoActual * (1 + valor / 100);
+        } else {
+          nuevoCosto = costoActual + valor;
+        }
+        
+        producto.cost = Math.max(0, Math.round(nuevoCosto * 100) / 100);
+      }
+
+      productosModificados++;
+    }
+
+    setState(st);
+
+    // Guardar en Supabase
+    if (hasSupabase) {
+      try {
+        for (const item of vistaPrevia) {
+          const producto = st.products.find((p: any) => p.id === item.id);
+          if (producto) {
+            const updateData: any = {};
+            for (const lista of listasAAplicar) {
+              updateData[lista] = producto[lista];
+            }
+            if (actualizarCosto) updateData.cost = producto.cost;
+            
+            await supabase.from("products").update(updateData).eq("id", item.id);
+          }
+        }
+        alert(`✅ ${productosModificados} productos actualizados correctamente`);
+      } catch (error) {
+        console.error("Error guardando:", error);
+        alert("Error al guardar en la base de datos");
+      }
+    } else {
+      alert(`✅ ${productosModificados} productos actualizados (modo local)`);
+    }
+
+    // Limpiar vista previa
+    setVistaPrevia([]);
+    setProductoEspecifico("");
+    setValorAjuste("");
+  }
+
+  // 👇👇👇 FUNCIÓN PARA GENERAR LISTA DE PRECIOS POR SECCIÓN EN PDF
+  function imprimirListaPreciosPorSeccion() {
+    const productosPorSeccion = state.products.reduce((acc: any, producto: any) => {
+      const seccion = producto.section || "General";
+      if (!acc[seccion]) acc[seccion] = [];
+      acc[seccion].push(producto);
+      return acc;
+    }, {});
+
+    Object.keys(productosPorSeccion).forEach(seccion => {
+      productosPorSeccion[seccion].sort((a: any, b: any) => a.name.localeCompare(b.name));
+    });
+
+    const dataImpresion = {
+      type: "ListaPrecios",
+      titulo: "LISTA DE PRECIOS POR SECCIÓN",
+      fecha: new Date().toLocaleString("es-AR"),
+      productosPorSeccion: productosPorSeccion,
+      resumen: {
+        totalProductos: state.products.length,
+        totalSecciones: Object.keys(productosPorSeccion).length,
+      }
+    };
+
+    window.dispatchEvent(new CustomEvent("print-invoice", { detail: dataImpresion } as any));
+    setTimeout(() => window.print(), 100);
+  }
 
   async function addProduct() {
     if (!name.trim()) return;
@@ -3106,38 +3306,9 @@ function ProductosTab({ state, setState, role }: any) {
     setEditando(producto.id);
   }
 
-  async function eliminarProducto(productoId: string) {
-    if (!confirm("¿Estás seguro de eliminar este producto?")) return;
-    
-    const st = clone(state);
-    st.products = st.products.filter((p: any) => p.id !== productoId);
-    setState(st);
+  
 
-    if (hasSupabase) {
-      await supabase.from("products").delete().eq("id", productoId);
-    }
-    
-    alert("Producto eliminado correctamente");
-  }
-
-  // 👇👇👇 EFECTO PARA ACTUALIZAR CAPITAL AUTOMÁTICAMENTE
-  useEffect(() => {
-    console.log(`💰 Capital actualizado: ${money(calcularCapitalInventario(state.products))}`);
-  }, [state.products]);
-
-  return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      {/* 👇👇👇 NUEVA CARD: RESUMEN DE CAPITAL */}
-      <Card title="💰 Resumen de Capital en Inventario">
-        <div className="grid md:grid-cols-4 gap-4">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-emerald-400">
-              {money(capitalInventario)}
-            </div>
-            <div className="text-sm text-slate-400">Capital Total</div>
-            <div className="text-xs text-slate-500 mt-1">
-              Invertido en stock
-            </div>
+  
           </div>
           
           <div className="text-center">
@@ -3440,6 +3611,177 @@ function ProductosTab({ state, setState, role }: any) {
     </div>
   );
 }
+      {/* 👇👇👇 NUEVO: PANEL DE AJUSTE MASIVO DE PRECIOS */}
+      <Card title="💰 Ajuste Masivo de Precios">
+        <div className="space-y-4">
+          <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-3">
+            <div className="flex items-center gap-2 text-amber-400 text-sm mb-2">
+              ⚠️ IMPORTANTE: Esta acción afectará a los productos seleccionados
+            </div>
+            <div className="text-xs text-amber-300">
+              El aumento se aplica sobre el PRECIO ACTUAL de venta. Si marcás "Actualizar costo", el costo también aumentará en el mismo porcentaje/monto.
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <Select
+              label="1. Seleccionar categoría"
+              value={categoriaSeleccionada}
+              onChange={setCategoriaSeleccionada}
+              options={[
+                { value: "todas", label: "📦 TODAS LAS CATEGORÍAS" },
+                ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))
+                  .map((s: string) => ({ value: s, label: s }))
+              ]}
+            />
+
+            <Select
+              label="2. Producto específico (opcional)"
+              value={productoEspecifico}
+              onChange={setProductoEspecifico}
+              options={[
+                { value: "", label: "— Todos los productos de la categoría —" },
+                ...productosFiltradosPorCategoria.map((p: any) => ({
+                  value: p.id,
+                  label: `${p.name} (Precio: ${money(p.price1)})`
+                }))
+              ]}
+            />
+
+            <Select
+              label="3. Tipo de ajuste"
+              value={tipoAjuste}
+              onChange={setTipoAjuste}
+              options={[
+                { value: "porcentaje", label: "📈 Aumentar por %" },
+                { value: "monto_fijo", label: "💰 Aumentar monto fijo ($)" },
+              ]}
+            />
+          </div>
+
+          <div className="grid md:grid-cols-4 gap-4">
+            <NumberInput
+              label="4. Valor del ajuste"
+              value={valorAjuste}
+              onChange={setValorAjuste}
+              placeholder={tipoAjuste === "porcentaje" ? "Ej: 15 (15%)" : "Ej: 5000"}
+            />
+
+            <Select
+              label="5. ¿Qué lista/s ajustar?"
+              value={listasAjustar}
+              onChange={setListasAjustar}
+              options={[
+                { value: "todas", label: "📋 Todas las listas" },
+                { value: "1", label: "MITOBICEL LOCAL" },
+                { value: "2", label: "MITOBICEL PROVINCIAS" },
+                { value: "3", label: "MITOBICEL EXCLUSIVO" },
+                { value: "4", label: "ALE LOCAL" },
+                { value: "5", label: "ALE PROVINCIA" },
+              ]}
+            />
+
+            <div className="flex items-end">
+              <label className="flex items-center gap-2 p-3 bg-slate-800/30 rounded-lg w-full">
+                <input
+                  type="checkbox"
+                  checked={actualizarCosto}
+                  onChange={(e) => setActualizarCosto(e.target.checked)}
+                  className="rounded"
+                />
+                <span className="text-sm">💰 También actualizar COSTO</span>
+              </label>
+            </div>
+
+            <div className="pt-6">
+              <Button 
+                onClick={calcularVistaPrevia}
+                tone="slate"
+                className="w-full"
+              >
+                👁️ Ver Vista Previa
+              </Button>
+            </div>
+          </div>
+
+          {/* Vista Previa */}
+          {vistaPrevia.length > 0 && (
+            <div className="mt-4 border border-slate-700 rounded-lg overflow-hidden">
+              <div className="bg-slate-800/70 p-3 font-semibold text-sm flex justify-between">
+                <span>📋 Vista Previa - Productos que se verán afectados ({vistaPrevia.length})</span>
+                <Button onClick={imprimirListaPreciosPorSeccion} tone="slate" className="text-xs">
+                  📋 LISTA DE PRECIOS
+                </Button>
+              </div>
+              <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="text-left text-slate-400 bg-slate-800/30">
+                    <tr>
+                      <th className="py-2 px-3">Producto</th>
+                      <th className="py-2 px-3">Sección</th>
+                      <th className="py-2 px-3 text-right">Precio Actual</th>
+                      <th className="py-2 px-3 text-right">Precio Nuevo</th>
+                      <th className="py-2 px-3 text-right">Diferencia</th>
+                      <th className="py-2 px-3 text-right">% Aumento</th>
+                      {actualizarCosto && (
+                        <>
+                          <th className="py-2 px-3 text-right">Costo Actual</th>
+                          <th className="py-2 px-3 text-right">Costo Nuevo</th>
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {vistaPrevia.slice(0, 20).map((item: any, idx: number) => (
+                      <tr key={idx}>
+                        <td className="py-2 px-3">{item.nombre}</td>
+                        <td className="py-2 px-3">{item.seccion}</td>
+                        <td className="py-2 px-3 text-right">{money(item.precio_actual)}</td>
+                        <td className="py-2 px-3 text-right font-semibold text-emerald-400">
+                          {money(item.precio_nuevo)}
+                        </td>
+                        <td className="py-2 px-3 text-right text-amber-400">
+                          +{money(item.diferencia)}
+                        </td>
+                        <td className="py-2 px-3 text-right">
+                          +{item.porcentaje_aumento}%
+                        </td>
+                        {actualizarCosto && (
+                          <>
+                            <td className="py-2 px-3 text-right">{money(item.costo_actual)}</td>
+                            <td className="py-2 px-3 text-right text-emerald-400">{money(item.costo_nuevo)}</td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  {vistaPrevia.length > 20 && (
+                    <tfoot>
+                      <tr>
+                        <td colSpan={actualizarCosto ? 8 : 6} className="py-2 px-3 text-center text-slate-400 text-sm">
+                          ... y {vistaPrevia.length - 20} productos más
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+              
+              <div className="bg-slate-800/50 p-3 flex justify-between items-center">
+                <div className="text-sm">
+                  <span className="text-slate-400">Impacto total:</span>
+                  <span className="ml-2 font-bold text-emerald-400">
+                    +{money(vistaPrevia.reduce((sum, item) => sum + item.diferencia, 0))}
+                  </span>
+                </div>
+                <Button onClick={aplicarAjusteMasivo} tone="emerald">
+                  🚀 APLICAR AJUSTE A {vistaPrevia.length} PRODUCTOS
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS ===== */
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS MEJORADO ===== */
 /* ===== NUEVO COMPONENTE: ProveedoresTab - CONTROL DE COMPRAS MEJORADO ===== */
@@ -9084,6 +9426,87 @@ if (inv?.type === "StockProductos") {
 
         <div className="mt-8 text-center text-xs" style={{ borderTop: '1px solid #000', paddingTop: 8 }}>
           {APP_TITLE} • Generado el {new Date().toLocaleString("es-AR")}
+        </div>
+      </div>
+    </div>
+  );
+}
+  // ==== PLANTILLA: LISTA DE PRECIOS POR SECCIÓN ====
+if (inv?.type === "ListaPrecios") {
+  const fmt = (n: number) => money(parseNum(n));
+  
+  return (
+    <div className="only-print print-area p-10">
+      <div className="max-w-[780px] mx-auto text-black">
+        <div className="text-center mb-6">
+          <div style={{ fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>
+            {inv.titulo}
+          </div>
+          <div style={{ fontSize: 16, marginTop: 4 }}>MITOBICEL</div>
+          <div style={{ fontSize: 12, marginTop: 8 }}>
+            Generado: {inv.fecha}
+          </div>
+        </div>
+
+        <div style={{ borderTop: "2px solid #000", margin: "8px 0 12px" }} />
+
+        {/* Resumen */}
+        <div className="grid grid-cols-2 gap-3 text-sm mb-6" style={{ border: "1px solid #000", padding: 10 }}>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{inv.resumen.totalProductos}</div>
+            <div>Productos totales</div>
+          </div>
+          <div className="text-center">
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{inv.resumen.totalSecciones}</div>
+            <div>Secciones</div>
+          </div>
+        </div>
+
+        {/* Listado por sección */}
+        {Object.entries(inv.productosPorSeccion).map(([seccion, productos]: [string, any]) => (
+          <div key={seccion} style={{ marginBottom: 24, pageBreakInside: 'avoid' }}>
+            <div style={{ 
+              backgroundColor: '#f0f0f0', 
+              padding: '8px 12px', 
+              fontWeight: 800, 
+              fontSize: 14,
+              border: '1px solid #000',
+              marginBottom: 8 
+            }}>
+              🗂️ {seccion} ({productos.length} productos)
+            </div>
+            
+            <table className="print-table" style={{ width: '100%', fontSize: 10 }}>
+              <thead>
+                <tr style={{ backgroundColor: '#e5e5e5' }}>
+                  <th style={{ textAlign: 'left', padding: '6px', width: '40%' }}>Producto</th>
+                  <th style={{ textAlign: 'right', padding: '6px', width: '15%' }}>Costo</th>
+                  <th style={{ textAlign: 'right', padding: '6px', width: '15%' }}>Lista 1</th>
+                  <th style={{ textAlign: 'right', padding: '6px', width: '15%' }}>Lista 2</th>
+                  <th style={{ textAlign: 'right', padding: '6px', width: '15%' }}>Lista 3/4/5</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productos.map((p: any, idx: number) => (
+                  <tr key={p.id} style={{ borderBottom: '1px solid #ddd' }}>
+                    <td style={{ padding: '6px' }}>{p.name}</td>
+                    <td style={{ textAlign: 'right', padding: '6px' }}>{fmt(p.cost || 0)}</td>
+                    <td style={{ textAlign: 'right', padding: '6px' }}>{fmt(p.price1)}</td>
+                    <td style={{ textAlign: 'right', padding: '6px' }}>{fmt(p.price2)}</td>
+                    <td style={{ textAlign: 'right', padding: '6px' }}>
+                      L3: {fmt(p.price3 || 0)}<br/>
+                      L4: {fmt(p.price4 || 0)}<br/>
+                      L5: {fmt(p.price5 || 0)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+
+        <div className="mt-8 text-center text-xs" style={{ borderTop: '1px solid #000', paddingTop: 8 }}>
+          {APP_TITLE} • Lista de Precios por Sección
         </div>
       </div>
     </div>
