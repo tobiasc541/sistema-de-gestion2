@@ -1470,13 +1470,14 @@ const TABS = [
   ] : []),
 ];
  const visibleTabs =
-    role === "admin"
-      ? TABS
-      : role === "vendedor"
-      ? ["Facturación", "Clientes", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online","Pedidos Pendientes","Preparar Pedidos", "Pedidos a Fabricar","Alias"] // 👈 QUITAR "Productos"
-      : role === "pedido-online"
-      ? ["Hacer Pedido"] // 👈 Solo para clientes haciendo pedidos online
-      : ["Panel"];
+const visibleTabs =
+  role === "admin"
+    ? TABS
+    : role === "vendedor"
+    ? ["Facturación", "Clientes", "Productos", "Deudores", "Presupuestos", "Gastos y Devoluciones", "Cola", "Pedidos Online", "Pedidos Pendientes", "Preparar Pedidos", "Pedidos a Fabricar", "Alias"]
+    : role === "pedido-online"
+    ? ["Hacer Pedido"]
+    : ["Panel"];
 
 if (isMobile) {
     return (
@@ -2934,50 +2935,57 @@ function ProductosTab({ state, setState, role }: any) {
     );
   }, [state.products, busquedaStock]);
 
-  // 👇👇👇 FUNCIÓN PARA AGREGAR STOCK CON BUSCADOR
-  async function agregarStockConBuscador() {
-    if (!productoSeleccionadoStock) return alert("Seleccioná un producto");
-    const cantidad = parseNum(cantidadStock);
-    if (cantidad <= 0) return alert("La cantidad debe ser mayor a 0");
+async function agregarStockConBuscador() {
+  if (!productoSeleccionadoStock) return alert("Seleccioná un producto");
+  
+  // 🔥 FORZAR a convertir a número de forma segura
+  const cantidad = parseFloat(String(cantidadStock).replace(",", "."));
+  if (isNaN(cantidad) || cantidad <= 0) return alert("La cantidad debe ser un número mayor a 0");
 
-    const nuevoCostoValor = parseNum(nuevoCosto);
-    const st = clone(state);
-    const producto = st.products.find((p: any) => p.id === productoSeleccionadoStock.id);
+  const nuevoCostoValor = parseFloat(String(nuevoCosto).replace(",", "."));
+  
+  const st = clone(state);
+  const producto = st.products.find((p: any) => p.id === productoSeleccionadoStock.id);
 
-    if (producto) {
-      const stockAnterior = parseNum(producto.stock);
-      const costoAnterior = parseNum(producto.cost || 0);
+  if (!producto) return alert("Producto no encontrado");
 
-      producto.stock = stockAnterior + cantidad;
+  const stockAnterior = parseFloat(String(producto.stock));
+  const costoAnterior = parseFloat(String(producto.cost || 0));
 
-      let mensajeCosto = "";
-      if (nuevoCostoValor > 0 && nuevoCostoValor !== costoAnterior) {
-        mensajeCosto = `\n💰 Costo actualizado: ${money(costoAnterior)} → ${money(nuevoCostoValor)}`;
-        producto.cost = nuevoCostoValor;
-      } else if (nuevoCostoValor > 0 && nuevoCostoValor === costoAnterior) {
-        mensajeCosto = `\n💰 Costo se mantiene: ${money(costoAnterior)}`;
-      } else if (costoAnterior === 0 && nuevoCostoValor > 0) {
-        mensajeCosto = `\n💰 Costo asignado: ${money(nuevoCostoValor)}`;
-        producto.cost = nuevoCostoValor;
-      }
+  // 🔥 SUMA CORRECTA: stock anterior + cantidad
+  const nuevoStock = stockAnterior + cantidad;
+  producto.stock = nuevoStock;
 
-      setState(st);
-
-      if (hasSupabase) {
-        const updateData: any = { stock: producto.stock };
-        if (nuevoCostoValor > 0) updateData.cost = nuevoCostoValor;
-        await supabase.from("products").update(updateData).eq("id", producto.id);
-      }
-
-      alert(`✅ Stock actualizado\n\n📦 ${producto.name}\n\nStock: ${stockAnterior} → ${producto.stock}\n+${cantidad} unidades${mensajeCosto}`);
-
-      // Limpiar
-      setProductoSeleccionadoStock(null);
-      setCantidadStock("");
-      setNuevoCosto("");
-      setBusquedaStock("");
-    }
+  let mensajeCosto = "";
+  if (!isNaN(nuevoCostoValor) && nuevoCostoValor > 0 && nuevoCostoValor !== costoAnterior) {
+    mensajeCosto = `\n💰 Costo actualizado: ${money(costoAnterior)} → ${money(nuevoCostoValor)}`;
+    producto.cost = nuevoCostoValor;
+  } else if (!isNaN(nuevoCostoValor) && nuevoCostoValor > 0 && nuevoCostoValor === costoAnterior) {
+    mensajeCosto = `\n💰 Costo se mantiene: ${money(costoAnterior)}`;
+  } else if (costoAnterior === 0 && !isNaN(nuevoCostoValor) && nuevoCostoValor > 0) {
+    mensajeCosto = `\n💰 Costo asignado: ${money(nuevoCostoValor)}`;
+    producto.cost = nuevoCostoValor;
   }
+
+  console.log(`📊 Stock: ${stockAnterior} + ${cantidad} = ${nuevoStock}`); // 👈 Debug
+
+  setState(st);
+
+  if (hasSupabase) {
+    const updateData: any = { stock: nuevoStock };
+    if (!isNaN(nuevoCostoValor) && nuevoCostoValor > 0) updateData.cost = nuevoCostoValor;
+    const { error } = await supabase.from("products").update(updateData).eq("id", producto.id);
+    if (error) console.error("Error actualizando Supabase:", error);
+  }
+
+  alert(`✅ Stock actualizado\n\n📦 ${producto.name}\n\nStock: ${stockAnterior} → ${nuevoStock}\n+${cantidad} unidades${mensajeCosto}`);
+
+  // Limpiar formulario
+  setProductoSeleccionadoStock(null);
+  setCantidadStock("");
+  setNuevoCosto("");
+  setBusquedaStock("");
+}
 
   // 👇👇👇 FUNCIÓN PARA IMPRIMIR STOCK
   function imprimirStockCompleto() {
