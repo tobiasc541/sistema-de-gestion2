@@ -1,5 +1,4 @@
 // CostosProduccionTab.tsx
-// 👇 PEGAR TODO ESTE CÓDIGO EN EL NUEVO ARCHIVO
 
 import React, { useState } from "react";
 import { calcularCostoProduccion, TipoProducto, MedidaFilm } from "./CostosProduccionHelper";
@@ -62,36 +61,57 @@ function Button({ children, onClick, tone = "emerald" }: any) {
 
 export default function CostosProduccionTab() {
   const [tipo, setTipo] = useState<TipoProducto>("rollito_fondo");
+  
+  // Campos para Rollito y Bolsa Camiseta
   const [kgBobina, setKgBobina] = useState("");
   const [kgPorBulto, setKgPorBulto] = useState("");
+  const [bultosProducidos, setBultosProducidos] = useState("");
+  
+  // Campos para Film (SOLO PARA FILM)
   const [medidaFilm, setMedidaFilm] = useState<MedidaFilm>("45");
+  const [valorUsdBobina, setValorUsdBobina] = useState("");
   const [metrosSolicitados, setMetrosSolicitados] = useState("");
+  const [metrosPorRollo, setMetrosPorRollo] = useState("");
   const [valorDolar, setValorDolar] = useState("1000");
+  
+  // Campos COMUNES para TODOS los tipos
   const [valorHoraPersona, setValorHoraPersona] = useState("");
   const [horasTrabajadas, setHorasTrabajadas] = useState("");
+  const [cantidadProducidaAprox, setCantidadProducidaAprox] = useState("");
   const [costoLuzMensual, setCostoLuzMensual] = useState("520000");
   const [diasTrabajadosMes, setDiasTrabajadosMes] = useState("26");
   const [valorFunda, setValorFunda] = useState("");
   const [valorPackaging, setValorPackaging] = useState("");
   const [valorCono, setValorCono] = useState("");
+  
   const [resultado, setResultado] = useState<any>(null);
 
   const handleCalcular = () => {
-    const params = {
+    const params: any = {
       tipo,
-      kg_bobina: parseFloat(kgBobina) || 0,
-      kg_por_bulto: parseFloat(kgPorBulto) || 0,
-      medida_film: medidaFilm,
-      metros_solicitados: parseFloat(metrosSolicitados) || 0,
-      valor_dolar: parseFloat(valorDolar) || 1000,
+      // Generales
       valor_hora_persona: parseFloat(valorHoraPersona) || 0,
       horas_trabajadas: parseFloat(horasTrabajadas) || 0,
+      cantidad_producida_aprox: parseFloat(cantidadProducidaAprox) || 0,
       costo_luz_mensual: parseFloat(costoLuzMensual) || 520000,
       dias_trabajados_mes: parseFloat(diasTrabajadosMes) || 26,
       valor_funda: parseFloat(valorFunda) || 0,
       valor_packaging: parseFloat(valorPackaging) || 0,
       valor_cono: parseFloat(valorCono) || 0,
     };
+
+    if (tipo === "rollito_fondo" || tipo === "bolsa_camiseta") {
+      params.kg_bobina = parseFloat(kgBobina) || 0;
+      params.kg_por_bulto = parseFloat(kgPorBulto) || 0;
+      params.bultos_producidos = parseFloat(bultosProducidos) || 0;
+    } 
+    else if (tipo === "film") {
+      params.medida_film = medidaFilm;
+      params.valor_usd_bobina = parseFloat(valorUsdBobina) || 0;
+      params.metros_solicitados = parseFloat(metrosSolicitados) || 0;
+      params.metros_por_rollo = parseFloat(metrosPorRollo) || 0;
+      params.valor_dolar = parseFloat(valorDolar) || 1000;
+    }
 
     const res = calcularCostoProduccion(params);
     setResultado(res);
@@ -100,9 +120,13 @@ export default function CostosProduccionTab() {
   const limpiar = () => {
     setKgBobina("");
     setKgPorBulto("");
+    setBultosProducidos("");
+    setValorUsdBobina("");
     setMetrosSolicitados("");
+    setMetrosPorRollo("");
     setValorHoraPersona("");
     setHorasTrabajadas("");
+    setCantidadProducidaAprox("");
     setValorFunda("");
     setValorPackaging("");
     setValorCono("");
@@ -113,10 +137,16 @@ export default function CostosProduccionTab() {
     return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(n);
   };
 
+  // Determinar qué campos mostrar según el tipo
+  const esRollitoOBolsa = tipo === "rollito_fondo" || tipo === "bolsa_camiseta";
+  const esFilm = tipo === "film";
+
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       <Card title="🏭 Calculadora de Costos de Producción">
-        <div className="grid md:grid-cols-2 gap-4">
+        
+        {/* SELECTOR DE TIPO DE PRODUCTO */}
+        <div className="mb-6">
           <Select
             label="Tipo de producto"
             value={tipo}
@@ -127,10 +157,13 @@ export default function CostosProduccionTab() {
               { value: "film", label: "📜 Film (sin scrap)" },
             ]}
           />
+        </div>
 
-          {/* Sección MATERIAL según tipo */}
-          {tipo === "rollito_fondo" || tipo === "bolsa_camiseta" ? (
-            <>
+        {/* SECCIÓN MATERIAL - SOLO PARA ROLLITO Y BOLSA */}
+        {esRollitoOBolsa && (
+          <div className="mb-6 p-4 bg-slate-800/30 rounded-lg">
+            <h4 className="text-sm font-semibold text-emerald-400 mb-3">📦 Material (Bobina por KG)</h4>
+            <div className="grid md:grid-cols-3 gap-4">
               <NumberInput
                 label="💰 Valor del kg de bobina (ARS)"
                 value={kgBobina}
@@ -138,14 +171,26 @@ export default function CostosProduccionTab() {
                 placeholder="Ej: 1000"
               />
               <NumberInput
-                label="📦 Kg por bulto"
+                label="⚖️ Kg por bulto"
                 value={kgPorBulto}
                 onChange={setKgPorBulto}
                 placeholder="Ej: 4"
               />
-            </>
-          ) : (
-            <>
+              <NumberInput
+                label="📦 Cantidad de bultos producidos"
+                value={bultosProducidos}
+                onChange={setBultosProducidos}
+                placeholder="Ej: 50"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* SECCIÓN MATERIAL - SOLO PARA FILM */}
+        {esFilm && (
+          <div className="mb-6 p-4 bg-slate-800/30 rounded-lg">
+            <h4 className="text-sm font-semibold text-emerald-400 mb-3">📜 Film (Bobina por Metro)</h4>
+            <div className="grid md:grid-cols-2 gap-4">
               <Select
                 label="📏 Medida de la bobina"
                 value={medidaFilm}
@@ -157,10 +202,22 @@ export default function CostosProduccionTab() {
                 ]}
               />
               <NumberInput
+                label="💰 Valor de la bobina (USD) - MANUAL"
+                value={valorUsdBobina}
+                onChange={setValorUsdBobina}
+                placeholder="Ej: 100"
+              />
+              <NumberInput
                 label="📏 Metros solicitados"
                 value={metrosSolicitados}
                 onChange={setMetrosSolicitados}
-                placeholder="Ej: 1000"
+                placeholder="Ej: 140"
+              />
+              <NumberInput
+                label="📏 Metros por rollo (aprox)"
+                value={metrosPorRollo}
+                onChange={setMetrosPorRollo}
+                placeholder="Ej: 50"
               />
               <NumberInput
                 label="💵 Valor del dólar (ARS)"
@@ -168,99 +225,154 @@ export default function CostosProduccionTab() {
                 onChange={setValorDolar}
                 placeholder="Ej: 1000"
               />
-            </>
-          )}
+            </div>
+          </div>
+        )}
 
-          {/* Sección COSTOS GENERALES */}
-          <NumberInput
-            label="👤 Valor hora de persona (ARS)"
-            value={valorHoraPersona}
-            onChange={setValorHoraPersona}
-            placeholder="Ej: 5000"
-          />
-          <NumberInput
-            label="⏱️ Horas trabajadas"
-            value={horasTrabajadas}
-            onChange={setHorasTrabajadas}
-            placeholder="Ej: 8"
-          />
-          <NumberInput
-            label="💡 Costo luz mensual (ARS)"
-            value={costoLuzMensual}
-            onChange={setCostoLuzMensual}
-            placeholder="Ej: 520000"
-          />
-          <NumberInput
-            label="📅 Días trabajados por mes"
-            value={diasTrabajadosMes}
-            onChange={setDiasTrabajadosMes}
-            placeholder="Ej: 26"
-          />
-          <NumberInput
-            label="📦 Valor de funda (ARS)"
-            value={valorFunda}
-            onChange={setValorFunda}
-            placeholder="Ej: 100"
-          />
-          <NumberInput
-            label="📦 Valor de packaging (ARS)"
-            value={valorPackaging}
-            onChange={setValorPackaging}
-            placeholder="Ej: 50"
-          />
-          <NumberInput
-            label="🧵 Valor de cono (ARS)"
-            value={valorCono}
-            onChange={setValorCono}
-            placeholder="Ej: 200"
-          />
+        {/* SECCIÓN COMÚN PARA TODOS: MANO DE OBRA */}
+        <div className="mb-6 p-4 bg-slate-800/30 rounded-lg">
+          <h4 className="text-sm font-semibold text-blue-400 mb-3">👤 Mano de Obra</h4>
+          <div className="grid md:grid-cols-3 gap-4">
+            <NumberInput
+              label="💰 Valor hora de persona (ARS)"
+              value={valorHoraPersona}
+              onChange={setValorHoraPersona}
+              placeholder="Ej: 5000"
+            />
+            <NumberInput
+              label="⏱️ Horas trabajadas"
+              value={horasTrabajadas}
+              onChange={setHorasTrabajadas}
+              placeholder="Ej: 12"
+            />
+            <NumberInput
+              label="📦 Cantidad aprox producida (rollos/camisetas/rollos film)"
+              value={cantidadProducidaAprox}
+              onChange={setCantidadProducidaAprox}
+              placeholder="Ej: 100"
+            />
+          </div>
+          <div className="text-xs text-slate-400 mt-2">
+            💡 La cantidad aprox se usa para dividir el costo de mano de obra por unidad
+          </div>
         </div>
 
-        <div className="flex gap-2 mt-4">
+        {/* SECCIÓN COMÚN PARA TODOS: LUZ */}
+        <div className="mb-6 p-4 bg-slate-800/30 rounded-lg">
+          <h4 className="text-sm font-semibold text-amber-400 mb-3">💡 Costo de Luz</h4>
+          <div className="grid md:grid-cols-2 gap-4">
+            <NumberInput
+              label="💰 Costo luz mensual (ARS)"
+              value={costoLuzMensual}
+              onChange={setCostoLuzMensual}
+              placeholder="Ej: 520000"
+            />
+            <NumberInput
+              label="📅 Días trabajados por mes"
+              value={diasTrabajadosMes}
+              onChange={setDiasTrabajadosMes}
+              placeholder="Ej: 26"
+            />
+          </div>
+        </div>
+
+        {/* SECCIÓN COMÚN PARA TODOS: OTROS COSTOS */}
+        <div className="mb-6 p-4 bg-slate-800/30 rounded-lg">
+          <h4 className="text-sm font-semibold text-purple-400 mb-3">📦 Otros Costos</h4>
+          <div className="grid md:grid-cols-3 gap-4">
+            <NumberInput
+              label="📦 Valor de funda (ARS)"
+              value={valorFunda}
+              onChange={setValorFunda}
+              placeholder="Ej: 100"
+            />
+            <NumberInput
+              label="📦 Valor de packaging (ARS)"
+              value={valorPackaging}
+              onChange={setValorPackaging}
+              placeholder="Ej: 50"
+            />
+            <NumberInput
+              label="🧵 Valor de cono (ARS)"
+              value={valorCono}
+              onChange={setValorCono}
+              placeholder="Ej: 200"
+            />
+          </div>
+        </div>
+
+        {/* BOTONES */}
+        <div className="flex gap-2">
           <Button onClick={handleCalcular}>Calcular Costo</Button>
           <Button onClick={limpiar} tone="slate">Limpiar</Button>
         </div>
 
+        {/* RESULTADO */}
         {resultado && (
-          <div className="mt-4 p-4 bg-slate-800/50 rounded-xl border border-emerald-700/50">
-            <h4 className="font-bold text-emerald-400 mb-2">📊 RESULTADO FINAL</h4>
-            <div className="grid md:grid-cols-3 gap-3 text-sm">
-              <div>
-                <div className="text-slate-400">💰 Costo Material</div>
-                <div className="text-xl font-bold">{formatMoney(resultado.costo_material)}</div>
+          <div className="mt-6 p-4 bg-slate-800/50 rounded-xl border border-emerald-700/50">
+            <h4 className="font-bold text-emerald-400 mb-3 text-lg">📊 RESULTADO FINAL</h4>
+            
+            <div className="grid md:grid-cols-2 gap-4 text-sm">
+              {/* Material */}
+              <div className="p-3 bg-slate-900/50 rounded-lg">
+                <div className="text-slate-400 font-semibold mb-2">💰 Material</div>
+                <div>Bruto: {formatMoney(resultado.costo_material_bruto)}</div>
                 {resultado.scrap > 0 && (
-                  <div className="text-xs text-amber-400">+ Scrap: {formatMoney(resultado.scrap)}</div>
+                  <div className="text-amber-400">+ Scrap: {formatMoney(resultado.scrap)}</div>
+                )}
+                <div className="font-bold text-emerald-400 mt-1">
+                  Total: {formatMoney(resultado.costo_material_total)}
+                </div>
+              </div>
+
+              {/* Mano de obra */}
+              <div className="p-3 bg-slate-900/50 rounded-lg">
+                <div className="text-slate-400 font-semibold mb-2">👤 Mano de Obra</div>
+                <div>Total: {formatMoney(resultado.costo_persona_total)}</div>
+                {resultado.costo_persona_por_unidad > 0 && (
+                  <div className="text-blue-400">Por unidad: {formatMoney(resultado.costo_persona_por_unidad)}</div>
                 )}
               </div>
-              <div>
-                <div className="text-slate-400">👤 Costo Persona</div>
-                <div className="text-xl font-bold">{formatMoney(resultado.costo_persona)}</div>
+
+              {/* Luz */}
+              <div className="p-3 bg-slate-900/50 rounded-lg">
+                <div className="text-slate-400 font-semibold mb-2">💡 Luz</div>
+                <div>Total: {formatMoney(resultado.costo_luz_total)}</div>
+                {resultado.costo_luz_por_unidad > 0 && (
+                  <div className="text-amber-400">Por unidad: {formatMoney(resultado.costo_luz_por_unidad)}</div>
+                )}
               </div>
-              <div>
-                <div className="text-slate-400">💡 Costo Luz</div>
-                <div className="text-xl font-bold">{formatMoney(resultado.costo_luz)}</div>
-              </div>
-              <div>
-                <div className="text-slate-400">📦 Funda</div>
-                <div className="font-bold">{formatMoney(resultado.costo_funda)}</div>
-              </div>
-              <div>
-                <div className="text-slate-400">📦 Packaging</div>
-                <div className="font-bold">{formatMoney(resultado.costo_packaging)}</div>
-              </div>
-              <div>
-                <div className="text-slate-400">🧵 Cono</div>
-                <div className="font-bold">{formatMoney(resultado.costo_cono)}</div>
+
+              {/* Otros costos */}
+              <div className="p-3 bg-slate-900/50 rounded-lg">
+                <div className="text-slate-400 font-semibold mb-2">📦 Otros</div>
+                <div>Funda: {formatMoney(resultado.costo_funda)}</div>
+                <div>Packaging: {formatMoney(resultado.costo_packaging)}</div>
+                <div>Cono: {formatMoney(resultado.costo_cono)}</div>
               </div>
             </div>
-            <div className="mt-3 pt-3 border-t border-slate-700">
+
+            {/* TOTALES */}
+            <div className="mt-4 pt-4 border-t border-slate-700">
               <div className="flex justify-between items-center">
                 <span className="text-lg font-bold text-emerald-400">💰 COSTO TOTAL:</span>
                 <span className="text-2xl font-bold text-emerald-400">
                   {formatMoney(resultado.costo_total)}
                 </span>
               </div>
-              <div className="text-xs text-slate-400 mt-2 whitespace-pre-line">
+              {resultado.costo_por_unidad > 0 && (
+                <div className="flex justify-between items-center mt-2">
+                  <span className="text-md font-bold text-blue-400">💰 COSTO POR UNIDAD:</span>
+                  <span className="text-xl font-bold text-blue-400">
+                    {formatMoney(resultado.costo_por_unidad)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* DESGLOSE DETALLADO */}
+            <div className="mt-4 p-3 bg-slate-900/30 rounded-lg">
+              <div className="text-xs text-slate-400 whitespace-pre-line font-mono">
                 {resultado.desglose}
               </div>
             </div>
