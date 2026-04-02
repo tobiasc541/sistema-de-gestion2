@@ -10,36 +10,29 @@ const SCRAP_POR_TIPO: Record<TipoProducto, number> = {
   film: 0,               // 0%
 };
 
-// Configuración de bobinas de film (TODAS 5000 MTS)
-export interface BobinaFilmConfig {
-  medida: MedidaFilm;
-  cm: number;
-  metros_totales: number;
-  valor_usd: number; // 👈 AHORA LO INGRESA EL USUARIO MANUALMENTE
-}
-
 export interface CalcularCostoParams {
   tipo: TipoProducto;
   
   // Para rollito_fondo y bolsa_camiseta (por KG)
   kg_bobina?: number;      // Precio por KG de la bobina
   kg_por_bulto?: number;   // KG que pesa cada bulto
-  bultos_producidos?: number; // 👈 NUEVO: Cantidad de bultos que salen en esas horas
+  bultos_producidos?: number; // Cantidad de bultos que salen en esas horas
   
   // Para film (por METRO)
   medida_film?: MedidaFilm;
-  valor_usd_bobina?: number;  // 👈 MANUAL: valor en USD de la bobina
+  valor_usd_bobina?: number;  // MANUAL: valor en USD de la bobina
   metros_solicitados?: number;
   valor_dolar?: number;
-  metros_por_rollo?: number;  // 👈 NUEVO: Metros que salen por rollo aprox
+  metros_por_rollo?: number;  // Cuántos metros tiene CADA ROLLO que sale
   
   // Costos generales
-  valor_hora_persona?: number;  // Lo que se le paga por hora a la persona
-  horas_trabajadas?: number;    // Horas que trabajó
-  cantidad_producida_aprox?: number; // 👈 NUEVO: Cantidad aprox de rollos/camisetas/rollos de film que salen
+  valor_hora_persona?: number;
+  horas_trabajadas?: number;
   
   costo_luz_mensual?: number;
   dias_trabajados_mes?: number;
+  
+  // Otros costos fijos (por unidad producida)
   valor_funda?: number;
   valor_packaging?: number;
   valor_cono?: number;
@@ -53,20 +46,21 @@ export interface ResultadoCosto {
   
   // Mano de obra
   costo_persona_total: number;
-  costo_persona_por_unidad: number;
   
   // Luz
   costo_luz_total: number;
-  costo_luz_por_unidad: number;
   
   // Otros
   costo_funda: number;
   costo_packaging: number;
   costo_cono: number;
   
+  // Cantidad de unidades que salen
+  unidades_producidas: number;  // 👈 CLAVE: cuántos rollos/bultos/camisetas salen
+  
   // Totales
   costo_total: number;
-  costo_por_unidad: number;  // 👈 NUEVO: Costo por rollo/camiseta/rollo de film
+  costo_por_unidad: number;  // 👈 CLAVE: costo TOTAL / unidades_producidas
   
   desglose: string;
 }
@@ -87,7 +81,6 @@ export function calcularCostoProduccion(params: CalcularCostoParams): ResultadoC
     // Generales
     valor_hora_persona = 0,
     horas_trabajadas = 0,
-    cantidad_producida_aprox = 0,
     costo_luz_mensual = 520000,
     dias_trabajados_mes = 26,
     valor_funda = 0,
@@ -98,7 +91,7 @@ export function calcularCostoProduccion(params: CalcularCostoParams): ResultadoC
   let costo_material_bruto = 0;
   let scrap = 0;
   let costo_material_total = 0;
-  let unidades_producidas = 0;
+  let unidades_producidas = 0;  // 👈 Acá guardamos cuántas unidades salen
   let desglose = "";
 
   // ============================================
@@ -112,94 +105,85 @@ export function calcularCostoProduccion(params: CalcularCostoParams): ResultadoC
     scrap = costo_material_bruto * porcentaje_scrap;
     costo_material_total = costo_material_bruto + scrap;
     
-    // Unidades producidas = bultos
+    // 📦 UNIDADES QUE SALEN = bultos producidos
     unidades_producidas = bultos_producidos;
     
     desglose = `📦 MATERIAL (${tipo === "rollito_fondo" ? "Rollito Fondo" : "Bolsa Camiseta"}):\n`;
     desglose += `   Costo por bulto: ${money(kg_bobina)}/kg × ${kg_por_bulto}kg = ${money(costo_por_bulto)}\n`;
     desglose += `   × ${bultos_producidos} bultos = ${money(costo_material_bruto)}\n`;
     desglose += `   + ${porcentaje_scrap * 100}% scrap (${money(scrap)}) = ${money(costo_material_total)}\n`;
+    desglose += `   → Salen ${unidades_producidas} bultos\n`;
   } 
   else if (tipo === "film") {
     // Film: valor en USD de la bobina × cotización dólar
     const valor_bobina_ars = valor_usd_bobina * valor_dolar;
-    // Todas las bobinas traen 5000 metros
     const metros_totales_bobina = 5000;
     const valor_por_metro = valor_bobina_ars / metros_totales_bobina;
     costo_material_bruto = valor_por_metro * metros_solicitados;
-    scrap = 0; // Film no tiene scrap
+    scrap = 0;
     costo_material_total = costo_material_bruto;
     
-    // Unidades producidas = cantidad de rollos de film (metros solicitados / metros por rollo)
-    unidades_producidas = metros_por_rollo > 0 ? Math.floor(metros_solicitados / metros_por_rollo) : 0;
+    // 🎞️ UNIDADES QUE SALEN = cantidad de rollos de film
+    // Si cada rollo tiene X metros, cuántos rollos salen de los metros solicitados?
+    if (metros_por_rollo > 0 && metros_solicitados > 0) {
+      unidades_producidas = metros_solicitados / metros_por_rollo;  // Puede dar decimal (ej: 140 / 7.8 = 17.94)
+    } else {
+      unidades_producidas = 0;
+    }
     
     desglose = `📦 FILM ${medida_film}cm:\n`;
     desglose += `   Bobina: ${valor_usd_bobina} USD × ${valor_dolar} = ${money(valor_bobina_ars)}\n`;
     desglose += `   / ${metros_totales_bobina}m = ${money(valor_por_metro)}/m\n`;
     desglose += `   × ${metros_solicitados}m = ${money(costo_material_bruto)}\n`;
     if (metros_por_rollo > 0) {
-      desglose += `   → Salen ${unidades_producidas} rollos de ${metros_por_rollo}m c/u\n`;
+      desglose += `   → Salen ${unidades_producidas.toFixed(2)} rollos de ${metros_por_rollo}m c/u\n`;
     }
   }
 
   // ============================================
-  // 2. CALCULAR COSTO DE PERSONA
+  // 2. CALCULAR COSTO DE PERSONA (TOTAL)
   // ============================================
   const costo_persona_total = valor_hora_persona * horas_trabajadas;
-  // Costo por unidad = costo_persona_total / cantidad_producida_aprox
-  const costo_persona_por_unidad = cantidad_producida_aprox > 0 
-    ? costo_persona_total / cantidad_producida_aprox 
-    : 0;
   
   desglose += `\n👤 MANO DE OBRA:\n`;
   desglose += `   ${money(valor_hora_persona)}/h × ${horas_trabajadas}h = ${money(costo_persona_total)}\n`;
-  if (cantidad_producida_aprox > 0) {
-    desglose += `   / ${cantidad_producida_aprox} unidades = ${money(costo_persona_por_unidad)} por unidad\n`;
-  }
 
   // ============================================
-  // 3. CALCULAR COSTO DE LUZ
+  // 3. CALCULAR COSTO DE LUZ (TOTAL)
   // ============================================
-  // Costo luz por hora = costo_mensual / (días_trabajados × 24hs)
   const costo_luz_por_hora = costo_luz_mensual / (dias_trabajados_mes * 24);
   const costo_luz_total = costo_luz_por_hora * horas_trabajadas;
-  // Costo luz por unidad
-  const costo_luz_por_unidad = cantidad_producida_aprox > 0 
-    ? costo_luz_total / cantidad_producida_aprox 
-    : 0;
   
   desglose += `\n💡 LUZ:\n`;
   desglose += `   ${money(costo_luz_por_hora)}/h × ${horas_trabajadas}h = ${money(costo_luz_total)}\n`;
-  if (cantidad_producida_aprox > 0) {
-    desglose += `   / ${cantidad_producida_aprox} unidades = ${money(costo_luz_por_unidad)} por unidad\n`;
+
+  // ============================================
+  // 4. OTROS COSTOS (por unidad, se multiplican por la cantidad de unidades)
+  // ============================================
+  const costo_funda_total = valor_funda * unidades_producidas;
+  const costo_packaging_total = valor_packaging * unidades_producidas;
+  const costo_cono_total = valor_cono * unidades_producidas;
+  
+  if (valor_funda > 0) desglose += `\n📦 Funda: ${money(valor_funda)} × ${unidades_producidas.toFixed(2)} = ${money(costo_funda_total)}`;
+  if (valor_packaging > 0) desglose += `\n📦 Packaging: ${money(valor_packaging)} × ${unidades_producidas.toFixed(2)} = ${money(costo_packaging_total)}`;
+  if (valor_cono > 0) desglose += `\n🧵 Cono: ${money(valor_cono)} × ${unidades_producidas.toFixed(2)} = ${money(costo_cono_total)}`;
+
+  // ============================================
+  // 5. COSTO TOTAL (suma de todo)
+  // ============================================
+  const costo_total = costo_material_total + costo_persona_total + costo_luz_total + costo_funda_total + costo_packaging_total + costo_cono_total;
+  
+  // ============================================
+  // 6. COSTO POR UNIDAD (TOTAL ÷ UNIDADES QUE SALEN)
+  // ============================================
+  let costo_por_unidad = 0;
+  if (unidades_producidas > 0) {
+    costo_por_unidad = costo_total / unidades_producidas;
   }
-
-  // ============================================
-  // 4. OTROS COSTOS
-  // ============================================
-  const costo_funda = valor_funda;
-  const costo_packaging = valor_packaging;
-  const costo_cono = valor_cono;
-  
-  if (costo_funda > 0) desglose += `\n📦 Funda: ${money(costo_funda)}`;
-  if (costo_packaging > 0) desglose += `\n📦 Packaging: ${money(costo_packaging)}`;
-  if (costo_cono > 0) desglose += `\n🧵 Cono: ${money(costo_cono)}`;
-
-  // ============================================
-  // 5. COSTO TOTAL
-  // ============================================
-  const costo_total = costo_material_total + costo_persona_total + costo_luz_total + costo_funda + costo_packaging + costo_cono;
-  
-  // Costo por unidad final
-  const costo_por_unidad = unidades_producidas > 0 
-    ? costo_total / unidades_producidas 
-    : (cantidad_producida_aprox > 0 ? costo_total / cantidad_producida_aprox : costo_total);
   
   desglose += `\n\n💰 COSTO TOTAL: ${money(costo_total)}`;
   if (unidades_producidas > 0) {
-    desglose += `\n💰 COSTO POR UNIDAD: ${money(costo_por_unidad)} (${unidades_producidas} unidades)`;
-  } else if (cantidad_producida_aprox > 0) {
-    desglose += `\n💰 COSTO POR UNIDAD APROX: ${money(costo_por_unidad)} (aprox ${cantidad_producida_aprox} unidades)`;
+    desglose += `\n💰 COSTO POR UNIDAD (${unidades_producidas.toFixed(2)} unidades): ${money(costo_por_unidad)}`;
   }
 
   return {
@@ -207,12 +191,11 @@ export function calcularCostoProduccion(params: CalcularCostoParams): ResultadoC
     scrap,
     costo_material_total,
     costo_persona_total,
-    costo_persona_por_unidad,
     costo_luz_total,
-    costo_luz_por_unidad,
-    costo_funda,
-    costo_packaging,
-    costo_cono,
+    costo_funda: costo_funda_total,
+    costo_packaging: costo_packaging_total,
+    costo_cono: costo_cono_total,
+    unidades_producidas,
     costo_total,
     costo_por_unidad,
     desglose,
