@@ -2896,13 +2896,19 @@ function ProductosTab({ state, setState, role }: any) {
   const [section, setSection] = useState("");
   const [price1, setPrice1] = useState("");
   const [price2, setPrice2] = useState("");
-  const [price3, setPrice3] = useState(""); // 👈 NUEVO
-  const [price4, setPrice4] = useState(""); // 👈 NUEVO
-  const [price5, setPrice5] = useState(""); // 👈 NUEVO
+  const [price3, setPrice3] = useState("");
+  const [price4, setPrice4] = useState("");
+  const [price5, setPrice5] = useState("");
   const [stock, setStock] = useState("");
   const [stockMinimo, setStockMinimo] = useState("");
   const [cost, setCost] = useState("");
   const [editando, setEditando] = useState<string | null>(null);
+
+  // 👇👇👇 NUEVOS ESTADOS PARA BUSCADOR DE STOCK
+  const [busquedaStock, setBusquedaStock] = useState("");
+  const [productoSeleccionadoStock, setProductoSeleccionadoStock] = useState<any>(null);
+  const [cantidadStock, setCantidadStock] = useState("");
+  const [nuevoCosto, setNuevoCosto] = useState("");
 
   // 👇👇👇 ESTADOS PARA IMPRESIÓN
   const [filtroImpresion, setFiltroImpresion] = useState("todos");
@@ -2917,36 +2923,76 @@ function ProductosTab({ state, setState, role }: any) {
   const [actualizarCosto, setActualizarCosto] = useState(false);
   const [vistaPrevia, setVistaPrevia] = useState<any[]>([]);
 
-  // 👇👇👇 AGREGAR ESTE useMemo AQUÍ
-  const productosFiltradosPorCategoria = useMemo(() => {
-    if (categoriaSeleccionada === "todas") {
-      return state.products;
+  // Filtrar productos para el buscador de stock
+  const productosFiltradosStock = useMemo(() => {
+    if (!busquedaStock.trim()) return state.products;
+    const termino = busquedaStock.toLowerCase().trim();
+    return state.products.filter((p: any) =>
+      p.name.toLowerCase().includes(termino) ||
+      (p.section && p.section.toLowerCase().includes(termino)) ||
+      (p.id && p.id.toLowerCase().includes(termino))
+    );
+  }, [state.products, busquedaStock]);
+
+  // 👇👇👇 FUNCIÓN PARA AGREGAR STOCK CON BUSCADOR
+  async function agregarStockConBuscador() {
+    if (!productoSeleccionadoStock) return alert("Seleccioná un producto");
+    const cantidad = parseNum(cantidadStock);
+    if (cantidad <= 0) return alert("La cantidad debe ser mayor a 0");
+
+    const nuevoCostoValor = parseNum(nuevoCosto);
+    const st = clone(state);
+    const producto = st.products.find((p: any) => p.id === productoSeleccionadoStock.id);
+
+    if (producto) {
+      const stockAnterior = parseNum(producto.stock);
+      const costoAnterior = parseNum(producto.cost || 0);
+
+      producto.stock = stockAnterior + cantidad;
+
+      let mensajeCosto = "";
+      if (nuevoCostoValor > 0 && nuevoCostoValor !== costoAnterior) {
+        mensajeCosto = `\n💰 Costo actualizado: ${money(costoAnterior)} → ${money(nuevoCostoValor)}`;
+        producto.cost = nuevoCostoValor;
+      } else if (nuevoCostoValor > 0 && nuevoCostoValor === costoAnterior) {
+        mensajeCosto = `\n💰 Costo se mantiene: ${money(costoAnterior)}`;
+      } else if (costoAnterior === 0 && nuevoCostoValor > 0) {
+        mensajeCosto = `\n💰 Costo asignado: ${money(nuevoCostoValor)}`;
+        producto.cost = nuevoCostoValor;
+      }
+
+      setState(st);
+
+      if (hasSupabase) {
+        const updateData: any = { stock: producto.stock };
+        if (nuevoCostoValor > 0) updateData.cost = nuevoCostoValor;
+        await supabase.from("products").update(updateData).eq("id", producto.id);
+      }
+
+      alert(`✅ Stock actualizado\n\n📦 ${producto.name}\n\nStock: ${stockAnterior} → ${producto.stock}\n+${cantidad} unidades${mensajeCosto}`);
+
+      // Limpiar
+      setProductoSeleccionadoStock(null);
+      setCantidadStock("");
+      setNuevoCosto("");
+      setBusquedaStock("");
     }
-    return state.products.filter((p: any) => p.section === categoriaSeleccionada);
-  }, [state.products, categoriaSeleccionada]);  
+  }
 
   // 👇👇👇 FUNCIÓN PARA IMPRIMIR STOCK
   function imprimirStockCompleto() {
     let productosFiltrados = state.products;
-    
-    // Aplicar filtros
     if (filtroImpresion === "faltante") {
-      productosFiltrados = state.products.filter((p: any) => 
+      productosFiltrados = state.products.filter((p: any) =>
         parseNum(p.stock) < parseNum(p.stock_minimo || 0)
       );
     }
-    
     if (seccionImpresion !== "Todas") {
-      productosFiltrados = productosFiltrados.filter((p: any) => 
-        p.section === seccionImpresion
-      );
+      productosFiltrados = productosFiltrados.filter((p: any) => p.section === seccionImpresion);
     }
-    
-    // Ordenar por sección y nombre
+
     productosFiltrados = productosFiltrados.sort((a: any, b: any) => {
-      if (a.section !== b.section) {
-        return a.section.localeCompare(b.section);
-      }
+      if (a.section !== b.section) return a.section.localeCompare(b.section);
       return a.name.localeCompare(b.name);
     });
 
@@ -2957,7 +3003,7 @@ function ProductosTab({ state, setState, role }: any) {
       productos: productosFiltrados,
       totalProductos: productosFiltrados.length,
       stockTotal: productosFiltrados.reduce((sum: number, p: any) => sum + parseNum(p.stock), 0),
-      costoTotal: productosFiltrados.reduce((sum: number, p: any) => 
+      costoTotal: productosFiltrados.reduce((sum: number, p: any) =>
         sum + (parseNum(p.stock) * parseNum(p.cost || 0)), 0),
       fecha: new Date().toLocaleString("es-AR")
     };
@@ -2966,247 +3012,13 @@ function ProductosTab({ state, setState, role }: any) {
     setTimeout(() => window.print(), 100);
   }
 
-  // 👇👇👇 ESTADO PARA INGRESO DE STOCK
-  const [ingresoStock, setIngresoStock] = useState({ 
-    productoId: "", 
-    cantidad: "", 
-    costo: "" 
-  });
-
-  // 👇👇👇 CALCULAR MÉTRICAS DEL INVENTARIO
-  const capitalInventario = calcularCapitalInventario(state.products);
-  const productosSinCosto = contarProductosSinCosto(state.products);
-  const productosBajoStock = contarProductosBajoStockMinimo(state.products);
-  const totalProductos = state.products.length;
-
-  // 👇👇👇 FUNCIÓN COMPLETA DE INGRESO DE STOCK CON COMPARACIONES
-  async function agregarStock() {
-    const producto = state.products.find((p: any) => p.id === ingresoStock.productoId);
-    if (!producto) return alert("Selecciona un producto");
-    
-    const cantidad = parseNum(ingresoStock.cantidad);
-    const nuevoCosto = parseNum(ingresoStock.costo);
-    
-    if (cantidad <= 0) return alert("La cantidad debe ser mayor a 0");
-    if (nuevoCosto < 0) return alert("El costo no puede ser negativo");
-
-    const st = clone(state);
-    const prod = st.products.find((p: any) => p.id === ingresoStock.productoId);
-    
-    if (prod) {
-      const stockAnterior = parseNum(prod.stock);
-      const costoAnterior = parseNum(prod.cost || 0);
-      
-      // Actualizar stock
-      prod.stock = stockAnterior + cantidad;
-      
-      // Manejar costo - solo actualizar si se ingresó un valor > 0
-      let mensajeCosto = "";
-      if (nuevoCosto > 0) {
-        if (costoAnterior > 0 && nuevoCosto !== costoAnterior) {
-          mensajeCosto = `\n⚠️ ATENCIÓN: Costo cambiado\nAnterior: ${money(costoAnterior)}\nNuevo: ${money(nuevoCosto)}`;
-          prod.cost = nuevoCosto;
-        } else if (costoAnterior === 0) {
-          mensajeCosto = `\n✅ Costo asignado: ${money(nuevoCosto)}`;
-          prod.cost = nuevoCosto;
-        }
-      }
-      
-      setState(st);
-
-      if (hasSupabase) {
-        await supabase
-          .from("products")
-          .update({ 
-            stock: prod.stock,
-            ...(nuevoCosto > 0 && { cost: nuevoCosto })
-          })
-          .eq("id", ingresoStock.productoId);
-      }
-      
-      // Mostrar comparación COMPLETA
-      const mensaje = `✅ STOCK ACTUALIZADO\n\n📦 ${producto.name}\n\n📊 Stock:\nAnterior: ${stockAnterior}\nAgregado: +${cantidad}\nNuevo: ${prod.stock}\nMínimo: ${prod.stock_minimo || 0}\n\n${mensajeCosto}\n\n${prod.stock >= (prod.stock_minimo || 0) ? '✅ Stock suficiente' : '⚠️ Stock por debajo del mínimo'}`;
-      
-      alert(mensaje);
-      
-      // Limpiar formulario
-      setIngresoStock({ productoId: "", cantidad: "", costo: "" });
-    }
-  }
-  
-  // 👇👇👇 FUNCIÓN PARA CALCULAR VISTA PREVIA (AUMENTO SOBRE PRECIO EXISTENTE)
-  function calcularVistaPrevia() {
-    const valor = parseNum(valorAjuste);
-    if (valor <= 0) {
-      alert("Ingresá un valor válido (mayor a 0)");
-      return;
-    }
-
-    let productosAfectados = [];
-    
-    if (productoEspecifico) {
-      const producto = state.products.find((p: any) => p.id === productoEspecifico);
-      if (producto) productosAfectados = [producto];
-    } else {
-      productosAfectados = productosFiltradosPorCategoria;
-    }
-
-    const preview = productosAfectados.map((producto: any) => {
-      // Determinar qué precio base usar según la lista seleccionada
-      let precioActual = 0;
-      if (listasAjustar === "1") precioActual = producto.price1;
-      else if (listasAjustar === "2") precioActual = producto.price2;
-      else if (listasAjustar === "3") precioActual = producto.price3 || 0;
-      else if (listasAjustar === "4") precioActual = producto.price4 || 0;
-      else if (listasAjustar === "5") precioActual = producto.price5 || 0;
-      else precioActual = producto.price1; // "todas" usa lista 1 como referencia
-      
-      let nuevoPrecio = precioActual;
-      let nuevoCosto = producto.cost || 0;
-      
-      if (tipoAjuste === "porcentaje") {
-        nuevoPrecio = precioActual * (1 + valor / 100);
-        if (actualizarCosto) {
-          nuevoCosto = (producto.cost || 0) * (1 + valor / 100);
-        }
-      } else {
-        nuevoPrecio = precioActual + valor;
-        if (actualizarCosto) {
-          nuevoCosto = (producto.cost || 0) + valor;
-        }
-      }
-      
-      nuevoPrecio = Math.max(0, Math.round(nuevoPrecio * 100) / 100);
-      nuevoCosto = Math.max(0, Math.round(nuevoCosto * 100) / 100);
-      
-      const diferencia = nuevoPrecio - precioActual;
-      const porcentajeAumento = precioActual > 0 ? (diferencia / precioActual) * 100 : 0;
-      const diferenciaCosto = nuevoCosto - (producto.cost || 0);
-      const porcentajeAumentoCosto = (producto.cost || 0) > 0 ? (diferenciaCosto / (producto.cost || 0)) * 100 : 0;
-
-      return {
-        id: producto.id,
-        nombre: producto.name,
-        seccion: producto.section,
-        costo_actual: producto.cost || 0,
-        costo_nuevo: nuevoCosto,
-        diferencia_costo: Math.round(diferenciaCosto * 100) / 100,
-        porcentaje_aumento_costo: Math.round(porcentajeAumentoCosto * 100) / 100,
-        precio_actual: precioActual,
-        precio_nuevo: nuevoPrecio,
-        diferencia: Math.round(diferencia * 100) / 100,
-        porcentaje_aumento: Math.round(porcentajeAumento * 100) / 100,
-      };
-    });
-
-    setVistaPrevia(preview);
-  }
-
-  // 👇👇👇 FUNCIÓN PARA APLICAR EL AJUSTE MASIVO
-  async function aplicarAjusteMasivo() {
-    if (vistaPrevia.length === 0) {
-      alert("Primero calculá la vista previa");
-      return;
-    }
-
-    const valor = parseNum(valorAjuste);
-    const listasAAplicar = listasAjustar === "todas" 
-      ? ["price1", "price2", "price3", "price4", "price5"] 
-      : [`price${listasAjustar}`];
-
-    const confirmacion = confirm(
-      `⚠️ ¿Estás SEGURO de aplicar el ajuste?\n\n` +
-      `Se modificarán ${vistaPrevia.length} productos.\n` +
-      `Aumento: ${tipoAjuste === "porcentaje" ? valor + "%" : "$" + money(valor)}\n` +
-      `Listas afectadas: ${listasAjustar === "todas" ? "TODAS" : "Lista " + listasAjustar}\n` +
-      `${actualizarCosto ? "💰 También se actualizará el COSTO\n" : ""}\n` +
-      `Esta acción NO se puede deshacer.`
-    );
-
-    if (!confirmacion) return;
-
-    const st = clone(state);
-    let productosModificados = 0;
-
-    for (const item of vistaPrevia) {
-      const producto = st.products.find((p: any) => p.id === item.id);
-      if (!producto) continue;
-
-      // Aplicar ajuste a las listas seleccionadas
-      for (const lista of listasAAplicar) {
-        let precioActual = producto[lista] || 0;
-        let nuevoPrecio = 0;
-        
-        if (tipoAjuste === "porcentaje") {
-          nuevoPrecio = precioActual * (1 + valor / 100);
-        } else {
-          nuevoPrecio = precioActual + valor;
-        }
-        
-        producto[lista] = Math.max(0, Math.round(nuevoPrecio * 100) / 100);
-      }
-
-      // Actualizar costo si está seleccionado
-      if (actualizarCosto) {
-        let costoActual = producto.cost || 0;
-        let nuevoCosto = 0;
-        
-        if (tipoAjuste === "porcentaje") {
-          nuevoCosto = costoActual * (1 + valor / 100);
-        } else {
-          nuevoCosto = costoActual + valor;
-        }
-        
-        producto.cost = Math.max(0, Math.round(nuevoCosto * 100) / 100);
-      }
-
-      productosModificados++;
-    }
-
-    setState(st);
-
-    // Guardar en Supabase
-    if (hasSupabase) {
-      try {
-        for (const item of vistaPrevia) {
-          const producto = st.products.find((p: any) => p.id === item.id);
-          if (producto) {
-            const updateData: any = {};
-            for (const lista of listasAAplicar) {
-              updateData[lista] = producto[lista];
-            }
-            if (actualizarCosto) updateData.cost = producto.cost;
-            
-            await supabase.from("products").update(updateData).eq("id", item.id);
-          }
-        }
-        alert(`✅ ${productosModificados} productos actualizados correctamente`);
-      } catch (error) {
-        console.error("Error guardando:", error);
-        alert("Error al guardar en la base de datos");
-      }
-    } else {
-      alert(`✅ ${productosModificados} productos actualizados (modo local)`);
-    }
-
-    // Limpiar vista previa
-    setVistaPrevia([]);
-    setProductoEspecifico("");
-    setValorAjuste("");
-  }
-
-  // 👇👇👇 FUNCIÓN PARA GENERAR LISTA DE PRECIOS POR SECCIÓN EN PDF
-   // 👇👇👇 FUNCIÓN PARA GENERAR LISTA DE PRECIOS COMPLETA (SIN COSTOS)
+  // 👇👇👇 FUNCIÓN PARA IMPRIMIR LISTA DE PRECIOS
   function imprimirListaPreciosCompleta() {
     let productosFiltrados = state.products;
-    
-    // Aplicar filtro de sección
     if (seccionImpresion !== "Todas") {
-      productosFiltrados = productosFiltrados.filter((p: any) => 
-        p.section === seccionImpresion
-      );
+      productosFiltrados = productosFiltrados.filter((p: any) => p.section === seccionImpresion);
     }
-    
+
     const productosPorSeccion = productosFiltrados.reduce((acc: any, producto: any) => {
       const seccion = producto.section || "General";
       if (!acc[seccion]) acc[seccion] = [];
@@ -3218,25 +3030,12 @@ function ProductosTab({ state, setState, role }: any) {
       productosPorSeccion[seccion].sort((a: any, b: any) => a.name.localeCompare(b.name));
     });
 
-    // Fecha y hora actual para el PDF
-    const fechaActual = new Date();
-    const fechaFormateada = fechaActual.toLocaleDateString("es-AR", {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-    const horaFormateada = fechaActual.toLocaleTimeString("es-AR", {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
-
     const dataImpresion = {
       type: "ListaPreciosNueva",
       titulo: "LISTA DE PRECIOS MITOBICEL",
       subtitulo: "POR PALLET DE 100 BULTOS",
-      fecha: fechaFormateada,
-      hora: horaFormateada,
+      fecha: new Date().toLocaleDateString("es-AR"),
+      hora: new Date().toLocaleTimeString("es-AR"),
       seccion: seccionImpresion,
       productosPorSeccion: productosPorSeccion,
       resumen: {
@@ -3249,6 +3048,7 @@ function ProductosTab({ state, setState, role }: any) {
     setTimeout(() => window.print(), 100);
   }
 
+  // 👇👇👇 FUNCIONES CRUD DE PRODUCTOS
   async function addProduct() {
     if (!name.trim()) return;
 
@@ -3268,19 +3068,15 @@ function ProductosTab({ state, setState, role }: any) {
     };
 
     const st = clone(state);
-    
+
     if (editando) {
       const index = st.products.findIndex((p: any) => p.id === editando);
-      if (index !== -1) {
-        st.products[index] = { ...st.products[index], ...product };
-      }
+      if (index !== -1) st.products[index] = { ...st.products[index], ...product };
     } else {
       st.products.push(product);
     }
-    
+
     setState(st);
-    
-    // Limpiar formulario
     setName("");
     setPrice1("");
     setPrice2("");
@@ -3296,32 +3092,14 @@ function ProductosTab({ state, setState, role }: any) {
     if (hasSupabase) {
       try {
         if (editando) {
-          const { error } = await supabase
-            .from("products")
-            .update({
-              name: product.name,
-              section: product.section,
-              price1: product.price1,
-              price2: product.price2,
-              price3: product.price3,
-              price4: product.price4,
-              price5: product.price5,
-              stock: product.stock,
-              stock_min: product.stock_min,
-              cost: product.cost,
-              list_label: product.list_label
-            })
-            .eq("id", product.id);
-          
-          if (error) throw error;
+          await supabase.from("products").update(product).eq("id", product.id);
         } else {
-          const { error } = await supabase.from("products").insert(product);
-          if (error) throw error;
+          await supabase.from("products").insert(product);
         }
         alert(`Producto ${editando ? 'actualizado' : 'agregado'} correctamente`);
       } catch (error: any) {
-        console.error("Error al guardar producto:", error);
-        alert(`Error al guardar: ${error.message}`);
+        console.error("Error:", error);
+        alert(`Error: ${error.message}`);
       }
     }
   }
@@ -3342,249 +3120,243 @@ function ProductosTab({ state, setState, role }: any) {
 
   async function eliminarProducto(productoId: string) {
     if (!confirm("¿Estás seguro de eliminar este producto?")) return;
-    
     const st = clone(state);
     st.products = st.products.filter((p: any) => p.id !== productoId);
     setState(st);
+    if (hasSupabase) await supabase.from("products").delete().eq("id", productoId);
+    alert("Producto eliminado");
+  }
+
+  // 👇👇👇 FUNCIONES AJUSTE MASIVO
+  const productosFiltradosPorCategoria = useMemo(() => {
+    if (categoriaSeleccionada === "todas") return state.products;
+    return state.products.filter((p: any) => p.section === categoriaSeleccionada);
+  }, [state.products, categoriaSeleccionada]);
+
+  function calcularVistaPrevia() {
+    const valor = parseNum(valorAjuste);
+    if (valor <= 0) { alert("Ingresá un valor mayor a 0"); return; }
+
+    let productosAfectados = [];
+    if (productoEspecifico) {
+      const producto = state.products.find((p: any) => p.id === productoEspecifico);
+      if (producto) productosAfectados = [producto];
+    } else {
+      productosAfectados = productosFiltradosPorCategoria;
+    }
+
+    const preview = productosAfectados.map((producto: any) => {
+      let precioActual = 0;
+      if (listasAjustar === "1") precioActual = producto.price1;
+      else if (listasAjustar === "2") precioActual = producto.price2;
+      else if (listasAjustar === "3") precioActual = producto.price3 || 0;
+      else if (listasAjustar === "4") precioActual = producto.price4 || 0;
+      else if (listasAjustar === "5") precioActual = producto.price5 || 0;
+      else precioActual = producto.price1;
+
+      let nuevoPrecio = precioActual;
+      let nuevoCosto = producto.cost || 0;
+
+      if (tipoAjuste === "porcentaje") {
+        nuevoPrecio = precioActual * (1 + valor / 100);
+        if (actualizarCosto) nuevoCosto = (producto.cost || 0) * (1 + valor / 100);
+      } else {
+        nuevoPrecio = precioActual + valor;
+        if (actualizarCosto) nuevoCosto = (producto.cost || 0) + valor;
+      }
+
+      nuevoPrecio = Math.max(0, Math.round(nuevoPrecio * 100) / 100);
+      nuevoCosto = Math.max(0, Math.round(nuevoCosto * 100) / 100);
+      const diferencia = nuevoPrecio - precioActual;
+      const porcentajeAumento = precioActual > 0 ? (diferencia / precioActual) * 100 : 0;
+
+      return {
+        id: producto.id,
+        nombre: producto.name,
+        seccion: producto.section,
+        precio_actual: precioActual,
+        precio_nuevo: nuevoPrecio,
+        diferencia: diferencia,
+        porcentaje_aumento: porcentajeAumento,
+        costo_actual: producto.cost || 0,
+        costo_nuevo: nuevoCosto,
+      };
+    });
+
+    setVistaPrevia(preview);
+  }
+
+  async function aplicarAjusteMasivo() {
+    if (vistaPrevia.length === 0) { alert("Primero calculá la vista previa"); return; }
+
+    const confirmacion = confirm(`⚠️ ¿Aplicar ajuste a ${vistaPrevia.length} productos?`);
+    if (!confirmacion) return;
+
+    const st = clone(state);
+    const listasAAplicar = listasAjustar === "todas"
+      ? ["price1", "price2", "price3", "price4", "price5"]
+      : [`price${listasAjustar}`];
+
+    for (const item of vistaPrevia) {
+      const producto = st.products.find((p: any) => p.id === item.id);
+      if (!producto) continue;
+
+      for (const lista of listasAAplicar) {
+        producto[lista] = item.precio_nuevo;
+      }
+      if (actualizarCosto) producto.cost = item.costo_nuevo;
+    }
+
+    setState(st);
 
     if (hasSupabase) {
-      await supabase.from("products").delete().eq("id", productoId);
+      for (const item of vistaPrevia) {
+        const producto = st.products.find((p: any) => p.id === item.id);
+        if (producto) {
+          const updateData: any = {};
+          for (const lista of listasAAplicar) updateData[lista] = producto[lista];
+          if (actualizarCosto) updateData.cost = producto.cost;
+          await supabase.from("products").update(updateData).eq("id", item.id);
+        }
+      }
     }
-    
-    alert("Producto eliminado correctamente");
+
+    alert(`✅ ${vistaPrevia.length} productos actualizados`);
+    setVistaPrevia([]);
   }
+
+  // Métricas
+  const capitalInventario = calcularCapitalInventario(state.products);
+  const productosSinCosto = contarProductosSinCosto(state.products);
+  const productosBajoStock = contarProductosBajoStockMinimo(state.products);
+  const totalProductos = state.products.length;
+
+  const seccionesImpresion = ["Todas", ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))];
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       {/* MÉTRICAS DEL INVENTARIO */}
       <Card title="📊 Métricas del Inventario">
         <div className="grid grid-cols-4 gap-4 text-center">
-          <div>
-            <div className="text-2xl font-bold text-emerald-400">{money(capitalInventario)}</div>
-            <div className="text-sm text-slate-400">Capital en Inventario</div>
-            <div className="text-xs text-slate-500 mt-1">
-              Valor total de stock
-            </div>
-          </div>
-          
-          <div className="text-center">
-            <div className="text-2xl font-bold">{totalProductos}</div>
-            <div className="text-sm text-slate-400">Total Productos</div>
-            <div className="text-xs text-slate-500 mt-1">
-              En inventario
-            </div>
-          </div>
-          
-          <div className="text-center">
-            <div className={`text-2xl font-bold ${productosSinCosto > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
-              {productosSinCosto}
-            </div>
-            <div className="text-sm text-slate-400">Sin Costo</div>
-            <div className="text-xs text-slate-500 mt-1">
-              Requieren atención
-            </div>
-          </div>
-          
-          <div className="text-center">
-            <div className={`text-2xl font-bold ${productosBajoStock > 0 ? 'text-red-400' : 'text-slate-400'}`}>
-              {productosBajoStock}
-            </div>
-            <div className="text-sm text-slate-400">Bajo Stock Mínimo</div>
-            <div className="text-xs text-slate-500 mt-1">
-              Necesitan reposición
-            </div>
-          </div>
-        </div>
-
-        {/* DETALLE ADICIONAL */}
-        <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
-          <div className="p-3 bg-slate-800/30 rounded-lg">
-            <div className="font-semibold mb-2">📊 Valorización por Sección</div>
-            {(() => {
-              const porSeccion = state.products.reduce((acc: any, product: any) => {
-                const seccion = product.section || "Sin Sección";
-                const valor = parseNum(product.stock) * parseNum(product.cost || 0);
-                acc[seccion] = (acc[seccion] || 0) + valor;
-                return acc;
-              }, {});
-
-              return Object.entries(porSeccion)
-                .sort(([,a]: any, [,b]: any) => b - a)
-                .slice(0, 5)
-                .map(([seccion, valor]: any) => (
-                  <div key={seccion} className="flex justify-between text-xs py-1">
-                    <span className="truncate max-w-[120px]">{seccion}</span>
-                    <span className="font-medium">{money(valor)}</span>
-                  </div>
-                ));
-            })()}
-          </div>
-
-          <div className="p-3 bg-slate-800/30 rounded-lg">
-            <div className="font-semibold mb-2">⚡ Productos de Alto Valor</div>
-            {(() => {
-              const productosConValor = state.products
-                .map((product: any) => ({
-                  ...product,
-                  valorTotal: parseNum(product.stock) * parseNum(product.cost || 0)
-                }))
-                .filter(p => p.valorTotal > 0)
-                .sort((a: any, b: any) => b.valorTotal - a.valorTotal)
-                .slice(0, 5);
-
-              return productosConValor.map((product: any) => (
-                <div key={product.id} className="flex justify-between text-xs py-1">
-                  <span className="truncate max-w-[120px]" title={product.name}>
-                    {product.name}
-                  </span>
-                  <span className="font-medium">{money(product.valorTotal)}</span>
-                </div>
-              ));
-            })()}
-          </div>
+          <div><div className="text-2xl font-bold text-emerald-400">{money(capitalInventario)}</div><div className="text-sm text-slate-400">Capital en Inventario</div></div>
+          <div><div className="text-2xl font-bold">{totalProductos}</div><div className="text-sm text-slate-400">Total Productos</div></div>
+          <div><div className={`text-2xl font-bold ${productosSinCosto > 0 ? 'text-amber-400' : 'text-slate-400'}`}>{productosSinCosto}</div><div className="text-sm text-slate-400">Sin Costo</div></div>
+          <div><div className={`text-2xl font-bold ${productosBajoStock > 0 ? 'text-red-400' : 'text-slate-400'}`}>{productosBajoStock}</div><div className="text-sm text-slate-400">Bajo Stock Mínimo</div></div>
         </div>
       </Card>
 
-      {/* ALERTA PARA PRODUCTOS SIN COSTO */}
-      {productosSinCosto > 0 && (
-        <Card title="📝 Productos que Requieren Atención">
-          <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-amber-400">⚠️</span>
-              <span className="font-semibold">Tienes {productosSinCosto} producto(s) sin costo asignado</span>
-            </div>
-            <div className="text-sm text-amber-200">
-              Estos productos no están contribuyendo al cálculo del capital. Es importante asignarles un costo para tener un control preciso de tu inventario.
-            </div>
-            <div className="mt-3 text-xs text-amber-300">
-              <strong>Solución:</strong> Usa la sección "Ingresar Stock" para asignar costos o edita cada producto individualmente.
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {productosBajoStock > 0 && (
-        <Card title="⚠️ Productos con bajo stock">
-          <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-red-400">⚠️</span>
-              <span className="font-semibold">Tienes {productosBajoStock} producto(s) bajo stock mínimo</span>
-            </div>
-            <ul className="list-disc pl-5 text-sm text-red-400 mt-2">
-              {state.products
-                .filter((p: any) => parseNum(p.stock) < parseNum(p.stock_minimo || 0))
-                .map((p: any) => (
-                  <li key={p.id}>
-                    {p.name} – Stock actual: {p.stock}, Mínimo: {p.stock_minimo || 0}
-                  </li>
-                ))}
-            </ul>
-          </div>
-        </Card>
-      )}
-      
-      {/* SECCIÓN DE INGRESO DE STOCK */}
-      <Card title="📦 Ingresar Stock">
-        <div className="grid md:grid-cols-4 gap-3">
-          <Select
-            label="Producto"
-            value={ingresoStock.productoId}
-            onChange={(v: string) => setIngresoStock({...ingresoStock, productoId: v})}
-            options={[
-              { value: "", label: "— Seleccionar —" },
-              ...state.products.map((p: any) => ({
-                value: p.id,
-                label: `${p.name} (Stock: ${p.stock})`
-              }))
-            ]}
-          />
-          <NumberInput
-            label="Cantidad a agregar"
-            value={ingresoStock.cantidad}
-            onChange={(v: string) => setIngresoStock({...ingresoStock, cantidad: v})}
-            placeholder="0"
-          />
-          <NumberInput
-            label="Costo unitario (opcional)"
-            value={ingresoStock.costo}
-            onChange={(v: string) => setIngresoStock({...ingresoStock, costo: v})}
-            placeholder="0"
-          />
-          <div className="pt-6">
-            <Button 
-              onClick={agregarStock} 
-              disabled={!ingresoStock.productoId || !ingresoStock.cantidad}
-            >
-              Ingresar Stock
-            </Button>
-          </div>
-        </div>
-        <div className="mt-2 text-xs text-slate-400">
-          💡 El costo solo se actualizará si es diferente al actual o si no tenía costo asignado.
-        </div>
-      </Card>
-
-      <Card title={editando ? "✏️ Editar producto" : "➕ Crear producto"}>
-        <div className="grid md:grid-cols-6 gap-3">
-          <Input label="Nombre" value={name} onChange={setName} />
-          <Input label="Sección" value={section} onChange={setSection} placeholder="General" />
-          <NumberInput label="Precio 1 (MITOBICEL LOCAL)" value={price1} onChange={setPrice1} />
-          <NumberInput label="Precio 2 (MITOBICEL PROVINCIAS)" value={price2} onChange={setPrice2} />
-          <NumberInput label="Precio 3 (MITOBICEL EXCLUSIVO)" value={price3} onChange={setPrice3} placeholder="0" />
-          <NumberInput label="Precio 4 (ALE LOCAL)" value={price4} onChange={setPrice4} placeholder="0" />
-          <NumberInput label="Precio 5 (ALE PROVINCIA)" value={price5} onChange={setPrice5} placeholder="0" />
-          <NumberInput label="Stock inicial" value={stock} onChange={setStock} />
-          <NumberInput label="Stock mínimo" value={stockMinimo} onChange={setStockMinimo} placeholder="0" />
-          <NumberInput label="Costo" value={cost} onChange={setCost} placeholder="0" />
-          <div className="md:col-span-6 flex gap-2">
-            <Button onClick={addProduct}>
-              {editando ? "Actualizar" : "Agregar"}
-            </Button>
-            {editando && (
-              <Button tone="slate" onClick={() => {
-                setEditando(null);
-                setName("");
-                setSection("");
-                setPrice1("");
-                setPrice2("");
-                setPrice3("");
-                setPrice4("");
-                setPrice5("");
-                setStock("");
-                setStockMinimo("");
-                setCost("");
-              }}>
-                Cancelar
-              </Button>
+      {/* 👇👇👇 NUEVA SECCIÓN: AGREGAR STOCK CON BUSCADOR (visible para admin y vendedor) */}
+      <Card title="📦 Agregar Stock a Producto">
+        <div className="space-y-4">
+          {/* BUSCADOR DE PRODUCTOS */}
+          <div className="relative">
+            <Input
+              label="Buscar producto (por nombre, sección o código)"
+              value={busquedaStock}
+              onChange={setBusquedaStock}
+              placeholder="Ej: 'Bobina' o 'Film' o 'Rollito'..."
+              className="pr-20"
+            />
+            {busquedaStock && (
+              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                {productosFiltradosStock.length === 0 ? (
+                  <div className="p-3 text-sm text-slate-400 text-center">No se encontraron productos</div>
+                ) : (
+                  productosFiltradosStock.slice(0, 10).map((p: any) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setProductoSeleccionadoStock(p);
+                        setBusquedaStock("");
+                      }}
+                      className={`w-full text-left p-3 hover:bg-slate-700 border-b border-slate-700 last:border-b-0 ${productoSeleccionadoStock?.id === p.id ? 'bg-emerald-900/30' : ''}`}
+                    >
+                      <div className="font-medium">{p.name}</div>
+                      <div className="text-xs text-slate-400">
+                        Sección: {p.section || "General"} | Stock actual: {p.stock || 0} | Costo: {money(p.cost || 0)}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
             )}
           </div>
+
+          {/* Producto seleccionado */}
+          {productoSeleccionadoStock && (
+            <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="font-semibold">{productoSeleccionadoStock.name}</div>
+                  <div className="text-xs text-slate-400">
+                    Stock actual: {productoSeleccionadoStock.stock || 0} | Costo actual: {money(productoSeleccionadoStock.cost || 0)}
+                  </div>
+                </div>
+                <button onClick={() => setProductoSeleccionadoStock(null)} className="text-red-400 text-sm">✕ Cambiar</button>
+              </div>
+            </div>
+          )}
+
+          {/* Campos de cantidad y costo */}
+          <div className="grid md:grid-cols-2 gap-3">
+            <NumberInput
+              label="Cantidad a agregar *"
+              value={cantidadStock}
+              onChange={setCantidadStock}
+              placeholder="Ej: 100"
+            />
+            <NumberInput
+              label="Nuevo costo unitario (opcional)"
+              value={nuevoCosto}
+              onChange={setNuevoCosto}
+              placeholder="Dejar vacío para mantener actual"
+            />
+          </div>
+
+          <div className="flex justify-end">
+            <Button onClick={agregarStockConBuscador} disabled={!productoSeleccionadoStock || !cantidadStock}>
+              📦 Agregar Stock
+            </Button>
+          </div>
+          <div className="text-xs text-slate-400">
+            💡 El costo solo se actualizará si ingresás un valor diferente al actual.
+          </div>
         </div>
       </Card>
 
+      {/* SECCIÓN CREAR/EDITAR PRODUCTO (solo admin) */}
+      {role === "admin" && (
+        <Card title={editando ? "✏️ Editar producto" : "➕ Crear producto"}>
+          <div className="grid md:grid-cols-6 gap-3">
+            <Input label="Nombre" value={name} onChange={setName} />
+            <Input label="Sección" value={section} onChange={setSection} placeholder="General" />
+            <NumberInput label="Precio 1 (MITOBICEL LOCAL)" value={price1} onChange={setPrice1} />
+            <NumberInput label="Precio 2 (MITOBICEL PROVINCIAS)" value={price2} onChange={setPrice2} />
+            <NumberInput label="Precio 3 (EXCLUSIVO)" value={price3} onChange={setPrice3} placeholder="0" />
+            <NumberInput label="Precio 4 (ALE LOCAL)" value={price4} onChange={setPrice4} placeholder="0" />
+            <NumberInput label="Precio 5 (ALE PROVINCIA)" value={price5} onChange={setPrice5} placeholder="0" />
+            <NumberInput label="Stock inicial" value={stock} onChange={setStock} />
+            <NumberInput label="Stock mínimo" value={stockMinimo} onChange={setStockMinimo} placeholder="0" />
+            <NumberInput label="Costo" value={cost} onChange={setCost} placeholder="0" />
+            <div className="md:col-span-6 flex gap-2">
+              <Button onClick={addProduct}>{editando ? "Actualizar" : "Agregar"}</Button>
+              {editando && <Button tone="slate" onClick={() => { setEditando(null); setName(""); setSection(""); setPrice1(""); setPrice2(""); setPrice3(""); setPrice4(""); setPrice5(""); setStock(""); setStockMinimo(""); setCost(""); }}>Cancelar</Button>}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* LISTADO DE PRODUCTOS */}
       <Card title="📋 Listado de productos">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-slate-400">
-              <tr>
-                <th className="py-2 pr-4">Nombre</th>
-                <th className="py-2 pr-4">Sección</th>
-                <th className="py-2 pr-4" title="MITOBICEL LOCAL">P1</th>
-                <th className="py-2 pr-4" title="MITOBICEL PROVINCIAS">P2</th>
-                <th className="py-2 pr-4" title="MITOBICEL EXCLUSIVO">P3</th>
-                <th className="py-2 pr-4" title="ALE LOCAL">P4</th>
-                <th className="py-2 pr-4" title="ALE PROVINCIA">P5</th>
-                <th className="py-2 pr-4">Stock</th>
-                <th className="py-2 pr-4">Mínimo</th>
-                <th className="py-2 pr-4">Costo</th>
-                <th className="py-2 pr-4">Valor Total</th>
-                <th className="py-2 pr-4">Acciones</th>
-              </tr>
+              <tr><th className="py-2 pr-4">Nombre</th><th className="py-2 pr-4">Sección</th><th className="py-2 pr-4" title="MITOBICEL LOCAL">P1</th><th className="py-2 pr-4" title="MITOBICEL PROVINCIAS">P2</th><th className="py-2 pr-4" title="EXCLUSIVO">P3</th><th className="py-2 pr-4" title="ALE LOCAL">P4</th><th className="py-2 pr-4" title="ALE PROVINCIA">P5</th><th className="py-2 pr-4">Stock</th><th className="py-2 pr-4">Mínimo</th><th className="py-2 pr-4">Costo</th><th className="py-2 pr-4">Valor Total</th>{role === "admin" && <th className="py-2 pr-4">Acciones</th>}</tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
               {state.products.map((p: any) => {
                 const valorTotal = parseNum(p.stock) * parseNum(p.cost || 0);
-                const tieneCosto = parseNum(p.cost || 0) > 0;
-                
                 return (
                   <tr key={p.id} className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "bg-red-900/20" : ""}>
                     <td className="py-2 pr-4">{p.name}</td>
@@ -3594,40 +3366,18 @@ function ProductosTab({ state, setState, role }: any) {
                     <td className="py-2 pr-4">{money(p.price3 || 0)}</td>
                     <td className="py-2 pr-4">{money(p.price4 || 0)}</td>
                     <td className="py-2 pr-4">{money(p.price5 || 0)}</td>
-                    <td className="py-2 pr-4">
-                      <span className={parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "text-red-400 font-bold" : ""}>
-                        {p.stock}
-                      </span>
-                    </td>
+                    <td className={`py-2 pr-4 ${parseNum(p.stock) < parseNum(p.stock_minimo || 0) ? "text-red-400 font-bold" : ""}`}>{p.stock}</td>
                     <td className="py-2 pr-4">{p.stock_minimo || 0}</td>
-                    <td className="py-2 pr-4">
-                      <span className={tieneCosto ? "" : "text-amber-400"}>
-                        {money(p.cost || 0)}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4">
-                      <span className={valorTotal > 0 ? "font-medium" : "text-slate-500"}>
-                        {valorTotal > 0 ? money(valorTotal) : "—"}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => editarProducto(p)}
-                          className="text-blue-400 hover:text-blue-300 text-sm"
-                          title="Editar"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          onClick={() => eliminarProducto(p.id)}
-                          className="text-red-400 hover:text-red-300 text-sm"
-                          title="Eliminar"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </td>
+                    <td className="py-2 pr-4"><span className={parseNum(p.cost || 0) > 0 ? "" : "text-amber-400"}>{money(p.cost || 0)}</span></td>
+                    <td className="py-2 pr-4">{valorTotal > 0 ? money(valorTotal) : "—"}</td>
+                    {role === "admin" && (
+                      <td className="py-2 pr-4">
+                        <div className="flex gap-2">
+                          <button onClick={() => editarProducto(p)} className="text-blue-400 hover:text-blue-300" title="Editar">✏️</button>
+                          <button onClick={() => eliminarProducto(p.id)} className="text-red-400 hover:text-red-300" title="Eliminar">🗑️</button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -3635,252 +3385,61 @@ function ProductosTab({ state, setState, role }: any) {
           </table>
         </div>
       </Card>
-      {/* 🖨️ IMPRESIÓN DE LISTA DE PRECIOS */}
+
+      {/* IMPRESIÓN DE LISTA DE PRECIOS */}
       <Card title="📋 Impresión de Lista de Precios">
         <div className="grid md:grid-cols-3 gap-3">
-          <Select
-            label="Filtrar por Sección"
-            value={seccionImpresion}
-            onChange={setSeccionImpresion}
-            options={[
-              { value: "Todas", label: "Todas las Secciones" },
-              ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))
-                .map((s: string) => ({ value: s, label: s }))
-            ]}
-          />
-          <div className="pt-6">
-            <Button onClick={imprimirListaPreciosCompleta} tone="emerald">
-              📄 Imprimir Lista de Precios
-            </Button>
-          </div>
-          <div className="pt-6 text-sm text-slate-400">
-            Lista de precios sin costos - MITOBICEL POR PALLET DE 100 BULTOS
-          </div>
+          <Select label="Filtrar por Sección" value={seccionImpresion} onChange={setSeccionImpresion} options={seccionesImpresion.map((s: string) => ({ value: s, label: s }))} />
+          <div className="pt-6"><Button onClick={imprimirListaPreciosCompleta} tone="emerald">📄 Imprimir Lista de Precios</Button></div>
+          <div className="pt-6 text-sm text-slate-400">Lista de precios sin costos - MITOBICEL POR PALLET DE 100 BULTOS</div>
         </div>
       </Card>
-      {/* 🖨️ SISTEMA DE IMPRESIÓN DE STOCK */}
+
+      {/* IMPRESIÓN DE STOCK */}
       <Card title="🖨️ Impresión de Stock">
         <div className="grid md:grid-cols-4 gap-3">
-          <Select
-            label="Tipo de Listado"
-            value={filtroImpresion}
-            onChange={setFiltroImpresion}
-            options={[
-              { value: "todos", label: "Stock Completo" },
-              { value: "faltante", label: "Solo Faltante" },
-            ]}
-          />
-          
-          <Select
-            label="Filtrar por Sección"
-            value={seccionImpresion}
-            onChange={setSeccionImpresion}
-            options={[
-              { value: "Todas", label: "Todas las Secciones" },
-              ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))
-                .map((s: string) => ({ value: s, label: s }))
-            ]}
-          />
-          
-          <div className="pt-6">
-            <Button onClick={imprimirStockCompleto} tone="emerald">
-              📄 Imprimir Listado
-            </Button>
-          </div>
-          
-          <div className="pt-6 text-sm text-slate-400">
-            {filtroImpresion === "faltante" ? "Imprimir productos con stock bajo" : "Imprimir todo el stock"}
-          </div>
+          <Select label="Tipo de Listado" value={filtroImpresion} onChange={setFiltroImpresion} options={[{ value: "todos", label: "Stock Completo" }, { value: "faltante", label: "Solo Faltante" }]} />
+          <Select label="Filtrar por Sección" value={seccionImpresion} onChange={setSeccionImpresion} options={seccionesImpresion.map((s: string) => ({ value: s, label: s }))} />
+          <div className="pt-6"><Button onClick={imprimirStockCompleto} tone="emerald">📄 Imprimir Listado</Button></div>
+          <div className="pt-6 text-sm text-slate-400">{filtroImpresion === "faltante" ? "Imprimir productos con stock bajo" : "Imprimir todo el stock"}</div>
         </div>
       </Card>
 
-      {/* 👇👇👇 NUEVO: PANEL DE AJUSTE MASIVO DE PRECIOS */}
-      <Card title="💰 Ajuste Masivo de Precios">
-        <div className="space-y-4">
-          <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-3">
-            <div className="flex items-center gap-2 text-amber-400 text-sm mb-2">
-              ⚠️ IMPORTANTE: Esta acción afectará a los productos seleccionados
+      {/* AJUSTE MASIVO DE PRECIOS (solo admin) */}
+      {role === "admin" && (
+        <Card title="💰 Ajuste Masivo de Precios">
+          <div className="space-y-4">
+            <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-3"><div className="flex items-center gap-2 text-amber-400 text-sm mb-2">⚠️ IMPORTANTE: Esta acción afectará a los productos seleccionados</div></div>
+            <div className="grid md:grid-cols-3 gap-4">
+              <Select label="1. Categoría" value={categoriaSeleccionada} onChange={setCategoriaSeleccionada} options={[{ value: "todas", label: "📦 TODAS" }, ...Array.from(new Set(state.products.map((p: any) => p.section || "General"))).map((s: string) => ({ value: s, label: s }))]} />
+              <Select label="2. Producto específico" value={productoEspecifico} onChange={setProductoEspecifico} options={[{ value: "", label: "— Todos —" }, ...productosFiltradosPorCategoria.map((p: any) => ({ value: p.id, label: `${p.name} (${money(p.price1)})` }))]} />
+              <Select label="3. Tipo de ajuste" value={tipoAjuste} onChange={setTipoAjuste} options={[{ value: "porcentaje", label: "📈 Porcentaje" }, { value: "monto_fijo", label: "💰 Monto fijo" }]} />
             </div>
-            <div className="text-xs text-amber-300">
-              El aumento se aplica sobre el PRECIO ACTUAL de venta. Si marcás "Actualizar costo", el costo también aumentará en el mismo porcentaje/monto.
+            <div className="grid md:grid-cols-4 gap-4">
+              <NumberInput label="4. Valor del ajuste" value={valorAjuste} onChange={setValorAjuste} placeholder={tipoAjuste === "porcentaje" ? "Ej: 15" : "Ej: 5000"} />
+              <Select label="5. Listas a ajustar" value={listasAjustar} onChange={setListasAjustar} options={[{ value: "todas", label: "📋 Todas" }, { value: "1", label: "MITOBICEL LOCAL" }, { value: "2", label: "MITOBICEL PROVINCIAS" }, { value: "3", label: "EXCLUSIVO" }, { value: "4", label: "ALE LOCAL" }, { value: "5", label: "ALE PROVINCIA" }]} />
+              <div className="flex items-end"><label className="flex items-center gap-2 p-3 bg-slate-800/30 rounded-lg w-full"><input type="checkbox" checked={actualizarCosto} onChange={(e) => setActualizarCosto(e.target.checked)} className="rounded" /><span className="text-sm">💰 También actualizar COSTO</span></label></div>
+              <div className="pt-6"><Button onClick={calcularVistaPrevia} tone="slate" className="w-full">👁️ Ver Vista Previa</Button></div>
             </div>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-4">
-            <Select
-              label="1. Seleccionar categoría"
-              value={categoriaSeleccionada}
-              onChange={setCategoriaSeleccionada}
-              options={[
-                { value: "todas", label: "📦 TODAS LAS CATEGORÍAS" },
-                ...Array.from(new Set(state.products.map((p: any) => p.section || "General")))
-                  .map((s: string) => ({ value: s, label: s }))
-              ]}
-            />
-
-            <Select
-              label="2. Producto específico (opcional)"
-              value={productoEspecifico}
-              onChange={setProductoEspecifico}
-              options={[
-                { value: "", label: "— Todos los productos de la categoría —" },
-                ...productosFiltradosPorCategoria.map((p: any) => ({
-                  value: p.id,
-                  label: `${p.name} (Precio: ${money(p.price1)})`
-                }))
-              ]}
-            />
-
-            <Select
-              label="3. Tipo de ajuste"
-              value={tipoAjuste}
-              onChange={setTipoAjuste}
-              options={[
-                { value: "porcentaje", label: "📈 Aumentar por %" },
-                { value: "monto_fijo", label: "💰 Aumentar monto fijo ($)" },
-              ]}
-            />
-          </div>
-
-          <div className="grid md:grid-cols-4 gap-4">
-            <NumberInput
-              label="4. Valor del ajuste"
-              value={valorAjuste}
-              onChange={setValorAjuste}
-              placeholder={tipoAjuste === "porcentaje" ? "Ej: 15 (15%)" : "Ej: 5000"}
-            />
-
-            <Select
-              label="5. ¿Qué lista/s ajustar?"
-              value={listasAjustar}
-              onChange={setListasAjustar}
-              options={[
-                { value: "todas", label: "📋 Todas las listas" },
-                { value: "1", label: "MITOBICEL LOCAL" },
-                { value: "2", label: "MITOBICEL PROVINCIAS" },
-                { value: "3", label: "MITOBICEL EXCLUSIVO" },
-                { value: "4", label: "ALE LOCAL" },
-                { value: "5", label: "ALE PROVINCIA" },
-              ]}
-            />
-
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 p-3 bg-slate-800/30 rounded-lg w-full">
-                <input
-                  type="checkbox"
-                  checked={actualizarCosto}
-                  onChange={(e) => setActualizarCosto(e.target.checked)}
-                  className="rounded"
-                />
-                <span className="text-sm">💰 También actualizar COSTO</span>
-              </label>
-            </div>
-
-            <div className="pt-6">
-              <Button 
-                onClick={calcularVistaPrevia}
-                tone="slate"
-                className="w-full"
-              >
-                👁️ Ver Vista Previa
-              </Button>
-            </div>
-          </div>
-
-          {/* Vista Previa */}
-          {vistaPrevia.length > 0 && (
-            <div className="mt-4 border border-slate-700 rounded-lg overflow-hidden">
-              <div className="bg-slate-800/70 p-3 font-semibold text-sm flex justify-between">
-                <span>📋 Vista Previa - Productos que se verán afectados ({vistaPrevia.length})</span>
-                <Button onClick={imprimirListaPreciosCompleta} tone="slate" className="text-xs">
-                  📋 LISTA DE PRECIOS
-                </Button>
-              </div>
-              <div className="overflow-x-auto max-h-64 overflow-y-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="text-left text-slate-400 bg-slate-800/30">
-                    <tr>
-                      <th className="py-2 px-3">Producto</th>
-                      <th className="py-2 px-3">Sección</th>
-                      <th className="py-2 px-3 text-right">Precio Actual</th>
-                      <th className="py-2 px-3 text-right">Precio Nuevo</th>
-                      <th className="py-2 px-3 text-right">Diferencia</th>
-                      <th className="py-2 px-3 text-right">% Aumento</th>
-                      {actualizarCosto && (
-                        <>
-                          <th className="py-2 px-3 text-right">Costo Actual</th>
-                          <th className="py-2 px-3 text-right">Costo Nuevo</th>
-                          <th className="py-2 px-3 text-right">Dif. Costo</th>
-                          <th className="py-2 px-3 text-right">% Costo</th>
-                        </>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {vistaPrevia.slice(0, 20).map((item: any, idx: number) => (
-                      <tr key={idx}>
-                        <td className="py-2 px-3">{item.nombre}</td>
-                        <td className="py-2 px-3">{item.seccion}</td>
-                        <td className="py-2 px-3 text-right">{money(item.precio_actual)}</td>
-                        <td className="py-2 px-3 text-right font-semibold text-emerald-400">
-                          {money(item.precio_nuevo)}
-                        </td>
-                        <td className="py-2 px-3 text-right text-amber-400">
-                          +{money(item.diferencia)}
-                        </td>
-                        <td className="py-2 px-3 text-right">
-                          +{item.porcentaje_aumento}%
-                        </td>
-                        {actualizarCosto && (
-                          <>
-                            <td className="py-2 px-3 text-right">{money(item.costo_actual)}</td>
-                            <td className="py-2 px-3 text-right text-emerald-400">{money(item.costo_nuevo)}</td>
-                            <td className="py-2 px-3 text-right text-amber-400">
-                              +{money(item.diferencia_costo)}
-                            </td>
-                            <td className="py-2 px-3 text-right">
-                              +{item.porcentaje_aumento_costo}%
-                            </td>
-                          </>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                  {vistaPrevia.length > 20 && (
-                    <tfoot>
-                      <tr>
-                        <td colSpan={actualizarCosto ? 10 : 6} className="py-2 px-3 text-center text-slate-400 text-sm">
-                          ... y {vistaPrevia.length - 20} productos más
-                        </td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
-              
-              <div className="bg-slate-800/50 p-3 flex justify-between items-center">
-                <div className="text-sm">
-                  <span className="text-slate-400">Impacto total:</span>
-                  <span className="ml-2 font-bold text-emerald-400">
-                    +{money(vistaPrevia.reduce((sum, item) => sum + item.diferencia, 0))}
-                  </span>
-                  {actualizarCosto && (
-                    <span className="ml-4">
-                      <span className="text-slate-400">Impacto en costos:</span>
-                      <span className="ml-2 font-bold text-amber-400">
-                        +{money(vistaPrevia.reduce((sum, item) => sum + item.diferencia_costo, 0))}
-                      </span>
-                    </span>
-                  )}
+            {vistaPrevia.length > 0 && (
+              <div className="mt-4 border border-slate-700 rounded-lg overflow-hidden">
+                <div className="bg-slate-800/70 p-3 font-semibold text-sm flex justify-between"><span>📋 Vista Previa ({vistaPrevia.length} productos)</span></div>
+                <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                  <table className="min-w-full text-sm">
+                    <thead><tr><th className="py-2 px-3">Producto</th><th className="py-2 px-3">Sección</th><th className="py-2 px-3 text-right">Precio Actual</th><th className="py-2 px-3 text-right">Precio Nuevo</th><th className="py-2 px-3 text-right">Diferencia</th><th className="py-2 px-3 text-right">% Aumento</th></tr></thead>
+                    <tbody>
+                      {vistaPrevia.slice(0, 10).map((item, idx) => (
+                        <tr key={idx}><td className="py-2 px-3">{item.nombre}</td><td className="py-2 px-3">{item.seccion}</td><td className="py-2 px-3 text-right">{money(item.precio_actual)}</td><td className="py-2 px-3 text-right font-semibold text-emerald-400">{money(item.precio_nuevo)}</td><td className="py-2 px-3 text-right text-amber-400">+{money(item.diferencia)}</td><td className="py-2 px-3 text-right">+{item.porcentaje_aumento.toFixed(1)}%</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <Button onClick={aplicarAjusteMasivo} tone="emerald">
-                  🚀 APLICAR AJUSTE A {vistaPrevia.length} PRODUCTOS
-                </Button>
+                <div className="bg-slate-800/50 p-3 flex justify-between"><Button onClick={aplicarAjusteMasivo} tone="emerald">🚀 APLICAR A {vistaPrevia.length} PRODUCTOS</Button></div>
               </div>
-            </div>
-          )}
-        </div>
-      </Card>
+            )}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
