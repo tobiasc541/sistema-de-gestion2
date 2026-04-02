@@ -2116,6 +2116,31 @@ if (alias.trim() && parseNum(transf) > 0) {
 
       {/* CARD DE PRODUCTOS */}
       <Card title="Productos" className={isMobile ? 'text-sm' : ''}>
+        {/* BOTÓN DE ACTUALIZAR STOCK */}
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-sm font-semibold text-slate-200">Productos</h3>
+          <button 
+            onClick={async () => {
+              if (hasSupabase) {
+                const { data, error } = await supabase.from("products").select("*");
+                if (!error && data) {
+                  const st = clone(state);
+                  st.products = data;
+                  setState(st);
+                  alert("✅ Stock actualizado correctamente");
+                } else {
+                  alert("❌ Error al actualizar stock");
+                }
+              } else {
+                alert("Modo local - recargá la página manualmente");
+              }
+            }}
+            className="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1.5 rounded-lg"
+          >
+            🔄 Actualizar Stock
+          </button>
+        </div>
+
         {/* FILTROS */}
         <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-4'} gap-2 mb-3`}>
           <Select 
