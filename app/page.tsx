@@ -1469,7 +1469,6 @@ const TABS = [
     "Alias",
   ] : []),
 ];
- const visibleTabs =
 const visibleTabs =
   role === "admin"
     ? TABS
