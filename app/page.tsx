@@ -5,6 +5,7 @@ export const fetchCache = "force-no-store";
 
 import React, { useEffect, useState, useMemo } from "react";import "./globals.css";
 import { supabase, hasSupabase } from "../lib/supabaseClient";
+import CostosProduccionTab from "./CostosProduccionTab";
 
 const useIsMobile = () => {
   const [isMobile, setIsMobile] = useState(false);
@@ -1454,7 +1455,8 @@ const TABS = [
   "Pedidos Online",
   "Pedidos Pendientes",
   "Preparar Pedidos",
-  // 👇👇👇 AGREGAR ESTAS NUEVAS PESTAÑAS SOLO PARA ADMIN
+  // 👇👇👇 AGREGAR ESTA LÍNEA
+  "Costos Producción",  // 👈 NUEVA PESTAÑA
   ...(role === "admin" ? [
     "Empleados",
     "Control Horario", 
@@ -1462,12 +1464,11 @@ const TABS = [
     "Cálculo Sueldos",
     "Porcentajes Ganancia",
     "Producción",
-      "Pedidos a Fabricar",
-     "Inversores",
-     "Alias",// 👈 NUEVA PESTAÑA AGREGADA AQUÍ
+    "Pedidos a Fabricar",
+    "Inversores",
+    "Alias",
   ] : []),
-  ];
-
+];
  const visibleTabs =
     role === "admin"
       ? TABS
@@ -14128,6 +14129,9 @@ export default function Page() {
 )}
   {(session.role === "admin" || session.role === "vendedor") && tab === "Alias" && (
   <AliasesTab state={state} setState={setState} session={session} />
+)}
+            {session.role === "admin" && tab === "Costos Producción" && (
+  <CostosProduccionTab />
 )}
 
             <div className="fixed bottom-3 right-3 text-[10px] text-slate-500 select-none">
