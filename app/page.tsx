@@ -11327,7 +11327,7 @@ function PedidosPendientesTab({ state, setState, session }: any) {
     });
     
     // Crear factura
-    const invoiceNumber = st.meta.invoiceCounter++;
+    const invoiceNumber = await allocateInvoiceNumber(st.meta);
     const invoiceId = "inv_" + invoiceNumber;
     
     const invoice = {
