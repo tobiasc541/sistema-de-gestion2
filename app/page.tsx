@@ -767,7 +767,7 @@ async function allocateInvoiceNumber(meta: any) {\n  let n = parseNum(meta?.invo
 /* ====== UI atoms ====== */
 function Card({ title, actions, className = "", children }: any) {
   return (
-    <div className={`rounded-xl md:rounded-2xl border border-slate-800 bg-slate-900/60 p-3 md:p-4 ${className}`}>
+    <div className={`mtc-card rounded-xl md:rounded-2xl p-3 md:p-4 ${className}`}>
       {(title || actions) && (
         <div className="flex items-center justify-between mb-2 md:mb-3">
           {title && <h3 className="text-sm font-semibold text-slate-200 truncate">{title}</h3>}
@@ -790,7 +790,7 @@ function Button({ children, onClick, type = "button", tone = "emerald", classNam
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg md:rounded-xl px-3 py-2 text-sm font-semibold shadow-sm border disabled:opacity-60 ${map[tone]} ${className} ${
+      className={`mtc-btn inline-flex items-center justify-center gap-2 rounded-lg md:rounded-xl px-3 py-2 text-sm font-semibold shadow-sm border disabled:opacity-60 ${map[tone]} ${className} ${
         isMobile ? 'min-h-[44px]' : ''
       }`}
     >
@@ -809,7 +809,7 @@ function Input({ label, value, onChange, placeholder = "", type = "text", classN
         onChange={(e) => onChange && onChange((e.target as HTMLInputElement).value)}
         placeholder={placeholder}
         disabled={disabled}
-        className={`w-full rounded-lg md:rounded-xl bg-slate-900/60 border border-slate-700 px-3 py-2 md:py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:opacity-60 ${
+        className={`mtc-input w-full rounded-lg md:rounded-xl border px-3 py-2 md:py-2.5 text-sm outline-none disabled:opacity-60 ${
           isMobile ? 'min-h-[44px]' : ''
         } ${className}`}
       />
@@ -824,7 +824,7 @@ function Select({ label, value, onChange, options, className = "" }: any) {
       <select
         value={value}
         onChange={(e) => onChange && onChange((e.target as HTMLSelectElement).value)}
-        className={`w-full rounded-xl bg-slate-900/60 border border-slate-700 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500/50 ${className}`}
+        className={`mtc-input w-full rounded-xl border px-3 py-2 text-sm outline-none ${className}`}
       >
         {options.map((o: any) => (
           <option key={o.value} value={o.value}>
@@ -1480,10 +1480,10 @@ const visibleTabs =
 
 if (isMobile) {
     return (
-      <div className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur border-b border-slate-800">
+      <div className="mtc-nav sticky top-0 z-50">
         <div className="px-3 py-2 flex items-center justify-between">
           <div className="text-sm font-bold truncate">
-            {hasSupabase ? "By : Tobias carrizo" : "Local"}
+            MITOBICEL
           </div>
           
           <div className="flex items-center gap-2">
@@ -1532,11 +1532,9 @@ if (isMobile) {
   }
 
   return (
-    <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur border-b border-slate-800">
+    <div className="mtc-nav sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
-        <div className="text-sm font-bold tracking-wide">
-           Facturación — {hasSupabase ? "By : Tobias carrizo" : "Local"}
-        </div>
+        <div className="flex items-center gap-2.5 shrink-0"><div className="mtc-brand-mark">MTC</div><div><div className="text-sm font-bold tracking-[.08em]">MITOBICEL</div><div className="text-[10px] uppercase tracking-[.16em] text-slate-500">Operations</div></div></div>
         <nav className="flex-1 flex gap-1 flex-wrap">
           {visibleTabs.map((t) => (
             <button
@@ -1544,8 +1542,8 @@ if (isMobile) {
               onClick={() => setCurrent(t)}
               className={`px-3 py-1.5 rounded-xl text-sm border ${
                 current === t 
-                  ? "bg-emerald-600 border-emerald-700" 
-                  : "bg-slate-900/60 border-slate-800 hover:bg-slate-800"
+                  ? "mtc-tab-active" 
+                  : "mtc-tab"
               }`}
             >
               {t}
