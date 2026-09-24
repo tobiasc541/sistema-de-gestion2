@@ -160,3 +160,60 @@ body {
   body { background: var(--mtc-bg); }
   .mtc-card { border-radius: 14px; }
 }
+
+
+/* ===== MITOBICEL V2 — INDUSTRIAL COMMAND CENTER ===== */
+body { overflow-x: hidden; }
+.mtc-shell { min-height:100vh; background:#070a0f; }
+.mtc-nav {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(8,11,17,.94) !important;
+  border-bottom: 1px solid rgba(255,255,255,.07) !important;
+}
+.mtc-nav-inner { max-width: 1540px; margin:auto; min-height:72px; padding:12px 24px; display:flex; align-items:center; gap:22px; }
+.mtc-nav nav { display:flex; align-items:center; gap:4px; overflow-x:auto; flex-wrap:nowrap !important; scrollbar-width:none; }
+.mtc-nav nav::-webkit-scrollbar { display:none; }
+.mtc-tab, .mtc-tab-active { white-space:nowrap; padding:9px 12px !important; border-radius:9px !important; font-size:12px !important; font-weight:600; }
+.mtc-tab-active { background:#f8fafc !important; color:#080b11 !important; border-color:#f8fafc !important; }
+.mtc-tab:hover { background:rgba(255,255,255,.06); }
+.mtc-brand-mark { width:40px; height:40px; border-radius:12px; background:#10b981; color:#02140e; }
+.mtc-card {
+  border-radius:18px !important;
+  border:1px solid rgba(255,255,255,.075) !important;
+  background:linear-gradient(180deg,rgba(17,22,31,.96),rgba(10,14,21,.96)) !important;
+  box-shadow:0 18px 60px rgba(0,0,0,.20) !important;
+  padding:18px !important;
+}
+.mtc-card > div:first-child h3 { font-size:11px !important; text-transform:uppercase; letter-spacing:.13em; color:#7f8da3 !important; }
+.mtc-input {
+  min-height:43px;
+  border-radius:11px !important;
+  background:#090d14 !important;
+  border:1px solid rgba(255,255,255,.09) !important;
+  color:#f8fafc !important;
+}
+.mtc-input:focus { border-color:#10b981 !important; box-shadow:0 0 0 3px rgba(16,185,129,.11) !important; }
+.mtc-btn { min-height:40px; border-radius:11px !important; padding-left:16px !important; padding-right:16px !important; box-shadow:none !important; }
+.mtc-page { max-width:1540px !important; padding:24px !important; }
+.mtc-page::before {
+  content:"VENTAS  /  NUEVA OPERACIÓN";
+  display:block; margin:2px 0 14px; color:#64748b; font-size:10px; font-weight:800; letter-spacing:.18em;
+}
+.mtc-page > .grid:first-of-type { grid-template-columns:1.05fr 1.05fr .8fr !important; gap:14px !important; }
+.mtc-page > .grid:first-of-type > div:last-child {
+  background:linear-gradient(145deg,rgba(9,45,35,.92),rgba(10,18,22,.96)) !important;
+  border-color:rgba(16,185,129,.22) !important;
+}
+.mtc-page > .grid:first-of-type > div:last-child .text-xl,
+.mtc-page > .grid:first-of-type > div:last-child .text-2xl { font-size:28px !important; letter-spacing:-.04em; }
+.mtc-page label > div:first-child { color:#718096 !important; font-size:10px !important; font-weight:700; text-transform:uppercase; letter-spacing:.08em; margin-bottom:7px !important; }
+.mtc-page table { border-collapse:separate; border-spacing:0; }
+.mtc-page thead { background:rgba(255,255,255,.025); }
+.mtc-page th { color:#718096; text-transform:uppercase; letter-spacing:.08em; font-size:10px; }
+.mtc-page .bg-slate-800\/50, .mtc-page .bg-slate-900\/60 { background:rgba(6,10,16,.72) !important; }
+.mtc-page .border-slate-700, .mtc-page .border-slate-800 { border-color:rgba(255,255,255,.075) !important; }
+@media (max-width: 900px) {
+  .mtc-nav-inner { padding:10px 12px; min-height:60px; }
+  .mtc-page { padding:12px !important; }
+  .mtc-page > .grid:first-of-type { grid-template-columns:1fr !important; }
+}
