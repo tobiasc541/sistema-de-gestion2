@@ -1544,30 +1544,35 @@ if (isMobile) {
     );
   }
 
+  const navIcon: Record<string, string> = {
+    "Facturación":"▣","Clientes":"♙","Productos":"◇","Deudores":"◷","Vendedores":"♙",
+    "Reportes":"▥","Presupuestos":"▤","Gastos y Devoluciones":"↔","Cola":"≡","Proveedores":"⌂",
+    "Pedidos Online":"◫","Pedidos Pendientes":"◴","Preparar Pedidos":"▱","Costos Producción":"⌘",
+    "Empleados":"♙","Control Horario":"◷","Vales Empleados":"≋","Cálculo Sueldos":"▦",
+    "Porcentajes Ganancia":"％","Producción":"⚙","Pedidos a Fabricar":"▧","Inversores":"◎","Alias":"⌁"
+  };
+
   return (
-    <div className="mtc-nav sticky top-0 z-50">
-      <div className="mtc-nav-inner">
-        <div className="flex items-center gap-2.5 shrink-0"><div className="mtc-brand-mark">MTC</div><div><div className="text-sm font-bold tracking-[.08em]">MITOBICEL</div><div className="text-[10px] uppercase tracking-[.16em] text-slate-500">Operations</div></div></div>
-        <nav className="flex-1 flex gap-1 flex-wrap">
-          {visibleTabs.map((t) => (
-            <button
-              key={t}
-              onClick={() => setCurrent(t)}
-              className={`px-3 py-1.5 rounded-xl text-sm border ${
-                current === t 
-                  ? "mtc-tab-active" 
-                  : "mtc-tab"
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </nav>
-        <button onClick={onLogout} className="ml-auto text-xs text-slate-400 hover:text-slate-200">
-          Salir
-        </button>
+    <aside className="mtc-sidebar">
+      <div className="mtc-sidebar-brand">
+        <div className="mtc-brand-mark">MTC</div>
+        <div><div className="mtc-brand-name">MITOBICEL</div><div className="mtc-brand-sub">OPERATIONS</div></div>
       </div>
-    </div>
+      <div className="mtc-sidebar-section">MENÚ PRINCIPAL</div>
+      <nav className="mtc-sidebar-nav">
+        {visibleTabs.map((t) => (
+          <button key={t} onClick={() => setCurrent(t)} className={current === t ? "mtc-side-active" : "mtc-side-link"}>
+            <span className="mtc-side-icon">{navIcon[t] || "•"}</span><span>{t}</span>
+            {current === t && <span className="mtc-side-arrow">›</span>}
+          </button>
+        ))}
+      </nav>
+      <div className="mtc-sidebar-footer">
+        <div className="mtc-user-dot">{role === "admin" ? "A" : "V"}</div>
+        <div className="min-w-0 flex-1"><div className="text-xs font-bold text-slate-100">{role === "admin" ? "Administrador" : "Vendedor"}</div><div className="text-[10px] text-emerald-400">● Sistema online</div></div>
+        <button onClick={onLogout} className="mtc-logout">Salir</button>
+      </div>
+    </aside>
   );
 }
 
@@ -2013,7 +2018,21 @@ if (alias.trim() && parseNum(transf) > 0) {
   // ---- A PARTIR DE AQUÍ VA EL JSX DEL RENDER ----
   return (
     <div className="mtc-page max-w-7xl mx-auto p-2 md:p-4 space-y-3 md:space-y-4">
-      <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-3 md:gap-4`}>
+      {!isMobile && (
+        <div className="mtc-page-head">
+          <div>
+            <div className="mtc-eyebrow">VENTAS / NUEVA OPERACIÓN</div>
+            <h1>Facturación</h1>
+            <p>Creá facturas rápido, gestioná stock y atendé a tus clientes.</p>
+          </div>
+          <div className="mtc-kpis">
+            <div className="mtc-kpi"><span>Facturas</span><strong>{state.invoices?.length || 0}</strong><small>histórico</small></div>
+            <div className="mtc-kpi"><span>Productos</span><strong>{state.products?.length || 0}</strong><small>en catálogo</small></div>
+            <div className="mtc-kpi"><span>Clientes</span><strong>{state.clients?.length || 0}</strong><small>registrados</small></div>
+          </div>
+        </div>
+      )}
+      <div className={`mtc-checkout-grid grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-3 md:gap-4`}>
         <Card title="Datos" className={isMobile ? 'text-sm' : ''}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
             {/* BUSCADOR DE CLIENTES */}
