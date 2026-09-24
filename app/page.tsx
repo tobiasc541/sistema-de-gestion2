@@ -1729,7 +1729,19 @@ function FacturacionTab({ state, setState, session }: any) {
     const observaciones = prompt("Observaciones para Mili (opcional):", "");
     
     const st = clone(state);
-    const number = Date.now();
+    let number = 1;
+    if (hasSupabase) {
+      const { data: lastPending, error: pendingNumberError } = await supabase
+        .from("pedidos_pendientes")
+        .select("number")
+        .order("number", { ascending: false })
+        .limit(1);
+      if (pendingNumberError) throw pendingNumberError;
+      number = lastPending?.length ? Math.max(1, parseNum(lastPending[0].number) + 1) : 1;
+    } else {
+      const localMax = Math.max(0, ...(state.pedidos_pendientes || []).map((p: any) => parseNum(p.number)));
+      number = localMax + 1;
+    }
     const id = "pend_" + number;
     
     const pedidoPendiente = {
