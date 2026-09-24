@@ -3,7 +3,7 @@
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
-import React, { useEffect, useState, useMemo } from "react";import "./globals.css";
+import React, { useEffect, useState, useMemo, useRef } from "react";import "./globals.css";
 import { supabase, hasSupabase } from "../lib/supabaseClient";
 import CostosProduccionTab from "./CostosProduccionTab";
 
@@ -1643,6 +1643,8 @@ function FacturacionTab({ state, setState, session }: any) {
   const [payChange, setPayChange] = useState("");
   const [alias, setAlias] = useState("");
   const [clienteSearch, setClienteSearch] = useState("");
+  const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const savingInvoiceRef = useRef(false);
   const [busquedaAvanzada, setBusquedaAvanzada] = useState({
     seccion: "",
     nombre: "",
@@ -1762,10 +1764,25 @@ function FacturacionTab({ state, setState, session }: any) {
   }
 // Función para guardar e imprimir factura
   async function saveAndPrint() {
+    if (savingInvoiceRef.current) return;
     if (!client || !vendor) return alert("Seleccioná cliente y vendedor.");
     if (items.length === 0) return alert("Agregá productos al carrito.");
+
+    savingInvoiceRef.current = true;
+    setIsSavingInvoice(true);
+    try {
     
-    const validacionStock = validarStockDisponible(state.products, items);
+    // Leer stock real antes de validar: evita trabajar con el snapshot viejo de React.
+    let productsForInvoice = state.products;
+    if (hasSupabase) {
+      const { data: freshProducts, error: freshStockError } = await supabase.from("products").select("*");
+      if (freshStockError) throw freshStockError;
+      if (freshProducts) {
+        productsForInvoice = freshProducts;
+        setState((prev: any) => ({ ...prev, products: freshProducts }));
+      }
+    }
+    const validacionStock = validarStockDisponible(productsForInvoice, items);
     if (!validacionStock.valido) {
       const mensajeError = `No hay suficiente stock para los siguientes productos:\n\n${validacionStock.productosSinStock.join('\n')}`;
       return alert(mensajeError);
@@ -1778,7 +1795,7 @@ function FacturacionTab({ state, setState, session }: any) {
     const change = payChange.trim() === "" ? suggestedChange : Math.max(0, parseNum(payChange));
     if (change > cash) return alert("El vuelto no puede ser mayor al efectivo entregado.");
 
-    const st = clone(state);
+    const st = clone({ ...state, products: productsForInvoice });
     const number = st.meta.invoiceCounter++;
     const id = "inv_" + number;
 
@@ -1816,9 +1833,7 @@ function FacturacionTab({ state, setState, session }: any) {
       type: "Factura",
     };
 
-    st.invoices.push(invoice);
-    st.meta.lastSavedInvoiceId = id;
-    setState(st);
+    // No publicamos cambios locales hasta que Supabase confirme el guardado.
 
  const pedidoPreparar = {
   id: "prep_" + Math.random().toString(36).slice(2, 8),
@@ -1937,7 +1952,9 @@ if (alias.trim() && parseNum(transf) > 0) {
       return;
     }
     
-    // Actualizar estado local con pedido preparar
+    // Publicar el estado una sola vez, después de confirmar persistencia.
+    st.invoices.push(invoice);
+    st.meta.lastSavedInvoiceId = id;
     st.pedidos_preparar = st.pedidos_preparar || [];
     st.pedidos_preparar.push(pedidoPreparar);
     setState(st);
@@ -1951,6 +1968,13 @@ if (alias.trim() && parseNum(transf) > 0) {
     setPayChange("");
     setAlias("");
     setItems([]);
+    } catch (error: any) {
+      console.error("💥 Error guardando/imprimiendo factura:", error);
+      alert(`❌ No se pudo guardar la factura: ${error?.message || "Error desconocido"}`);
+    } finally {
+      savingInvoiceRef.current = false;
+      setIsSavingInvoice(false);
+    }
   }
 
   // Cálculos para el renderizado
@@ -2104,10 +2128,11 @@ if (alias.trim() && parseNum(transf) > 0) {
               )}
               <Button 
                 onClick={saveAndPrint} 
+                disabled={isSavingInvoice}
                 tone="emerald"
                 className={`${session?.role === "vendedor" ? 'flex-1 md:flex-none' : 'w-full md:w-auto'} text-center justify-center`}
               >
-                {isMobile ? "🖨️ Guardar" : "Guardar e Imprimir"}
+                {isSavingInvoice ? "Guardando..." : (isMobile ? "🖨️ Guardar" : "Guardar e Imprimir")}
               </Button>
             </div>
           </div>
@@ -13546,6 +13571,21 @@ export default function Page() {
       .subscribe();
 
       // 👇👇👇 AGREGAR ESTA SUSCRIPCIÓN PARA FACTURAS
+      // Mantener stock/productos sincronizados entre cajas y pestañas.
+      const productsSubscription = supabase
+        .channel('products-changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'products' },
+          async () => {
+            const { data, error } = await supabase.from("products").select("*");
+            if (!error && data) {
+              setState((prev: any) => ({ ...prev, products: data }));
+            }
+          }
+        )
+        .subscribe();
+
       const invoicesSubscription = supabase
         .channel('invoices-changes')
         .on(
@@ -13601,6 +13641,7 @@ export default function Page() {
       return () => {
         supabase.removeChannel(budgetSubscription);
         supabase.removeChannel(invoicesSubscription);
+        supabase.removeChannel(productsSubscription);
         supabase.removeChannel(pedidosSubscription); // 👈 AGREGAR ESTA LÍNEA
          supabase.removeChannel(debtPaymentsSubscription);
         supabase.removeChannel(proveedoresSubscription);
