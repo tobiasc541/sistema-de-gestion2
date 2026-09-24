@@ -6354,7 +6354,8 @@ function PresupuestosTab({ state, setState, session }: any) {
     const alias = aliasStr.trim();
 
     const st = clone(state);
-    const number = await allocateInvoiceNumber(st.meta);\n    const id = "inv_" + number;
+    const number = await allocateInvoiceNumber(st.meta);
+    const id = "inv_" + number;
 
     b.items.forEach((item: any) => {
       const product = st.products.find((p: any) => p.id === item.productId);
@@ -7686,7 +7687,8 @@ async function convertirAFactura(pedido: Pedido) {
 
     // 2. Usar la misma lógica que FacturacionTab
     const st = clone(state);
-    const number = await allocateInvoiceNumber(st.meta);\n    const id = "inv_" + number;
+    const number = await allocateInvoiceNumber(st.meta);
+    const id = "inv_" + number;
 
     // Obtener el cliente para manejar saldo a favor y deuda
     const cliente = st.clients.find((c: any) => c.id === pedido.client_id);
