@@ -4313,8 +4313,23 @@ async function eliminarDeudaCliente(clienteId: string) {
 
     console.log(`📊 Deuda actualizada: Manual ${deudaManual} -> ${client.debt}`);
 
-    // Guardar en debt_payments
-    const number = Date.now();
+    // Guardar en debt_payments con numeración compatible con INTEGER/BIGINT.
+    // Date.now() supera el límite de INTEGER de PostgreSQL y causaba el error de rango.
+    let number = 1;
+    if (hasSupabase) {
+      const { data: lastPayments, error: paymentNumberError } = await supabase
+        .from("debt_payments")
+        .select("number")
+        .order("number", { ascending: false })
+        .limit(1);
+      if (paymentNumberError) {
+        throw new Error(`No se pudo obtener el próximo número de pago: ${paymentNumberError.message}`);
+      }
+      number = lastPayments?.length ? Math.max(1, parseNum(lastPayments[0].number) + 1) : 1;
+    } else {
+      const localMax = Math.max(0, ...(state.debt_payments || []).map((p: any) => parseNum(p.number)));
+      number = localMax + 1;
+    }
     const id = "dp_" + number;
 
     const debtPayment = {
