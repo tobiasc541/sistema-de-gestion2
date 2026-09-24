@@ -1497,9 +1497,7 @@ if (isMobile) {
     return (
       <div className="mtc-nav sticky top-0 z-50">
         <div className="px-3 py-2 flex items-center justify-between">
-          <div className="text-sm font-bold truncate">
-            MITOBICEL
-          </div>
+          <div className="flex items-center gap-2.5"><div className="mtc-brand-mark">MTC</div><div><div className="text-sm font-bold tracking-[.08em]">MITOBICEL</div><div className="text-[9px] uppercase tracking-[.18em] text-slate-500">Operations</div></div></div>
           
           <div className="flex items-center gap-2">
             <div className="text-xs text-slate-300 px-2 py-1 bg-slate-800 rounded">
@@ -1548,7 +1546,7 @@ if (isMobile) {
 
   return (
     <div className="mtc-nav sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+      <div className="mtc-nav-inner">
         <div className="flex items-center gap-2.5 shrink-0"><div className="mtc-brand-mark">MTC</div><div><div className="text-sm font-bold tracking-[.08em]">MITOBICEL</div><div className="text-[10px] uppercase tracking-[.16em] text-slate-500">Operations</div></div></div>
         <nav className="flex-1 flex gap-1 flex-wrap">
           {visibleTabs.map((t) => (
@@ -2014,7 +2012,7 @@ if (alias.trim() && parseNum(transf) > 0) {
 
   // ---- A PARTIR DE AQUÍ VA EL JSX DEL RENDER ----
   return (
-    <div className="max-w-7xl mx-auto p-2 md:p-4 space-y-3 md:space-y-4">
+    <div className="mtc-page max-w-7xl mx-auto p-2 md:p-4 space-y-3 md:space-y-4">
       <div className={`grid ${isMobile ? 'grid-cols-1' : 'md:grid-cols-3'} gap-3 md:gap-4`}>
         <Card title="Datos" className={isMobile ? 'text-sm' : ''}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
