@@ -1796,7 +1796,18 @@ function FacturacionTab({ state, setState, session }: any) {
     if (change > cash) return alert("El vuelto no puede ser mayor al efectivo entregado.");
 
     const st = clone({ ...state, products: productsForInvoice });
-    const number = st.meta.invoiceCounter++;
+    let number = parseNum(st.meta.invoiceCounter) || 1;
+    if (hasSupabase) {
+      const { data: lastInvoices, error: counterError } = await supabase
+        .from("invoices")
+        .select("number")
+        .order("number", { ascending: false })
+        .limit(1);
+      if (counterError) throw counterError;
+      const dbNextNumber = lastInvoices?.length ? parseNum(lastInvoices[0].number) + 1 : 1;
+      number = Math.max(number, dbNextNumber);
+    }
+    st.meta.invoiceCounter = number + 1;
     const id = "inv_" + number;
 
     const cl = st.clients.find((c:any) => c.id === client.id)!;
