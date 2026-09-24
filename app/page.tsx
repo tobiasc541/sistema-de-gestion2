@@ -1713,7 +1713,7 @@ function FacturacionTab({ state, setState, session }: any) {
     const observaciones = prompt("Observaciones para Mili (opcional):", "");
     
     const st = clone(state);
-    const number = st.meta.invoiceCounter++;
+    const number = Date.now();
     const id = "pend_" + number;
     
     const pedidoPendiente = {
@@ -4284,7 +4284,7 @@ async function eliminarDeudaCliente(clienteId: string) {
     console.log(`📊 Deuda actualizada: Manual ${deudaManual} -> ${client.debt}`);
 
     // Guardar en debt_payments
-    const number = st.meta.invoiceCounter++;
+    const number = Date.now();
     const id = "dp_" + number;
 
     const debtPayment = {
