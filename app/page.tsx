@@ -746,7 +746,22 @@ try {
   return out;
 }
   
-async function allocateInvoiceNumber(meta: any) {\n  let n = parseNum(meta?.invoiceCounter) || 1;\n  if (hasSupabase) {\n    const { data, error } = await supabase.from("invoices").select("number").order("number", { ascending: false }).limit(1);\n    if (error) throw error;\n    n = Math.max(n, data?.length ? parseNum(data[0].number) + 1 : 1);\n  }\n  meta.invoiceCounter = n + 1;\n  return n;\n}\n\nasync function saveCountersSupabase(meta: any) {
+async function allocateInvoiceNumber(meta: any) {
+  let n = parseNum(meta?.invoiceCounter) || 1;
+  if (hasSupabase) {
+    const { data, error } = await supabase
+      .from("invoices")
+      .select("number")
+      .order("number", { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    n = Math.max(n, data?.length ? parseNum(data[0].number) + 1 : 1);
+  }
+  meta.invoiceCounter = n + 1;
+  return n;
+}
+
+async function saveCountersSupabase(meta: any) {
   if (!hasSupabase) return;
   await supabase.from("meta").upsert({
     key: "counters",
