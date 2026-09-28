@@ -4156,16 +4156,14 @@ function calcularGastosDelMes(proveedorId: string) {
 }
 
 function DeudoresTab({ state, setState, session }: any) {
-// ✅ FILTRAR MEJORADO: Incluye deuda manual Y deuda de facturas
-// ✅ FILTRAR: Solo clientes con deuda NETA > 0 (después de aplicar saldo)
+// La lista histórica de Deudores se determina por el saldo de deuda guardado
+// en el cliente. Las facturas antiguas "No Pagada" no deben crear deudores
+// nuevos por sí solas: muchas pertenecen al historial previo del sistema.
 const clients = state.clients.filter((c: any) => {
   if (!c || !c.id) return false;
-  
-  const detalleDeudas = calcularDetalleDeudas(state, c.id);
-  const deudaNeta = calcularDeudaTotal(detalleDeudas, c); // ← Esto YA aplica saldo
-  
-  // Mostrar solo si tiene deuda NETA pendiente
-  return deudaNeta > 0.01;
+  const deudaRegistrada = parseNum(c.debt || 0);
+  const saldoFavor = parseNum(c.saldo_favor || 0);
+  return Math.max(0, deudaRegistrada - saldoFavor) > 0.01;
 });
   const [active, setActive] = useState<string | null>(null);
   const [cash, setCash] = useState("");
