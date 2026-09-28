@@ -1293,21 +1293,33 @@ function gastoMesCliente(state: any, clientId: string, refDate = new Date()) {
 function calcularDetalleDeudas(state: any, clientId: string): DetalleDeuda[] {
   if (!clientId) return [];
   
+  // Una factura marcada como Pagada nunca debe volver a convertirse en deuda.
+  // En la base histórica "payments" puede venir como JSONB o como un JSON serializado.
   const todasFacturas = (state.invoices || [])
-    .filter((f: any) => 
-      f.client_id === clientId && 
-      f.type === "Factura"
+    .filter((f: any) =>
+      f.client_id === clientId &&
+      f.type === "Factura" &&
+      String(f.status || "").trim().toLowerCase() !== "pagada"
     )
     .sort((a: any, b: any) => new Date(a.date_iso).getTime() - new Date(b.date_iso).getTime());
 
   const detalleDeudas = todasFacturas.map((factura: any) => {
     const totalFactura = parseNum(factura.total);
-    
+
+    let payments: any = factura?.payments || {};
+    if (typeof payments === "string") {
+      try {
+        payments = JSON.parse(payments);
+      } catch {
+        payments = {};
+      }
+    }
+
     // 1. Pagos DIRECTOS de la factura (al momento de la compra)
-    const pagosDirectos = 
-      parseNum(factura?.payments?.cash || 0) + 
-      parseNum(factura?.payments?.transfer || 0) + 
-      parseNum(factura?.payments?.saldo_aplicado || 0);
+    const pagosDirectos =
+      parseNum(payments?.cash || 0) +
+      parseNum(payments?.transfer || 0) +
+      parseNum(payments?.saldo_aplicado || 0);
 
     // 2. Pagos ADICIONALES desde debt_payments para ESTA factura específica
     const pagosAdicionales = (state.debt_payments || [])
