@@ -5168,6 +5168,47 @@ function ReportesTab({ state, setState, session }: any) {
     return { isoStart: new Date(start).toISOString(), isoEnd: new Date(end).toISOString() };
   }
 
+  // Normaliza columnas JSON que pueden venir desde Supabase como objeto o como texto JSON.
+  // Reportes debe trabajar siempre con una forma consistente para evitar excepciones en render.
+  const normalizeJsonObject = (value: any) => {
+    if (!value) return {};
+    if (typeof value === "object" && !Array.isArray(value)) return value;
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  };
+
+  const normalizeJsonArray = (value: any) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const normalizeInvoiceForReport = (row: any) => ({
+    ...(row || {}),
+    payments: normalizeJsonObject(row?.payments),
+    items: normalizeJsonArray(row?.items),
+  });
+
+  const normalizeDebtPaymentForReport = (row: any) => ({
+    ...(row || {}),
+    payments: normalizeJsonObject(row?.payments),
+    aplicaciones: normalizeJsonArray(row?.aplicaciones),
+  });
+
   // ===== NUEVO: traer facturas y devoluciones por rango, con fallback local =====
   useEffect(() => {
     const { isoStart, isoEnd } = rangoActualISO();
@@ -5203,7 +5244,7 @@ function ReportesTab({ state, setState, session }: any) {
           .order("date_iso", { ascending: false });
         if (e3) { console.error("SELECT gastos (rango):", e3); alert("No pude leer gastos del período."); }
 
-        setDocsEnRango(Array.isArray(inv) ? inv : []);
+        setDocsEnRango(Array.isArray(inv) ? inv.map(normalizeInvoiceForReport) : []);
         setDevolucionesPeriodo(Array.isArray(dev) ? dev : []);
         setGastosEnRango(Array.isArray(gastosData) ? gastosData : []);
       } else {
@@ -5216,7 +5257,7 @@ function ReportesTab({ state, setState, session }: any) {
           const t = new Date(d.date_iso).getTime();
           return t >= start && t <= end;
         });
-        setDocsEnRango(docs);
+        setDocsEnRango(docs.map(normalizeInvoiceForReport));
         setDevolucionesPeriodo(devs);
         setGastosEnRango((state.gastos || []).filter((g:any) => {
           if (!g?.date_iso) return false;
@@ -5242,10 +5283,12 @@ function ReportesTab({ state, setState, session }: any) {
   const totalVentas = invoices.reduce((s: number, f: any) => s + parseNum(f.total), 0);
 
   // 👇👇👇 PAGOS DE DEUDORES - AHORA desde debt_payments
-  const pagosDeudores = (state.debt_payments || []).filter((p: any) => {
-    const pagoDate = new Date(p.date_iso).getTime();
-    return pagoDate >= start && pagoDate <= end;
-  });
+  const pagosDeudores = (Array.isArray(state?.debt_payments) ? state.debt_payments : [])
+    .map(normalizeDebtPaymentForReport)
+    .filter((p: any) => {
+      const pagoDate = new Date(p.date_iso).getTime();
+      return Number.isFinite(pagoDate) && pagoDate >= start && pagoDate <= end;
+    });
 
   // 👇👇👇 CÁLCULOS DE PAGOS PARA INCLUIR RECIBOS - ACTUALIZADO
   const totalVuelto = docsEnRango.reduce((s: number, f: any) => s + parseNum(f?.payments?.change || 0), 0);
@@ -5386,7 +5429,7 @@ function ReportesTab({ state, setState, session }: any) {
       }, 0);
 
     // 👇👇👇 DEUDORES ACTIVOS CON DETALLE COMPLETO
-    const deudoresActivos = state.clients
+    const deudoresActivos = (Array.isArray(state?.clients) ? state.clients : [])
       .filter((c: any) => {
         const detalleDeudas = calcularDetalleDeudas(state, c.id);
         const deudaNeta = calcularDeudaTotal(detalleDeudas, c);
@@ -5412,7 +5455,7 @@ function ReportesTab({ state, setState, session }: any) {
 
     // 👇👇👇 PAGOS DE DEUDORES CON DETALLE DE APLICACIÓN
     const pagosDeudoresDetallados = pagosDeudores.map((pago: any) => {
-      const cliente = state.clients.find((c: any) => c.id === pago.client_id);
+      const cliente = (Array.isArray(state?.clients) ? state.clients : []).find((c: any) => c.id === pago.client_id);
       const detalleDeudasAntes = calcularDetalleDeudas(state, pago.client_id);
       
       return {
