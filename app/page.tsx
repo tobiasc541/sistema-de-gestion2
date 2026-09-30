@@ -4156,15 +4156,15 @@ function calcularGastosDelMes(proveedorId: string) {
 }
 
 function DeudoresTab({ state, setState, session }: any) {
-// La lista histórica de Deudores se determina por el saldo de deuda guardado
-// en el cliente. Las facturas antiguas "No Pagada" no deben crear deudores
-// nuevos por sí solas: muchas pertenecen al historial previo del sistema.
-const clients = state.clients.filter((c: any) => {
-  if (!c || !c.id) return false;
-  const deudaRegistrada = parseNum(c.debt || 0);
-  const saldoFavor = parseNum(c.saldo_favor || 0);
-  return Math.max(0, deudaRegistrada - saldoFavor) > 0.01;
-});
+  // Fuente única de verdad para la pantalla de Deudores:
+  // la misma deuda REAL que ya muestra Facturación/Clientes.
+  // Incluye deuda manual + facturas pendientes - pagos aplicados - devoluciones - saldo a favor.
+  // Así una venta nueva fiada aparece aunque clients.debt siga en 0.
+  const clients = (Array.isArray(state?.clients) ? state.clients : []).filter((c: any) => {
+    if (!c || !c.id) return false;
+    const detalle = calcularDetalleDeudas(state, c.id);
+    return calcularDeudaTotal(detalle, c) > 0.01;
+  });
   const [active, setActive] = useState<string | null>(null);
   const [cash, setCash] = useState("");
   const [transf, setTransf] = useState("");
