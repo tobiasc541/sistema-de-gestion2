@@ -5157,6 +5157,9 @@ function ReportesTab({ state, setState, session }: any) {
   // ===== NUEVO: estados para listados traídos por rango =====
   const [docsEnRango, setDocsEnRango] = useState<any[]>([]);
   const [devolucionesPeriodo, setDevolucionesPeriodo] = useState<any[]>([]);
+  // Mantener los gastos del reporte en estado LOCAL. Antes este efecto pisaba
+  // state.gastos global y podía provocar un ciclo de renders/recargas al entrar a Reportes.
+  const [gastosEnRango, setGastosEnRango] = useState<any[]>([]);
   const [cargandoListados, setCargandoListados] = useState(false);
 
   // ===== NUEVO: mismos límites pero en ISO para consultar a Supabase =====
@@ -5200,15 +5203,9 @@ function ReportesTab({ state, setState, session }: any) {
           .order("date_iso", { ascending: false });
         if (e3) { console.error("SELECT gastos (rango):", e3); alert("No pude leer gastos del período."); }
 
-        setDocsEnRango(inv || []);
-        setDevolucionesPeriodo(dev || []);
-        
-        // Actualizar el estado global con los gastos del período
-        if (gastosData) {
-          const st = clone(state);
-          st.gastos = gastosData;
-          setState(st);
-        }
+        setDocsEnRango(Array.isArray(inv) ? inv : []);
+        setDevolucionesPeriodo(Array.isArray(dev) ? dev : []);
+        setGastosEnRango(Array.isArray(gastosData) ? gastosData : []);
       } else {
         // Fallback local si no hay Supabase
         const docs = (state.invoices || []).filter((f:any) => {
@@ -5221,13 +5218,18 @@ function ReportesTab({ state, setState, session }: any) {
         });
         setDocsEnRango(docs);
         setDevolucionesPeriodo(devs);
+        setGastosEnRango((state.gastos || []).filter((g:any) => {
+          if (!g?.date_iso) return false;
+          const t = new Date(g.date_iso).getTime();
+          return t >= start && t <= end;
+        }));
       }
 
       setCargandoListados(false);
     }
 
     fetchListados();
-  }, [periodo, dia, mes, anio, state.meta?.lastSavedInvoiceId, state.gastos?.length]);
+  }, [periodo, dia, mes, anio, state.meta?.lastSavedInvoiceId]);
 
   // ✅ Ahora sí: comisiones del período usando start/end
   const commissionsPeriodo = Object.entries(commissionsByDate).reduce((sum, [k, v]) => {
@@ -5275,11 +5277,7 @@ function ReportesTab({ state, setState, session }: any) {
   const ganancia = invoices.reduce((s: number, f: any) => s + (parseNum(f.total) - parseNum(f.cost)), 0);
 
   // GASTOS del período
-  const gastosPeriodo = (state.gastos || []).filter((g: any) => {
-    if (!g || !g.date_iso) return false;
-    const t = new Date(g.date_iso).getTime();
-    return t >= start && t <= end;
-  });
+  const gastosPeriodo = gastosEnRango;
 
   // Gastos de Gabi del día
   const gastosGabi = gastosPeriodo.filter((g: any) => g.tipo === "Gabi");
